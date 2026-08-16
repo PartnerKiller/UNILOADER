@@ -515,7 +515,58 @@ def extract_all(url):
             }
 
     # -------------------------------------------------------------
-    # 8. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
+    # 8. XVideos & XNXX (xvideos.com, xnxx.com, xvideos.red, xnxx.tv, xvideos2.com, etc.)
+    # -------------------------------------------------------------
+    if 'xvideos' in url or 'xnxx' in url:
+        headers['Referer'] = 'https://www.xvideos.com/' if 'xvideos' in url else 'https://www.xnxx.com/'
+        r = session.get(url, headers=headers, timeout=20)
+        html = r.text
+        soup = BeautifulSoup(html, 'html.parser')
+
+        title_m = re.search(r"html5player\.setVideoTitle\('([^']+)'\)", html)
+        if title_m:
+            title = title_m.group(1).strip()
+        else:
+            title = soup.title.string.strip() if soup.title else 'XVideos Video'
+            title = re.sub(r'\s*-\s*XVIDEOS\.COM.*$', '', title, flags=re.IGNORECASE).strip()
+
+        hls_m = re.search(r"html5player\.setVideoHLS\('([^']+)'\)", html)
+        hls_url = hls_m.group(1) if hls_m else ''
+
+        high_m = re.search(r"html5player\.setVideoUrlHigh\('([^']+)'\)", html)
+        high_url = high_m.group(1) if high_m else ''
+
+        thumb_m = re.search(r"html5player\.setThumbUrl169\('([^']+)'\)", html)
+        if not thumb_m:
+            thumb_m = re.search(r"html5player\.setThumbUrl\('([^']+)'\)", html)
+        poster = thumb_m.group(1) if thumb_m else ''
+
+        id_m = re.search(r'/video\.?([a-zA-Z0-9]+)/', url)
+        if not id_m:
+            id_m = re.search(r'/video([0-9]+)/', url)
+        code = id_m.group(1).upper() if id_m else 'XVIDEOS'
+
+        tags = [a.text.strip() for a in soup.find_all('a', href=re.compile(r'/(tags|categories)/')) if a.text.strip()]
+        model_m = soup.find('a', class_=re.compile(r'uploader-tag|model|name', re.I))
+        model = model_m.text.strip() if model_m else ''
+
+        stream_target = hls_url or high_url or url
+
+        return {
+            'title': title,
+            'code': code,
+            'poster': poster,
+            'hlsUrl': hls_url,
+            'downloadTargetUrl': stream_target,
+            'tags': tags[:10],
+            'model': model,
+            'duration': '',
+            'extractor': 'XVideos',
+            'sourceUrl': url
+        }
+
+    # -------------------------------------------------------------
+    # 9. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
     # -------------------------------------------------------------
     try:
         r = session.get(url, headers=headers, timeout=20)

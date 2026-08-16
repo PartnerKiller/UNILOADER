@@ -6,16 +6,16 @@ A modern, high-performance web service and online media downloader powered by **
 
 ## ✨ Features
 
-- **Specialized JAV & Adult Streaming Extractors**:
-  - **MissAV** (`missav.ws`, `missav.ai`, `missav.live`, `missav.com`)
-  - **SupJav** (`supjav.com`, `supjav.net`)
-  - **JavGG** (`javgg.net`, `javgg.me`, `javgg.to`)
-  - **nJAV & nJAVTv** (`njav.tv`, `njav.to`)
-  - **Jable.tv** (`jable.tv`)
-  - **Pornhub** (`pornhub.com`, `pornhub.org`)
-  - **TokyoMotion** (`tokyomotion.net`)
-  - **7MMTV** (`7mmtv.tv`, `7mm.tv`)
-  - **JavCL**, **Javmix**, **JavFull**, **JavDoe**, **Javseen**, **JavQuick**, **JavCt**, **JapanHDV**, **JavSubindo**, and more.
+- **Dedicated JAV & Adult Extractors**:
+  - **Jav.Guru** (`jav.guru`) &bull; *Automated base64 iframe & Searcho gateway token decoder*
+  - **MissAV** (`missav.ws`, `missav.ai`, `missav.live`, `missav.com`) &bull; *Automated Dean Edwards JS unpacker & Surrit HLS resolver*
+  - **SupJav** (`supjav.com`, `supjav.net`) &bull; *Reversed OLID decryptor across TV, ST, FST, & VOE servers*
+  - **JavGG** (`javgg.net`, `javgg.me`, `javgg.to`) &bull; *Earnvid, JavStreamHQ & Turbovid player iframe decoders*
+  - **nJAV & nJAVTv** (`njav.tv`, `njav.to`, `njav.org`) &bull; *Embedded player resolvers*
+  - **Jable.tv** (`jable.tv`) &bull; *Direct high-speed multi-quality HLS streams*
+  - **XVideos & XNXX** (`xvideos.com`, `xnxx.com`, `xvideos.red`, `xnxx.tv`) &bull; *Direct HLS & 1080p MP4 stream extraction*
+  - **Pornhub** (`pornhub.com`) &bull; *Multi-resolution HLS media extractor*
+  - **TokyoMotion**, **7MMTV**, **JavCL**, **Javmix**, **JavFull**, **JavDoe**, **Javseen**, **JavQuick**, **JavCt**, **JapanHDV**, **JavSubindo**, and more.
 - **Universal Multi-Platform Support**: YouTube, Twitter/X, TikTok, Reddit, Instagram, Twitch, Bilibili, SoundCloud, and 1000+ other platforms supported by `yt-dlp`.
 - **📥 Direct-to-Device Downloads**: Files are downloaded and delivered directly to the user's browser download folder on any device.
 - **🎬 Video Mode**:

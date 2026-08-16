@@ -184,6 +184,8 @@ function createAndStartJob(opts) {
     args.push('--add-header', 'Referer: https://njav.tv/');
   } else if ((url && url.includes('jav.guru')) || rawTarget.includes('maxstream.org')) {
     args.push('--add-header', 'Referer: https://maxstream.org/');
+  } else if (url && (url.includes('xvideos') || url.includes('xnxx'))) {
+    args.push('--add-header', 'Referer: https://www.xvideos.com/');
   }
 
   // 1. Audio-only mode
