@@ -1,12 +1,22 @@
 # JAV-Downloader &bull; Universal Online Media Downloader
 
-A modern, high-performance web service and online media downloader powered by **`yt-dlp`** and **FFmpeg**. Users simply paste a link from any video or audio site, the service processes the media, and directly serves the file to their device (mobile phone, tablet, laptop, or PC) with an instant download popup.
+A modern, high-performance web service and online media downloader powered by **`yt-dlp`**, **FFmpeg**, and automated Cloudflare anti-bot challenge bypass engines (`curl_cffi`). Users simply paste a link from any video or audio site, the service processes the media, and directly serves the file to their device (mobile phone, tablet, laptop, or PC) with an instant download popup.
 
 ---
 
 ## ✨ Features
 
-- **Universal Platform Support**: Download from Jable.tv, Pornhub, YouTube, Twitter/X, TikTok, Reddit, Instagram, Twitch, Bilibili, SoundCloud, and 1000+ other platforms supported by `yt-dlp`.
+- **Specialized JAV & Adult Streaming Extractors**:
+  - **MissAV** (`missav.ws`, `missav.ai`, `missav.live`, `missav.com`)
+  - **SupJav** (`supjav.com`, `supjav.net`)
+  - **JavGG** (`javgg.net`, `javgg.me`, `javgg.to`)
+  - **nJAV & nJAVTv** (`njav.tv`, `njav.to`)
+  - **Jable.tv** (`jable.tv`)
+  - **Pornhub** (`pornhub.com`, `pornhub.org`)
+  - **TokyoMotion** (`tokyomotion.net`)
+  - **7MMTV** (`7mmtv.tv`, `7mm.tv`)
+  - **JavCL**, **Javmix**, **JavFull**, **JavDoe**, **Javseen**, **JavQuick**, **JavCt**, **JapanHDV**, **JavSubindo**, and more.
+- **Universal Multi-Platform Support**: YouTube, Twitter/X, TikTok, Reddit, Instagram, Twitch, Bilibili, SoundCloud, and 1000+ other platforms supported by `yt-dlp`.
 - **📥 Direct-to-Device Downloads**: Files are downloaded and delivered directly to the user's browser download folder on any device.
 - **🎬 Video Mode**:
   - Custom resolution selection: **Best (Auto 4K/1080p)**, **4K (2160p)**, **2K (1440p)**, **1080p Full HD**, **720p HD**, **480p**, **360p**.
@@ -28,9 +38,9 @@ A modern, high-performance web service and online media downloader powered by **
 - [Node.js](https://nodejs.org/) (v18+)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - [FFmpeg](https://ffmpeg.org/)
-- [Python 3](https://www.python.org/) with `curl_cffi` (recommended for Cloudflare TLS bypass):
+- [Python 3](https://www.python.org/) with `curl_cffi` and `beautifulsoup4` (for Cloudflare TLS bypass & iframe stream unpackers):
   ```bash
-  pip install curl_cffi
+  pip install curl_cffi beautifulsoup4
   ```
 
 ### Installation

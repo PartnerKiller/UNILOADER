@@ -161,6 +161,7 @@ function createAndStartJob(opts) {
     '--retries', '10',
     '--fragment-retries', '10',
     '--newline',
+    '--impersonate', 'chrome',
     '-o', outputTemplate
   ];
 
@@ -169,9 +170,18 @@ function createAndStartJob(opts) {
     args.unshift('--ffmpeg-location');
   }
 
-  // Jable specific referer
-  if (url && url.includes('jable.tv')) {
+  // Dynamic Referers for JAV streaming CDNs & sites
+  const rawTarget = downloadTargetUrl || hlsUrl || url || '';
+  if (rawTarget.includes('surrit.com') || rawTarget.includes('sixyik.com') || (url && url.includes('missav'))) {
+    args.push('--add-header', 'Referer: https://missav.ws/');
+  } else if (url && url.includes('jable.tv')) {
     args.push('--add-header', 'Referer: https://en.jable.tv/');
+  } else if (url && (url.includes('supjav') || url.includes('supremejav') || rawTarget.includes('turbovid') || rawTarget.includes('turboviplay'))) {
+    args.push('--add-header', 'Referer: https://supjav.com/');
+  } else if (url && url.includes('javgg')) {
+    args.push('--add-header', 'Referer: https://javgg.net/');
+  } else if (url && url.includes('njav')) {
+    args.push('--add-header', 'Referer: https://njav.tv/');
   }
 
   // 1. Audio-only mode
