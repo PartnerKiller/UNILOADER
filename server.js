@@ -252,10 +252,25 @@ function createAndStartJob(opts) {
   const targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
   args.push(targetUrl);
 
-  job.logs.push(`Starting ${mode.toUpperCase()} processing...`);
-  job.logs.push(`Arguments: ${args.join(' ')}`);
+  const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
 
-  const child = spawn(tools.ytdlpPath, args, { windowsHide: true });
+  let child;
+  if (isJavGuru) {
+    const pythonBin = fs.existsSync('C:\\Users\\sayan\\AppData\\Local\\Programs\\Python\\Python312\\python.exe')
+      ? 'C:\\Users\\sayan\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
+      : 'python';
+    const hlsScript = path.join(__dirname, 'hls_downloader.py');
+    const finalOutPath = path.join(TEMP_DIR, `${jobId}_${safeTitle}.mp4`);
+
+    job.logs.push(`Starting JavGuru Stream Engine...`);
+    job.logs.push(`Target: ${url || rawTarget}`);
+
+    child = spawn(pythonBin, [hlsScript, url || rawTarget, finalOutPath], { windowsHide: true });
+  } else {
+    job.logs.push(`Starting ${mode.toUpperCase()} processing...`);
+    job.logs.push(`Arguments: ${args.join(' ')}`);
+    child = spawn(tools.ytdlpPath, args, { windowsHide: true });
+  }
   job.process = child;
 
   const parseProgress = (line) => {
