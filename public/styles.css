@@ -718,6 +718,35 @@ body {
    Active Downloads Queue
    ========================================================================== */
 
+.queue-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-job-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.btn-job-remove:hover {
+  color: var(--accent-rose);
+  background-color: hsla(350, 85%, 60%, 0.15);
+}
+
 .queue-status-indicator {
   display: flex;
   align-items: center;

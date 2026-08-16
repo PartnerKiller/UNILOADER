@@ -468,26 +468,91 @@ app.get('/api/jobs/:id/events', (req, res) => {
   });
 });
 
-// 5. Cancel Job
+// 5. Cancel Job (Reliably kills process and removes partial files)
 app.post('/api/jobs/:id/cancel', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
 
+  job.status = 'cancelled';
+  job.logs.push('Download cancelled by user.');
+
   if (job.process) {
-    job.status = 'cancelled';
-    job.logs.push('Download cancelled by user.');
-    if (process.platform === 'win32') {
-      try { execSync(`taskkill /pid ${job.process.pid} /T /F`); } catch (e) { job.process.kill('SIGTERM'); }
-    } else {
-      try { execSync(`pkill -P ${job.process.pid}`); } catch (e) {}
-      job.process.kill('SIGKILL');
+    const pid = job.process.pid;
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+      } else {
+        execSync(`kill -9 ${pid} 2>/dev/null`, { stdio: 'ignore' });
+      }
+    } catch (e) {
+      try { job.process.kill('SIGKILL'); } catch (err) {}
     }
-    broadcastJobUpdate(jobId);
-    return res.json({ success: true, message: 'Download cancelled' });
+    job.process = null;
   }
 
-  res.json({ success: true, message: 'Job is not running' });
+  // Remove any partial temp files for this job
+  try {
+    const files = fs.readdirSync(TEMP_DIR);
+    for (const f of files) {
+      if (f.startsWith(`${jobId}_`)) {
+        fs.unlinkSync(path.join(TEMP_DIR, f));
+      }
+    }
+  } catch (e) {}
+
+  broadcastJobUpdate(jobId);
+  res.json({ success: true, message: 'Download cancelled and cleaned up' });
+});
+
+// 5b. Remove / Delete Single Job
+app.delete('/api/jobs/:id', (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+
+  if (job && job.process) {
+    const pid = job.process.pid;
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+      } else {
+        execSync(`kill -9 ${pid} 2>/dev/null`, { stdio: 'ignore' });
+      }
+    } catch (e) {
+      try { job.process.kill('SIGKILL'); } catch (err) {}
+    }
+  }
+
+  // Remove temp files
+  try {
+    const files = fs.readdirSync(TEMP_DIR);
+    for (const f of files) {
+      if (f.startsWith(`${jobId}_`)) {
+        fs.unlinkSync(path.join(TEMP_DIR, f));
+      }
+    }
+  } catch (e) {}
+
+  jobs.delete(jobId);
+  res.json({ success: true, message: 'Job deleted' });
+});
+
+// 5c. Clear All Inactive Jobs
+app.delete('/api/jobs', (req, res) => {
+  for (const [id, job] of jobs.entries()) {
+    if (job.status !== 'downloading') {
+      try {
+        const files = fs.readdirSync(TEMP_DIR);
+        for (const f of files) {
+          if (f.startsWith(`${id}_`)) {
+            fs.unlinkSync(path.join(TEMP_DIR, f));
+          }
+        }
+      } catch (e) {}
+      jobs.delete(id);
+    }
+  }
+  res.json({ success: true, message: 'Cleared completed jobs' });
 });
 
 // 6. Direct Browser File Download Endpoint (Delivers directly to user's device Downloads folder)
@@ -496,7 +561,6 @@ app.get('/api/download-file/:id', (req, res) => {
   const job = jobs.get(jobId);
 
   if (!job) {
-    // Try to find file starting with jobId in temp directory
     try {
       const files = fs.readdirSync(TEMP_DIR);
       const matched = files.find(f => f.startsWith(`${jobId}_`));

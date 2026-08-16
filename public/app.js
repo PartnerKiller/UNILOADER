@@ -5,6 +5,13 @@ let activeEventSources = new Map(); // jobId -> EventSource
 let currentMode = 'video'; // 'video' | 'audio' | 'batch'
 let activeReadyJob = null;
 
+// Track session jobs in sessionStorage so completed tasks auto-remove on fresh reload
+let sessionJobIds = new Set(JSON.parse(sessionStorage.getItem('vortex_session_jobs') || '[]'));
+
+function saveSessionJobs() {
+  sessionStorage.setItem('vortex_session_jobs', JSON.stringify(Array.from(sessionJobIds)));
+}
+
 // DOM Elements
 const urlInput = document.getElementById('urlInput');
 const fetchBtn = document.getElementById('fetchBtn');
@@ -66,6 +73,7 @@ const jobsList = document.getElementById('jobsList');
 const emptyJobsState = document.getElementById('emptyJobsState');
 const activeCountLabel = document.getElementById('activeCountLabel');
 const queueStatusIndicator = document.getElementById('queueStatusIndicator');
+const clearAllCompletedBtn = document.getElementById('clearAllCompletedBtn');
 
 // Ready Modal
 const readyModal = document.getElementById('readyModal');
@@ -174,6 +182,11 @@ function setupEventListeners() {
     previewCard.style.display = 'none';
     currentExtractedData = null;
   });
+
+  // Clear all completed tasks button
+  if (clearAllCompletedBtn) {
+    clearAllCompletedBtn.addEventListener('click', clearAllCompletedJobs);
+  }
 
   // Close modals
   closeModalBtn.addEventListener('click', closePlayerModal);
@@ -358,6 +371,9 @@ async function startDownload() {
     urlInput.value = '';
     currentExtractedData = null;
 
+    sessionJobIds.add(data.jobId);
+    saveSessionJobs();
+
     subscribeToJob(data.jobId);
     loadJobs();
   } catch (err) {
@@ -408,7 +424,11 @@ async function startBatchDownload() {
     batchCountHint.textContent = '0 URLs detected';
 
     if (data.jobs) {
-      data.jobs.forEach(j => subscribeToJob(j.jobId));
+      data.jobs.forEach(j => {
+        sessionJobIds.add(j.jobId);
+        subscribeToJob(j.jobId);
+      });
+      saveSessionJobs();
     }
     loadJobs();
     setMode('video');
@@ -478,8 +498,16 @@ function subscribeToJob(jobId) {
 async function loadJobs() {
   try {
     const res = await fetch('/api/jobs');
-    const jobs = await res.json();
-    renderJobsList(jobs);
+    const allJobs = await res.json();
+
+    // Auto-remove completed/inactive jobs on refresh:
+    // Only display jobs that are actively downloading OR belong to the current session
+    const visibleJobs = allJobs.filter(j => {
+      if (j.status === 'downloading') return true;
+      return sessionJobIds.has(j.id);
+    });
+
+    renderJobsList(visibleJobs);
   } catch (err) {
     console.warn('Failed to load jobs:', err);
   }
@@ -490,6 +518,7 @@ function renderJobsList(jobs) {
     emptyJobsState.style.display = 'block';
     activeCountLabel.textContent = '0 Active';
     queueStatusIndicator.querySelector('.status-dot').classList.remove('active');
+    if (clearAllCompletedBtn) clearAllCompletedBtn.style.display = 'none';
     return;
   }
 
@@ -502,6 +531,11 @@ function renderJobsList(jobs) {
     queueStatusIndicator.querySelector('.status-dot').classList.add('active');
   } else {
     queueStatusIndicator.querySelector('.status-dot').classList.remove('active');
+  }
+
+  const hasCompleted = jobs.some(j => j.status === 'completed' || j.status === 'cancelled' || j.status === 'failed');
+  if (clearAllCompletedBtn) {
+    clearAllCompletedBtn.style.display = hasCompleted ? 'inline-flex' : 'none';
   }
 
   jobs.forEach(job => {
@@ -535,7 +569,10 @@ function createJobCardElement(job) {
         </div>
         <div class="job-meta">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
       </div>
-      <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status}</span>
+      <div class="job-header-right">
+        <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : job.status.toUpperCase()}</span>
+        <button type="button" class="btn-job-remove" onclick="removeJob('${job.id}')" title="Remove task">&times;</button>
+      </div>
     </div>
 
     <!-- Progress Bar -->
@@ -559,7 +596,7 @@ function createJobCardElement(job) {
       </div>
       <div class="metric-item">
         <span class="metric-label">Size / Streams</span>
-        <span class="metric-value" id="job-metric-frag-${job.id}">${job.progress.totalSize || 'Processing'}</span>
+        <span class="metric-value" id="job-metric-frag-${job.id}">${job.filesize || job.progress.totalSize || 'Processing'}</span>
       </div>
     </div>
 
@@ -582,6 +619,9 @@ function createJobCardElement(job) {
             <span>Watch</span>
           </button>
         ` : ''}
+        ${job.status === 'cancelled' || job.status === 'failed' ? `
+          <button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>
+        ` : ''}
       </div>
     </div>
 
@@ -603,7 +643,7 @@ function updateJobCard(job) {
   const badge = document.getElementById(`job-badge-${job.id}`);
   if (badge) {
     badge.className = `job-status-badge status-${job.status}`;
-    badge.textContent = job.status === 'completed' ? 'Ready' : job.status;
+    badge.textContent = job.status === 'completed' ? 'READY' : job.status.toUpperCase();
   }
 
   const fill = document.getElementById(`job-prog-fill-${job.id}`);
@@ -626,18 +666,28 @@ function updateJobCard(job) {
     frag.textContent = job.filesize || job.progress.totalSize || 'Ready';
   }
 
-  // Update controls if completed
+  // Update controls
   const controls = document.getElementById(`job-controls-${job.id}`);
-  if (controls && job.status === 'completed' && !controls.querySelector('.btn-primary')) {
-    controls.innerHTML = `
-      <a href="${job.downloadUrl}" class="btn btn-primary btn-sm" download>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        <span>Save to Device</span>
-      </a>
-      <button class="btn btn-secondary btn-sm" onclick="playMedia('${job.streamUrl}', '${job.title.replace(/'/g, "\\'")}', '${job.downloadUrl}')">
-        <span>Watch</span>
-      </button>
-    `;
+  if (controls) {
+    if (job.status === 'completed') {
+      controls.innerHTML = `
+        <a href="${job.downloadUrl}" class="btn btn-primary btn-sm" download>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Save to Device</span>
+        </a>
+        <button class="btn btn-secondary btn-sm" onclick="playMedia('${job.streamUrl}', '${job.title.replace(/'/g, "\\'")}', '${job.downloadUrl}')">
+          <span>Watch</span>
+        </button>
+      `;
+    } else if (job.status === 'cancelled' || job.status === 'failed') {
+      controls.innerHTML = `
+        <button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>
+      `;
+    } else if (job.status === 'downloading') {
+      controls.innerHTML = `
+        <button class="btn btn-danger" onclick="cancelJob('${job.id}')">Cancel</button>
+      `;
+    }
   }
 
   const logsEl = document.getElementById(`job-logs-content-${job.id}`);
@@ -661,14 +711,72 @@ window.toggleJobLogs = function(jobId) {
 };
 
 window.cancelJob = async function(jobId) {
-  if (!confirm('Are you sure you want to cancel this download?')) return;
   try {
+    // Immediately reflect cancelled state in UI
+    const card = document.getElementById(`job-card-${jobId}`);
+    if (card) {
+      const badge = document.getElementById(`job-badge-${jobId}`);
+      if (badge) {
+        badge.className = 'job-status-badge status-cancelled';
+        badge.textContent = 'CANCELLED';
+      }
+      const controls = document.getElementById(`job-controls-${jobId}`);
+      if (controls) {
+        controls.innerHTML = `<button class="btn btn-secondary btn-sm" onclick="removeJob('${jobId}')">Dismiss</button>`;
+      }
+    }
+
+    if (activeEventSources.has(jobId)) {
+      activeEventSources.get(jobId).close();
+      activeEventSources.delete(jobId);
+    }
+
     await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
     loadJobs();
   } catch (err) {
-    alert(`Failed to cancel: ${err.message}`);
+    console.warn('Cancel error:', err);
   }
 };
+
+window.removeJob = async function(jobId) {
+  try {
+    const card = document.getElementById(`job-card-${jobId}`);
+    if (card) {
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(-6px)';
+      setTimeout(() => card.remove(), 200);
+    }
+
+    if (activeEventSources.has(jobId)) {
+      activeEventSources.get(jobId).close();
+      activeEventSources.delete(jobId);
+    }
+
+    sessionJobIds.delete(jobId);
+    saveSessionJobs();
+
+    await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+    loadJobs();
+  } catch (err) {
+    console.warn('Remove job error:', err);
+  }
+};
+
+async function clearAllCompletedJobs() {
+  try {
+    document.querySelectorAll('.job-card.completed, .job-card.cancelled, .job-card.failed').forEach(el => {
+      el.remove();
+    });
+
+    sessionJobIds.clear();
+    saveSessionJobs();
+
+    await fetch('/api/jobs', { method: 'DELETE' });
+    loadJobs();
+  } catch (err) {
+    console.warn('Clear all error:', err);
+  }
+}
 
 // 6. In-Browser Media Player
 window.playMedia = function(streamUrl, title, downloadUrl) {

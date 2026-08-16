@@ -292,9 +292,14 @@
             <h2>Download Tasks</h2>
             <p class="section-description">Real-time status and live stream processing.</p>
           </div>
-          <div class="queue-status-indicator" id="queueStatusIndicator">
-            <span class="status-dot"></span>
-            <span id="activeCountLabel">0 Active</span>
+          <div class="queue-header-actions">
+            <button class="btn btn-secondary btn-sm" id="clearAllCompletedBtn" style="display: none;" title="Clear completed tasks">
+              <span>Clear Completed</span>
+            </button>
+            <div class="queue-status-indicator" id="queueStatusIndicator">
+              <span class="status-dot"></span>
+              <span id="activeCountLabel">0 Active</span>
+            </div>
           </div>
         </div>
 

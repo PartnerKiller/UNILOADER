@@ -46,18 +46,24 @@ async function extractMetadata(inputUrl) {
     };
   }
 
-  // 2. Try Python fetcher first (supports curl_cffi for Jable and Pornhub)
+  // 2. Try Python fetcher first if available (supports curl_cffi for Cloudflare TLS bypass)
   const fetcherScript = path.join(__dirname, 'fetcher.py');
   if (fs.existsSync(fetcherScript)) {
-    try {
-      const pyBin = process.platform === 'win32' ? 'python' : 'python3';
-      const output = execSync(`${pyBin} "${fetcherScript}" "${url}"`, { encoding: 'utf-8', maxBuffer: 15 * 1024 * 1024, timeout: 20000 });
-      const json = JSON.parse(output.trim());
-      if (json && !json.error && json.title) {
-        return json;
+    let pyBin = process.platform === 'win32' ? null : 'python3';
+    if (process.platform === 'win32') {
+      try { execSync('python --version', { stdio: 'ignore', timeout: 1500 }); pyBin = 'python'; } catch (e) {
+        try { execSync('py --version', { stdio: 'ignore', timeout: 1500 }); pyBin = 'py'; } catch (e2) {}
       }
-    } catch (e) {
-      console.warn('Python fetcher error:', e.message);
+    }
+
+    if (pyBin) {
+      try {
+        const output = execSync(`${pyBin} "${fetcherScript}" "${url}"`, { encoding: 'utf-8', maxBuffer: 15 * 1024 * 1024, timeout: 20000 });
+        const json = JSON.parse(output.trim());
+        if (json && !json.error && json.title) {
+          return json;
+        }
+      } catch (e) {}
     }
   }
 
@@ -69,6 +75,7 @@ async function extractMetadata(inputUrl) {
       '--skip-download',
       '--no-warnings',
       '--no-playlist',
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       url
     ];
 
