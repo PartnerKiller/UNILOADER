@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vortex Universal Stream & Video Downloader</title>
+  <meta name="description" content="High performance universal web downloader and media streaming manager powered by yt-dlp. Features audio extraction, subtitles, SponsorBlock, and multi-threaded streams.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="brand-group">
+        <div class="brand-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">VORTEX &bull; SEAL HUB</span>
+          <span class="brand-subtitle">Universal Media Downloader & Streamer</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Storage Indicator -->
+        <div class="storage-card" id="storageWidget" title="Available storage space">
+          <div class="storage-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+            </svg>
+          </div>
+          <div class="storage-info">
+            <span class="storage-label">Target Drive (<span id="targetDriveName">HDD</span>)</span>
+            <span class="storage-val" id="storageVal">Loading...</span>
+          </div>
+        </div>
+
+        <!-- Open Folder in Windows Explorer (if available) -->
+        <button class="btn btn-secondary" id="openFolderBtn" title="Open download folder in File Explorer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span>Open Folder</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Fetcher & Downloader Section -->
+      <section class="section-card fetch-section">
+        
+        <!-- Mode Tabs (Seal Feature) -->
+        <div class="mode-tabs-container">
+          <button type="button" class="mode-tab active" data-mode="video" id="tabVideoMode">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+            <span>Video Mode</span>
+          </button>
+          <button type="button" class="mode-tab" data-mode="audio" id="tabAudioMode">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+            <span>Audio Extractor (MP3 / FLAC)</span>
+          </button>
+          <button type="button" class="mode-tab" data-mode="batch" id="tabBatchMode">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            <span>Batch Multi-URL</span>
+          </button>
+        </div>
+
+        <!-- Single URL Form -->
+        <div id="singleUrlFormWrapper">
+          <form id="fetchForm" class="fetch-form" onsubmit="return false;">
+            <div class="input-wrapper">
+              <div class="input-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                </svg>
+              </div>
+              <input 
+                type="text" 
+                id="urlInput" 
+                class="url-input" 
+                placeholder="Paste video or audio link from YouTube, Twitter/X, TikTok, Reddit, Jable, Pornhub, etc." 
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="button" class="btn btn-icon-text" id="pasteBtn" title="Paste from Clipboard">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                </svg>
+                <span>Paste</span>
+              </button>
+              <button type="submit" class="btn btn-primary" id="fetchBtn">
+                <span class="btn-text">Fetch Info</span>
+                <div class="btn-spinner" id="fetchSpinner"></div>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Batch Mode Form (Hidden by default) -->
+        <div id="batchFormWrapper" style="display: none;">
+          <div class="batch-input-box">
+            <textarea id="batchUrlsInput" class="batch-textarea" placeholder="Paste multiple links (one URL per line)&#10;https://en.jable.tv/videos/fjin-082/&#10;https://www.pornhub.org/view_video.php?viewkey=68a971b0f3584&#10;https://youtube.com/watch?v=..."></textarea>
+            <div class="batch-actions-bar">
+              <span class="batch-count-hint" id="batchCountHint">0 URLs detected</span>
+              <button type="button" class="btn btn-download" id="startBatchBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>Download All in Queue</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Seal Quick Presets Bar -->
+        <div class="presets-row">
+          <span class="presets-label">Quick Presets:</span>
+          <button type="button" class="preset-chip active" id="presetBestVideo" title="Best available quality video with cover">
+            🎬 Best Video (1080p/4K)
+          </button>
+          <button type="button" class="preset-chip" id="presetAudioMp3" title="Extract Audio as high quality 320k MP3 with embedded album art">
+            🎧 MP3 Audio (320k)
+          </button>
+          <button type="button" class="preset-chip" id="presetAudioFlac" title="Lossless FLAC Audio">
+            🎼 Lossless FLAC
+          </button>
+          <button type="button" class="preset-chip" id="presetSubtitles" title="Embed available subtitles into MP4/MKV">
+            📝 With Subtitles
+          </button>
+          <button type="button" class="preset-chip" id="presetSponsorBlock" title="Automatically remove sponsored segments">
+            ⚡ SponsorBlock Cut
+          </button>
+        </div>
+
+        <!-- Quick Samples -->
+        <div class="quick-examples">
+          <span class="example-label">Quick samples:</span>
+          <button type="button" class="example-chip" id="sampleLinkBtn" data-url="https://en.jable.tv/videos/fjin-082/">
+            Jable: FJIN-082
+          </button>
+          <button type="button" class="example-chip" id="samplePhBtn" data-url="https://www.pornhub.org/view_video.php?viewkey=68a971b0f3584">
+            Pornhub (viewkey=68a971b0f3584)
+          </button>
+        </div>
+
+        <!-- Supported Services Pill Row -->
+        <div class="services-row">
+          <span class="service-pill">YouTube</span>
+          <span class="service-pill">Twitter / X</span>
+          <span class="service-pill">TikTok</span>
+          <span class="service-pill">Instagram</span>
+          <span class="service-pill">Reddit</span>
+          <span class="service-pill">Twitch</span>
+          <span class="service-pill">Bilibili</span>
+          <span class="service-pill">SoundCloud</span>
+          <span class="service-pill">Jable.tv</span>
+          <span class="service-pill">Pornhub</span>
+          <span class="service-pill">+1000 Sites</span>
+        </div>
+
+      </section>
+
+      <!-- Video / Media Metadata Preview Card -->
+      <section class="section-card preview-card" id="previewCard" style="display: none;">
+        <div class="preview-layout">
+          <!-- Thumbnail cover -->
+          <div class="preview-cover-box">
+            <img id="previewPoster" class="preview-poster" src="" alt="Media Poster" />
+            <div class="cover-badge" id="previewQualityBadge">1080p HD</div>
+          </div>
+
+          <!-- Media Details & Settings -->
+          <div class="preview-info-box">
+            <div class="meta-header">
+              <span class="code-badge" id="previewCode">MEDIA</span>
+              <span class="model-tag" id="previewModel" style="display: none;"></span>
+              <span class="duration-badge" id="previewDuration" style="display: none;"></span>
+            </div>
+
+            <h2 class="preview-title" id="previewTitle">Media Title</h2>
+
+            <!-- Tags List -->
+            <div class="tags-container" id="previewTags"></div>
+
+            <!-- Download Options & Seal Configurations -->
+            <div class="download-config-grid">
+              
+              <!-- Video Options (Shown in Video Mode) -->
+              <div class="config-item" id="cfgVideoQualityGroup">
+                <label for="videoQualitySelect" class="config-label">Video Quality / Resolution</label>
+                <select id="videoQualitySelect" class="config-select">
+                  <option value="best" selected>Best Available (Auto 4K/1080p)</option>
+                  <option value="2160">4K Ultra HD (2160p)</option>
+                  <option value="1440">2K Quad HD (1440p)</option>
+                  <option value="1080">Full HD (1080p)</option>
+                  <option value="720">HD (720p)</option>
+                  <option value="480">SD (480p)</option>
+                  <option value="360">Low (360p)</option>
+                </select>
+              </div>
+
+              <div class="config-item" id="cfgVideoFormatGroup">
+                <label for="videoFormatSelect" class="config-label">Video Container Format</label>
+                <select id="videoFormatSelect" class="config-select">
+                  <option value="mp4" selected>MP4 (Universal Compatibility)</option>
+                  <option value="mkv">MKV (Matroska - Multi Sub/Audio)</option>
+                  <option value="webm">WEBM (VP9/Opus)</option>
+                </select>
+              </div>
+
+              <!-- Audio Options (Shown in Audio Mode) -->
+              <div class="config-item" id="cfgAudioFormatGroup" style="display: none;">
+                <label for="audioFormatSelect" class="config-label">Audio Codec Format</label>
+                <select id="audioFormatSelect" class="config-select">
+                  <option value="mp3" selected>MP3 (MPEG Audio)</option>
+                  <option value="m4a">M4A (AAC Audio)</option>
+                  <option value="opus">OPUS (High Quality)</option>
+                  <option value="flac">FLAC (Lossless)</option>
+                  <option value="wav">WAV (Uncompressed)</option>
+                  <option value="aac">AAC</option>
+                </select>
+              </div>
+
+              <div class="config-item" id="cfgAudioBitrateGroup" style="display: none;">
+                <label for="audioBitrateSelect" class="config-label">Audio Bitrate / Quality</label>
+                <select id="audioBitrateSelect" class="config-select">
+                  <option value="320k" selected>320 kbps (High Fidelity)</option>
+                  <option value="256k">256 kbps (High Quality)</option>
+                  <option value="192k">192 kbps (Standard)</option>
+                  <option value="128k">128 kbps (Compact)</option>
+                  <option value="best">Best Variable Bitrate</option>
+                </select>
+              </div>
+
+              <div class="config-item">
+                <label for="destinationInput" class="config-label">Save To Folder</label>
+                <input type="text" id="destinationInput" class="config-input" value="/media/hdd/JAV" />
+              </div>
+
+              <div class="config-item">
+                <label for="concurrencySelect" class="config-label">Download Speed / Streams</label>
+                <select id="concurrencySelect" class="config-select">
+                  <option value="4">4 Threads (Standard)</option>
+                  <option value="8" selected>8 Threads (Fast - Recommended)</option>
+                  <option value="16">16 Threads (Ultra Fast)</option>
+                </select>
+              </div>
+
+              <div class="config-item full-width">
+                <label for="customFilenameInput" class="config-label">Custom File Name (Optional)</label>
+                <input type="text" id="customFilenameInput" class="config-input" placeholder="Leave empty for original title" />
+              </div>
+
+            </div>
+
+            <!-- Advanced Seal Settings Accordion -->
+            <details class="advanced-accordion">
+              <summary class="accordion-summary">
+                <span>Advanced Options (Subtitles, SponsorBlock, Metadata, Custom Flags)</span>
+              </summary>
+              <div class="accordion-content">
+                <div class="switches-grid">
+                  <label class="switch-label">
+                    <input type="checkbox" id="chkEmbedSubtitles" />
+                    <span>Embed Subtitles</span>
+                  </label>
+                  <label class="switch-label">
+                    <input type="checkbox" id="chkAutoSubs" />
+                    <span>Include Auto-Generated Subtitles</span>
+                  </label>
+                  <label class="switch-label">
+                    <input type="checkbox" id="chkEmbedThumbnail" checked />
+                    <span>Embed Cover Art / Thumbnail</span>
+                  </label>
+                  <label class="switch-label">
+                    <input type="checkbox" id="chkEmbedMetadata" checked />
+                    <span>Embed Chapter & Tag Metadata</span>
+                  </label>
+                  <label class="switch-label">
+                    <input type="checkbox" id="chkSponsorBlock" />
+                    <span>Remove Sponsors (SponsorBlock)</span>
+                  </label>
+                  <label class="switch-label">
+                    <input type="checkbox" id="chkSplitChapters" />
+                    <span>Split by Video Chapters</span>
+                  </label>
+                </div>
+
+                <div class="adv-input-row">
+                  <label for="subLangsInput" class="config-label">Subtitle Languages (e.g. en,ja,zh,all)</label>
+                  <input type="text" id="subLangsInput" class="config-input" placeholder="all,-live_chat" />
+                </div>
+
+                <div class="adv-input-row">
+                  <label for="customArgsInput" class="config-label">Custom yt-dlp Arguments</label>
+                  <input type="text" id="customArgsInput" class="config-input" placeholder="e.g. --geo-bypass --limit-rate 10M" />
+                </div>
+              </div>
+            </details>
+
+            <!-- Action Buttons -->
+            <div class="preview-actions">
+              <button class="btn btn-download" id="startDownloadBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span id="downloadBtnText">Start Download</span>
+              </button>
+              <button class="btn btn-secondary" id="clearPreviewBtn">Dismiss</button>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- Active Downloads Queue Section -->
+      <section class="section-card queue-section" id="queueSection">
+        <div class="section-header-flex">
+          <div>
+            <h2>Active Downloads</h2>
+            <p class="section-description">Real-time status, speed metrics, and stream assembly logs.</p>
+          </div>
+          <div class="queue-status-indicator" id="queueStatusIndicator">
+            <span class="status-dot"></span>
+            <span id="activeCountLabel">0 Active Jobs</span>
+          </div>
+        </div>
+
+        <div class="jobs-list" id="jobsList">
+          <div class="empty-state" id="emptyJobsState">
+            <div class="empty-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 14 14"></polyline>
+              </svg>
+            </div>
+            <p>No active downloads right now. Paste a video or audio link above to start.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Local Library / Completed Downloads in Target Folder -->
+      <section class="section-card library-section" id="librarySection">
+        <div class="section-header-flex">
+          <div>
+            <h2>Downloaded Media (<span id="libraryFolderLabel">/media/hdd/JAV</span>)</h2>
+            <p class="section-description">Explore completed videos & audio tracks, stream directly in-browser, or open locally.</p>
+          </div>
+          <div class="library-controls">
+            <div class="search-box">
+              <input type="text" id="librarySearchInput" class="search-input" placeholder="Search media..." />
+            </div>
+            <button class="btn btn-secondary btn-icon" id="refreshLibraryBtn" title="Refresh folder">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Media Files Grid -->
+        <div class="library-grid" id="libraryGrid">
+          <div class="empty-state" id="emptyLibraryState">
+            <p>Scanning storage directory...</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Powered by yt-dlp & FFmpeg &bull; High Throughput Multithread Downloader & Audio Extractor</p>
+    </footer>
+
+    <!-- Video / Audio Playback Modal -->
+    <div class="modal-backdrop" id="videoModal" style="display: none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modalVideoTitle">Media Player</h3>
+          <button class="modal-close" id="closeModalBtn" title="Close player">&times;</button>
+        </div>
+        <div class="modal-body" id="modalPlayerContainer">
+          <video id="html5Player" class="video-element" controls preload="metadata" playsinline autoplay>
+            Your browser does not support HTML5 media streaming.
+          </video>
+        </div>
+        <div class="modal-footer">
+          <span class="modal-file-info" id="modalFileInfo"></span>
+          <button class="btn btn-secondary" id="openInExplorerModalBtn">Open in File Explorer</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

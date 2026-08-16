@@ -1,0 +1,15 @@
+{
+  "name": "jable-downloader-web-ui",
+  "version": "1.0.0",
+  "description": "Modern Web UI for video downloading and local streaming",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "ssh2": "^1.17.0"
+  }
+}
