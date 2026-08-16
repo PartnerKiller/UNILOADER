@@ -1,6 +1,7 @@
 import sys
 import json
 import re
+import base64
 import urllib.parse
 from bs4 import BeautifulSoup
 
@@ -53,7 +54,113 @@ def extract_all(url):
     }
 
     # -------------------------------------------------------------
-    # 1. MissAV (missav.ws, missav.ai, missav.live, missav.com, missav.net)
+    # 1. Jav.Guru (jav.guru)
+    # -------------------------------------------------------------
+    if 'jav.guru' in url:
+        headers['Referer'] = 'https://jav.guru/'
+        r = session.get(url, headers=headers, timeout=20)
+        html = r.text
+        soup = BeautifulSoup(html, 'html.parser')
+
+        raw_title = soup.title.string.strip() if soup.title else 'JAV Guru Video'
+        title = re.sub(r'\s*[\u22c6*|-]\s*Jav\s*Guru.*$', '', raw_title, flags=re.IGNORECASE).strip()
+
+        code_match = re.search(r'\[([A-Za-z0-9_-]+)\]', title)
+        if not code_match:
+            code_match = re.search(r'\b([A-Za-z0-9]+-\d+)\b', title)
+        code = code_match.group(1).upper() if code_match else 'JAVGURU'
+
+        poster = ''
+        og_img = soup.find('meta', property='og:image')
+        if og_img and og_img.get('content'):
+            poster = og_img.get('content')
+        elif soup.find('div', class_='large-screenshot') and soup.find('div', class_='large-screenshot').find('img'):
+            poster = soup.find('div', class_='large-screenshot').find('img').get('src', '')
+        elif soup.find('img', class_=re.compile(r'attachment|thumbnail|cover', re.I)):
+            poster = soup.find('img', class_=re.compile(r'attachment|thumbnail|cover', re.I)).get('src', '')
+
+        tags = [a.text.strip() for a in soup.find_all('a', href=re.compile(r'/(tag|category|actress)/')) if a.text.strip()]
+        model = ''
+        actress_a = soup.find('a', href=re.compile(r'/actress/'))
+        if actress_a:
+            model = actress_a.text.strip()
+
+        # Extract base64 encoded iframe URLs
+        b64_urls = re.findall(r'"iframe_url":\s*"([A-Za-z0-9+/=]+)"', html)
+        hls_url = ''
+        target_stream_url = ''
+
+        for b64 in b64_urls:
+            try:
+                dec = base64.b64decode(b64).decode('utf-8')
+                pr = session.get(dec, headers={'Referer': url}, timeout=12)
+                psoup = BeautifulSoup(pr.text, 'html.parser')
+
+                stream_box = psoup.find('div', class_='stream-box')
+                if not stream_box:
+                    continue
+
+                keys = [k for k in stream_box.attrs if k.startswith('data-')]
+                token = "".join([stream_box[k] for k in keys])[::-1]
+                rtype_m = re.search(r"rtype:\s*['\"]([^'\"]+)['\"]", pr.text)
+                rtype = rtype_m.group(1) if rtype_m else 'x'
+                real_src = f"https://jav.guru/searcho/?{rtype}r={token}"
+
+                rr = session.get(real_src, headers={'Referer': dec}, timeout=12)
+                target_stream_url = rr.url
+
+                # Check if final host is maxstream.org
+                if 'maxstream.org' in rr.url:
+                    packed = re.findall(r"eval\(function\(p,a,c,k,e,d\).*?\.split\('\|'\).*?\)\)", rr.text, re.DOTALL)
+                    for p in packed:
+                        unp = unpack_packer(p)
+                        m = re.search(r'file:\s*"(https://[^"]+\.m3u8[^"]*)"', unp)
+                        if m:
+                            m3u8 = m.group(1)
+                            view_m = re.search(r"\$\.get\('([^']+)'", unp)
+                            if view_m:
+                                view_url = view_m.group(1).replace("'+adb", "0")
+                                session.get(view_url, headers={'Referer': rr.url})
+                            hls_url = m3u8
+                            break
+                    if hls_url:
+                        break
+
+                # Direct m3u8 in player response
+                direct_m3u8s = re.findall(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*', rr.text)
+                if direct_m3u8s:
+                    hls_url = direct_m3u8s[0]
+                    break
+
+                # Packed JS in player
+                packed = re.findall(r"eval\(function\(p,a,c,k,e,d\).*?\.split\('\|'\).*?\)\)", rr.text, re.DOTALL)
+                for p in packed:
+                    unp = unpack_packer(p)
+                    m3u8_m = re.findall(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*', unp)
+                    if m3u8_m:
+                        hls_url = m3u8_m[0]
+                        break
+
+                if hls_url:
+                    break
+            except Exception:
+                continue
+
+        return {
+            'title': title,
+            'code': code,
+            'poster': poster,
+            'hlsUrl': hls_url or target_stream_url,
+            'downloadTargetUrl': hls_url or target_stream_url or url,
+            'tags': tags[:10],
+            'model': model,
+            'duration': '',
+            'extractor': 'JavGuru',
+            'sourceUrl': url
+        }
+
+    # -------------------------------------------------------------
+    # 2. MissAV (missav.ws, missav.ai, missav.live, missav.com, missav.net)
     # -------------------------------------------------------------
     if 'missav' in url:
         headers['Referer'] = 'https://missav.ws/'
@@ -112,7 +219,7 @@ def extract_all(url):
         }
 
     # -------------------------------------------------------------
-    # 2. SupJav (supjav.com, supjav.net, supremejav.com)
+    # 3. SupJav (supjav.com, supjav.net, supremejav.com)
     # -------------------------------------------------------------
     if 'supjav' in url or 'supremejav' in url:
         headers['Referer'] = 'https://supjav.com/'
@@ -192,7 +299,7 @@ def extract_all(url):
         }
 
     # -------------------------------------------------------------
-    # 3. JavGG (javgg.net, javgg.to, javgg.me)
+    # 4. JavGG (javgg.net, javgg.to, javgg.me)
     # -------------------------------------------------------------
     if 'javgg' in url:
         headers['Referer'] = 'https://javgg.net/'
@@ -259,7 +366,7 @@ def extract_all(url):
         }
 
     # -------------------------------------------------------------
-    # 4. nJAV & nJAVTv (njav.tv, njav.to, njav.org)
+    # 5. nJAV & nJAVTv (njav.tv, njav.to, njav.org)
     # -------------------------------------------------------------
     if 'njav' in url:
         headers['Referer'] = 'https://njav.tv/'
@@ -319,7 +426,7 @@ def extract_all(url):
         }
 
     # -------------------------------------------------------------
-    # 5. Jable.tv
+    # 6. Jable.tv
     # -------------------------------------------------------------
     if 'jable.tv' in url:
         headers['Referer'] = 'https://jable.tv/'
@@ -356,7 +463,7 @@ def extract_all(url):
         }
 
     # -------------------------------------------------------------
-    # 6. Pornhub
+    # 7. Pornhub
     # -------------------------------------------------------------
     if 'pornhub' in url:
         r = session.get(url, headers=headers, timeout=15)
@@ -408,7 +515,7 @@ def extract_all(url):
             }
 
     # -------------------------------------------------------------
-    # 7. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
+    # 8. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
     # -------------------------------------------------------------
     try:
         r = session.get(url, headers=headers, timeout=20)
@@ -446,7 +553,7 @@ def extract_all(url):
                     try:
                         ifr_url = ifr if ifr.startswith('http') else urllib.parse.urljoin(url, ifr)
                         ifr_res = session.get(ifr_url, headers={'Referer': url}, timeout=10)
-                        packed = re.findall(r"eval\(function\(p,a,c,k,e,d\).*?\.split\('\|'\).*?\)\)", ifr_res.text, re.DOTALL)
+                        packed = re.findall(r"eval\(function\(p,a,c,k,e,d\).*?\.split\('\|'\)\)\)", ifr_res.text, re.DOTALL)
                         for p in packed:
                             unpacked = unpack_packer(p)
                             m3u8_matches = re.findall(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', unpacked)
@@ -483,7 +590,7 @@ def extract_all(url):
         pass
 
     # -------------------------------------------------------------
-    # 8. Universal Fallback (yt-dlp JSON dump with Chrome Impersonation)
+    # 9. Universal Fallback (yt-dlp JSON dump with Chrome Impersonation)
     # -------------------------------------------------------------
     import subprocess
     cmd = ["yt-dlp", "--dump-single-json", "--skip-download", "--no-warnings", "--no-playlist", "--impersonate", "chrome", url]

@@ -5,6 +5,8 @@ yarn-error.log*
 .env
 config.json
 temp_media/
+__pycache__/
+*.pyc
 *.log
 .DS_Store
 Thumbs.db
