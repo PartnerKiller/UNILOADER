@@ -7,32 +7,15 @@ const { extractMetadata } = require('./extractor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const CONFIG_FILE = path.join(__dirname, 'config.json');
+const TEMP_DIR = path.join(__dirname, 'temp_media');
+
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Config file management
-function loadConfig() {
-  if (fs.existsSync(CONFIG_FILE)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-      if (data && data.downloadDir) {
-        return { downloadDir: data.downloadDir, isConfigured: true };
-      }
-    } catch (e) {
-      console.warn('Failed to parse config.json:', e.message);
-    }
-  }
-  return { downloadDir: '', isConfigured: false };
-}
-
-function saveConfig(downloadDir) {
-  const cfg = { downloadDir: path.resolve(downloadDir) };
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
-  return cfg;
-}
 
 // Locate yt-dlp and ffmpeg cross-platform
 function getToolPaths() {
@@ -79,8 +62,6 @@ function getToolPaths() {
 
 const tools = getToolPaths();
 console.log('Detected Tools:', tools);
-const initialConfig = loadConfig();
-console.log('Configured Download Directory:', initialConfig.downloadDir || '(Not configured yet)');
 
 // In-memory job store
 const jobs = new Map();
@@ -100,48 +81,15 @@ function broadcastJobUpdate(jobId) {
       error: job.error,
       title: job.title,
       filename: job.filename,
-      outputDir: job.outputDir
+      filesize: job.filesize || '',
+      downloadUrl: `/api/download-file/${job.id}`,
+      streamUrl: `/api/stream/${job.id}`
     });
     for (const res of clients) {
       res.write(`data: ${data}\n\n`);
     }
   }
 }
-
-// 0. Config Info & Update Endpoints
-app.get('/api/config', (req, res) => {
-  const cfg = loadConfig();
-  res.json({
-    downloadDir: cfg.downloadDir,
-    isConfigured: cfg.isConfigured,
-    platform: process.platform,
-    hostname: require('os').hostname()
-  });
-});
-
-app.post('/api/config', (req, res) => {
-  try {
-    const { downloadDir } = req.body;
-    if (!downloadDir || !downloadDir.trim()) {
-      return res.status(400).json({ error: 'Download directory is required' });
-    }
-
-    const cleanPath = downloadDir.trim();
-    if (!fs.existsSync(cleanPath)) {
-      try {
-        fs.mkdirSync(cleanPath, { recursive: true });
-      } catch (err) {
-        return res.status(400).json({ error: `Could not create directory "${cleanPath}": ${err.message}` });
-      }
-    }
-
-    const saved = saveConfig(cleanPath);
-    console.log(`Updated download directory to: ${saved.downloadDir}`);
-    res.json({ success: true, downloadDir: saved.downloadDir, isConfigured: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // 1. Metadata Extraction
 app.post('/api/extract', async (req, res) => {
@@ -159,32 +107,22 @@ app.post('/api/extract', async (req, res) => {
 // Helper to spawn a download job
 function createAndStartJob(opts) {
   let {
-    url, outputDir, customFilename, concurrentFragments, hlsUrl, title, code, poster,
+    url, customFilename, concurrentFragments, hlsUrl, title, code, poster,
     downloadTargetUrl, mode, videoQuality, videoFormat, audioFormat, audioBitrate,
     embedThumbnail, embedMetadata, embedSubtitles, subLangs, autoSubs, sponsorBlock,
     splitChapters, customArgs
   } = opts;
 
-  const cfg = loadConfig();
-  outputDir = outputDir || cfg.downloadDir;
-
-  if (!outputDir) {
-    throw new Error('No download directory configured. Please set your download directory in settings.');
-  }
-
   mode = mode || 'video';
   concurrentFragments = parseInt(concurrentFragments, 10) || 8;
-
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
 
   const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
   const ext = mode === 'audio' ? (audioFormat || 'mp3') : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
   const finalFilename = `${safeTitle}.${ext}`;
-  const outputTemplate = path.join(outputDir, `${safeTitle}.%(ext)s`);
+  const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
+  const outputTemplate = path.join(TEMP_DIR, `${jobId}_${safeTitle}.%(ext)s`);
 
   const job = {
     id: jobId,
@@ -194,8 +132,9 @@ function createAndStartJob(opts) {
     code: code || 'MEDIA',
     poster: poster || '',
     mode,
-    outputDir,
+    filePath,
     filename: finalFilename,
+    filesize: '',
     status: 'downloading',
     progress: {
       percent: 0,
@@ -301,8 +240,7 @@ function createAndStartJob(opts) {
   const targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
   args.push(targetUrl);
 
-  job.logs.push(`Starting ${mode.toUpperCase()} download via yt-dlp engine...`);
-  job.logs.push(`Target: ${outputTemplate}`);
+  job.logs.push(`Starting ${mode.toUpperCase()} processing...`);
   job.logs.push(`Arguments: ${args.join(' ')}`);
 
   const child = spawn(tools.ytdlpPath, args, { windowsHide: true });
@@ -361,13 +299,27 @@ function createAndStartJob(opts) {
     if (code === 0) {
       job.status = 'completed';
       job.progress.percent = 100;
-      job.progress.eta = 'Done';
-      job.logs.push('Download and post-processing completed successfully!');
+      job.progress.eta = 'Ready';
+      job.logs.push('Processing completed! Ready to save to device.');
+
+      // Find actual created file on disk
+      try {
+        const files = fs.readdirSync(TEMP_DIR);
+        const matched = files.find(f => f.startsWith(`${jobId}_`));
+        if (matched) {
+          job.filePath = path.join(TEMP_DIR, matched);
+          job.filename = matched.replace(`${jobId}_`, '');
+          const stat = fs.statSync(job.filePath);
+          job.filesize = stat.size > (1024 ** 3)
+            ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
+            : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+        }
+      } catch (e) {}
     } else {
       if (job.status !== 'cancelled') {
         job.status = 'failed';
-        job.error = `yt-dlp exited with error code ${code}`;
-        job.logs.push(`Download failed with exit code ${code}`);
+        job.error = `Engine exited with code ${code}`;
+        job.logs.push(`Process failed with exit code ${code}`);
       }
     }
     broadcastJobUpdate(jobId);
@@ -398,7 +350,6 @@ app.post('/api/download', async (req, res) => {
       success: true,
       jobId: job.id,
       title: job.title,
-      outputDir: job.outputDir,
       filename: job.filename,
       mode: job.mode
     });
@@ -425,7 +376,7 @@ app.post('/api/download/batch', async (req, res) => {
       try {
         meta = await extractMetadata(rawUrl);
       } catch (e) {
-        meta = { title: rawUrl.split('/').pop() || 'video', code: 'MEDIA', hlsUrl: rawUrl };
+        meta = { title: rawUrl.split('/').pop() || 'media', code: 'MEDIA', hlsUrl: rawUrl };
       }
 
       const jobPayload = {
@@ -458,13 +409,15 @@ app.get('/api/jobs', (req, res) => {
     code: j.code,
     poster: j.poster,
     mode: j.mode,
-    outputDir: j.outputDir,
     filename: j.filename,
+    filesize: j.filesize || '',
     status: j.status,
     progress: j.progress,
     error: j.error,
     startTime: j.startTime,
     completedTime: j.completedTime,
+    downloadUrl: `/api/download-file/${j.id}`,
+    streamUrl: `/api/stream/${j.id}`,
     lastLog: j.logs[j.logs.length - 1] || ''
   }));
   res.json(jobList.reverse());
@@ -498,7 +451,9 @@ app.get('/api/jobs/:id/events', (req, res) => {
     error: job.error,
     title: job.title,
     filename: job.filename,
-    outputDir: job.outputDir
+    filesize: job.filesize || '',
+    downloadUrl: `/api/download-file/${job.id}`,
+    streamUrl: `/api/stream/${job.id}`
   });
   res.write(`data: ${initialData}\n\n`);
 
@@ -535,109 +490,56 @@ app.post('/api/jobs/:id/cancel', (req, res) => {
   res.json({ success: true, message: 'Job is not running' });
 });
 
-// 6. System Storage Query
-app.get('/api/system/storage', (req, res) => {
-  const cfg = loadConfig();
-  try {
-    if (process.platform === 'win32') {
-      const output = execSync(
-        'powershell -Command "Get-PSDrive -PSProvider FileSystem | Select-Object Name, Used, Free, Root | ConvertTo-Json"',
-        { encoding: 'utf-8', timeout: 5000 }
-      );
-      let drives = JSON.parse(output);
-      if (!Array.isArray(drives)) drives = [drives];
+// 6. Direct Browser File Download Endpoint (Delivers directly to user's device Downloads folder)
+app.get('/api/download-file/:id', (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
 
-      const formatted = drives.map(d => ({
-        name: d.Name,
-        root: d.Root || (d.Name + ':\\'),
-        usedGB: ((d.Used || 0) / (1024 ** 3)).toFixed(1),
-        freeGB: ((d.Free || 0) / (1024 ** 3)).toFixed(1),
-        totalGB: (((d.Used || 0) + (d.Free || 0)) / (1024 ** 3)).toFixed(1)
-      }));
-      return res.json(formatted);
-    } else {
-      const targetMount = cfg.downloadDir && fs.existsSync(cfg.downloadDir) ? cfg.downloadDir : '/';
-      const output = execSync(`df -k "${targetMount}" / 2>/dev/null | awk 'NR>1 {print $1, $2, $3, $4, $6}'`, { encoding: 'utf-8' });
-      const lines = output.trim().split('\n');
-      const formatted = [];
-      const seen = new Set();
-
-      for (const line of lines) {
-        const parts = line.trim().split(/\s+/);
-        if (parts.length >= 5) {
-          const mount = parts[4];
-          if (seen.has(mount)) continue;
-          seen.add(mount);
-          const totalK = parseInt(parts[1], 10) || 0;
-          const usedK = parseInt(parts[2], 10) || 0;
-          const freeK = parseInt(parts[3], 10) || 0;
-
-          formatted.push({
-            name: mount === '/' ? 'Root' : mount.split('/').pop() || mount,
-            root: mount,
-            usedGB: (usedK / (1024 ** 2)).toFixed(1),
-            freeGB: (freeK / (1024 ** 2)).toFixed(1),
-            totalGB: (totalK / (1024 ** 2)).toFixed(1)
-          });
-        }
+  if (!job) {
+    // Try to find file starting with jobId in temp directory
+    try {
+      const files = fs.readdirSync(TEMP_DIR);
+      const matched = files.find(f => f.startsWith(`${jobId}_`));
+      if (matched) {
+        const fullPath = path.join(TEMP_DIR, matched);
+        const clientFilename = matched.replace(`${jobId}_`, '');
+        return res.download(fullPath, clientFilename);
       }
-      return res.json(formatted);
-    }
-  } catch (err) {
-    res.json([
-      { name: 'Storage', root: cfg.downloadDir || '/', freeGB: '0', totalGB: '0' }
-    ]);
+    } catch (e) {}
+    return res.status(404).send('File not found or expired');
   }
+
+  if (job.filePath && fs.existsSync(job.filePath)) {
+    return res.download(job.filePath, job.filename);
+  }
+
+  // Fallback scan
+  try {
+    const files = fs.readdirSync(TEMP_DIR);
+    const matched = files.find(f => f.startsWith(`${jobId}_`));
+    if (matched) {
+      const fullPath = path.join(TEMP_DIR, matched);
+      return res.download(fullPath, job.filename || matched.replace(`${jobId}_`, ''));
+    }
+  } catch (e) {}
+
+  res.status(404).send('File is still processing or has expired');
 });
 
-// 7. Library: List files in destination directory
-app.get('/api/library', (req, res) => {
-  const cfg = loadConfig();
-  const dir = req.query.dir || cfg.downloadDir;
-  
-  if (!dir || !fs.existsSync(dir)) {
-    return res.json({ dir: dir || '', files: [], isConfigured: Boolean(dir && fs.existsSync(dir)) });
+// 7. Media Streaming Endpoint (Video & Audio In-Browser Preview)
+app.get('/api/stream/:id', (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+  let filePath = job ? job.filePath : null;
+
+  if (!filePath || !fs.existsSync(filePath)) {
+    try {
+      const files = fs.readdirSync(TEMP_DIR);
+      const matched = files.find(f => f.startsWith(`${jobId}_`));
+      if (matched) filePath = path.join(TEMP_DIR, matched);
+    } catch (e) {}
   }
 
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    const mediaExts = ['.mp4', '.mkv', '.webm', '.ts', '.mov', '.avi', '.mp3', '.m4a', '.opus', '.flac', '.wav', '.aac'];
-
-    const files = [];
-    for (const ent of entries) {
-      if (ent.isFile()) {
-        const ext = path.extname(ent.name).toLowerCase();
-        if (mediaExts.includes(ext)) {
-          const fullPath = path.join(dir, ent.name);
-          try {
-            const stat = fs.statSync(fullPath);
-            const isAudio = ['.mp3', '.m4a', '.opus', '.flac', '.wav', '.aac'].includes(ext);
-            files.push({
-              name: ent.name,
-              path: fullPath,
-              type: isAudio ? 'audio' : 'video',
-              ext: ext.replace('.', '').toUpperCase(),
-              sizeBytes: stat.size,
-              sizeFormatted: stat.size > (1024 ** 3) ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB' : (stat.size / (1024 ** 2)).toFixed(1) + ' MB',
-              sizeMB: (stat.size / (1024 ** 2)).toFixed(1) + ' MB',
-              created: stat.birthtime,
-              modified: stat.mtime
-            });
-          } catch (e) {}
-        }
-      }
-    }
-
-    files.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-    res.json({ dir, files, isConfigured: true });
-  } catch (err) {
-    res.status(500).json({ error: `Could not read directory: ${err.message}` });
-  }
-});
-
-// 8. Media Streaming Endpoint with Range Support
-app.get('/api/stream', (req, res) => {
-  const filePath = req.query.file;
   if (!filePath || !fs.existsSync(filePath)) {
     return res.status(404).send('File not found');
   }
@@ -684,40 +586,24 @@ app.get('/api/stream', (req, res) => {
   }
 });
 
-// 9. Open Directory in File Explorer (Windows only)
-app.post('/api/open-folder', (req, res) => {
-  const cfg = loadConfig();
-  const targetDir = req.body.dir || cfg.downloadDir;
-  if (!targetDir) return res.status(400).json({ error: 'No directory configured' });
-
-  if (process.platform === 'win32') {
-    try {
-      spawn('explorer.exe', [targetDir], { detached: true, stdio: 'ignore' });
-      return res.json({ success: true });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-  res.json({ success: true, message: 'Platform is Linux' });
-});
-
-// 10. Delete file
-app.delete('/api/file', (req, res) => {
-  const targetFile = req.body.file;
-  if (!targetFile || !fs.existsSync(targetFile)) {
-    return res.status(404).json({ error: 'File not found' });
-  }
+// Periodic cleanup of temp files older than 6 hours
+setInterval(() => {
   try {
-    fs.unlinkSync(targetFile);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const now = Date.now();
+    const files = fs.readdirSync(TEMP_DIR);
+    for (const f of files) {
+      const full = path.join(TEMP_DIR, f);
+      const stat = fs.statSync(full);
+      if (now - stat.mtimeMs > 6 * 3600 * 1000) {
+        fs.unlinkSync(full);
+      }
+    }
+  } catch (e) {}
+}, 30 * 60 * 1000);
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);
-  console.log(`🚀 JAV-Downloader Web UI is running!`);
+  console.log(`🚀 JAV-Downloader Web Service is running!`);
   console.log(`🌐 Server listening on http://0.0.0.0:${PORT}`);
   console.log(`====================================================`);
 });

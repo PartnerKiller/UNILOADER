@@ -1,20 +1,15 @@
-// JAV-Downloader & Vortex Hub - Universal Frontend Controller
+// JAV-Downloader &bull; Universal Web Downloader Controller
 
 let currentExtractedData = null;
 let activeEventSources = new Map(); // jobId -> EventSource
-let targetDirectory = '';
-let isConfigured = false;
 let currentMode = 'video'; // 'video' | 'audio' | 'batch'
-let libraryMedia = [];
-let serverPlatform = 'win32';
+let activeReadyJob = null;
 
 // DOM Elements
 const urlInput = document.getElementById('urlInput');
 const fetchBtn = document.getElementById('fetchBtn');
 const fetchSpinner = document.getElementById('fetchSpinner');
 const pasteBtn = document.getElementById('pasteBtn');
-const sampleLinkBtn = document.getElementById('sampleLinkBtn');
-const samplePhBtn = document.getElementById('samplePhBtn');
 
 // Mode Tabs
 const tabVideoMode = document.getElementById('tabVideoMode');
@@ -41,9 +36,7 @@ const previewModel = document.getElementById('previewModel');
 const previewDuration = document.getElementById('previewDuration');
 const previewTitle = document.getElementById('previewTitle');
 const previewTags = document.getElementById('previewTags');
-const destinationInput = document.getElementById('destinationInput');
 const concurrencySelect = document.getElementById('concurrencySelect');
-const customFilenameInput = document.getElementById('customFilenameInput');
 const startDownloadBtn = document.getElementById('startDownloadBtn');
 const downloadBtnText = document.getElementById('downloadBtnText');
 const clearPreviewBtn = document.getElementById('clearPreviewBtn');
@@ -74,151 +67,33 @@ const emptyJobsState = document.getElementById('emptyJobsState');
 const activeCountLabel = document.getElementById('activeCountLabel');
 const queueStatusIndicator = document.getElementById('queueStatusIndicator');
 
-// Library
-const libraryGrid = document.getElementById('libraryGrid');
-const libraryFolderLabel = document.getElementById('libraryFolderLabel');
-const librarySearchInput = document.getElementById('librarySearchInput');
-const refreshLibraryBtn = document.getElementById('refreshLibraryBtn');
-const openFolderBtn = document.getElementById('openFolderBtn');
-const storageVal = document.getElementById('storageVal');
-const targetDriveName = document.getElementById('targetDriveName');
+// Ready Modal
+const readyModal = document.getElementById('readyModal');
+const closeReadyModalBtn = document.getElementById('closeReadyModalBtn');
+const readyFileExt = document.getElementById('readyFileExt');
+const readyFileName = document.getElementById('readyFileName');
+const readyFileSize = document.getElementById('readyFileSize');
+const saveToDeviceBtn = document.getElementById('saveToDeviceBtn');
+const watchInBrowserBtn = document.getElementById('watchInBrowserBtn');
+const copyLinkBtn = document.getElementById('copyLinkBtn');
+const copyLinkText = document.getElementById('copyLinkText');
 
-// Player Modal
+// Video Player Modal
 const videoModal = document.getElementById('videoModal');
 const html5Player = document.getElementById('html5Player');
 const modalVideoTitle = document.getElementById('modalVideoTitle');
 const modalFileInfo = document.getElementById('modalFileInfo');
 const closeModalBtn = document.getElementById('closeModalBtn');
-const openInExplorerModalBtn = document.getElementById('openInExplorerModalBtn');
-
-// Settings Modal
-const settingsModal = document.getElementById('settingsModal');
-const settingsBtn = document.getElementById('settingsBtn');
-const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
-const settingsDirInput = document.getElementById('settingsDirInput');
-const quickDirsChips = document.getElementById('quickDirsChips');
-const saveSettingsBtn = document.getElementById('saveSettingsBtn');
-const settingsStatusMsg = document.getElementById('settingsStatusMsg');
-const settingsModalTitle = document.getElementById('settingsModalTitle');
+const modalDownloadDeviceBtn = document.getElementById('modalDownloadDeviceBtn');
 
 // Initialize
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
-  await loadServerConfig();
-  loadStorageInfo();
-  loadLibrary();
   loadJobs();
-
-  setInterval(loadStorageInfo, 20000);
   setInterval(loadJobs, 4000);
 });
 
-async function loadServerConfig() {
-  try {
-    const configRes = await fetch('/api/config');
-    const config = await configRes.json();
-    serverPlatform = config.platform || 'win32';
-    targetDirectory = config.downloadDir || '';
-    isConfigured = config.isConfigured || false;
-
-    renderSuggestedPaths();
-
-    if (isConfigured && targetDirectory) {
-      if (destinationInput) destinationInput.value = targetDirectory;
-      if (libraryFolderLabel) libraryFolderLabel.textContent = targetDirectory;
-      if (settingsDirInput) settingsDirInput.value = targetDirectory;
-    } else {
-      // First-run: prompt user to configure download directory
-      openSettingsModal(true);
-    }
-  } catch (e) {
-    console.warn('Failed to load server config:', e);
-  }
-}
-
-function renderSuggestedPaths() {
-  quickDirsChips.innerHTML = '';
-  const suggestions = serverPlatform === 'win32'
-    ? ['C:\\Downloads', 'C:\\Videos']
-    : ['/var/downloads', '/tmp/downloads'];
-
-  suggestions.forEach(pathVal => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'quick-dir-chip';
-    chip.textContent = pathVal;
-    chip.addEventListener('click', () => {
-      settingsDirInput.value = pathVal;
-    });
-    quickDirsChips.appendChild(chip);
-  });
-}
-
-function openSettingsModal(isFirstRun = false) {
-  settingsModalTitle.textContent = isFirstRun ? 'Welcome! Set Your Download Directory' : 'Configure Download Directory';
-  settingsDirInput.value = targetDirectory;
-  settingsStatusMsg.textContent = '';
-  settingsModal.style.display = 'flex';
-}
-
-function closeSettingsModal() {
-  if (!isConfigured && !targetDirectory) {
-    alert('Please configure a download directory to use the application.');
-    return;
-  }
-  settingsModal.style.display = 'none';
-}
-
-async function saveSettings() {
-  const dirPath = settingsDirInput.value.trim();
-  if (!dirPath) {
-    alert('Please enter a valid directory path.');
-    return;
-  }
-
-  saveSettingsBtn.disabled = true;
-  settingsStatusMsg.textContent = 'Saving...';
-
-  try {
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ downloadDir: dirPath })
-    });
-
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error || 'Failed to save configuration');
-    }
-
-    targetDirectory = data.downloadDir;
-    isConfigured = true;
-    destinationInput.value = targetDirectory;
-    libraryFolderLabel.textContent = targetDirectory;
-
-    settingsStatusMsg.textContent = 'Saved successfully!';
-    setTimeout(() => {
-      settingsModal.style.display = 'none';
-      saveSettingsBtn.disabled = false;
-      loadLibrary();
-      loadStorageInfo();
-    }, 600);
-  } catch (err) {
-    alert(`Error: ${err.message}`);
-    saveSettingsBtn.disabled = false;
-    settingsStatusMsg.textContent = '';
-  }
-}
-
 function setupEventListeners() {
-  // Settings Modal
-  settingsBtn.addEventListener('click', () => openSettingsModal(false));
-  closeSettingsModalBtn.addEventListener('click', closeSettingsModal);
-  saveSettingsBtn.addEventListener('click', saveSettings);
-  settingsModal.addEventListener('click', (e) => {
-    if (e.target === settingsModal) closeSettingsModal();
-  });
-
   // Mode Tabs
   tabVideoMode.addEventListener('click', () => setMode('video'));
   tabAudioMode.addEventListener('click', () => setMode('audio'));
@@ -282,19 +157,6 @@ function setupEventListeners() {
     }
   });
 
-  // Sample links
-  sampleLinkBtn.addEventListener('click', () => {
-    urlInput.value = sampleLinkBtn.dataset.url;
-    fetchVideoMetadata();
-  });
-
-  if (samplePhBtn) {
-    samplePhBtn.addEventListener('click', () => {
-      urlInput.value = samplePhBtn.dataset.url;
-      fetchVideoMetadata();
-    });
-  }
-
   // Batch URLs input listener
   batchUrlsInput.addEventListener('input', () => {
     const urls = batchUrlsInput.value.split('\n').map(u => u.trim()).filter(Boolean);
@@ -313,29 +175,35 @@ function setupEventListeners() {
     currentExtractedData = null;
   });
 
-  // Open destination folder
-  openFolderBtn.addEventListener('click', () => openFolderInExplorer(targetDirectory));
-  openInExplorerModalBtn.addEventListener('click', () => openFolderInExplorer(targetDirectory));
-
-  // Refresh library
-  refreshLibraryBtn.addEventListener('click', loadLibrary);
-
-  // Search filter
-  librarySearchInput.addEventListener('input', (e) => {
-    filterLibrary(e.target.value);
-  });
-
-  // Close modal
+  // Close modals
   closeModalBtn.addEventListener('click', closePlayerModal);
   videoModal.addEventListener('click', (e) => {
     if (e.target === videoModal) closePlayerModal();
   });
 
-  // Destination folder input changes
-  destinationInput.addEventListener('change', (e) => {
-    targetDirectory = e.target.value.trim() || targetDirectory;
-    libraryFolderLabel.textContent = targetDirectory;
-    loadLibrary();
+  closeReadyModalBtn.addEventListener('click', () => {
+    readyModal.style.display = 'none';
+  });
+  readyModal.addEventListener('click', (e) => {
+    if (e.target === readyModal) readyModal.style.display = 'none';
+  });
+
+  // Ready Modal Actions
+  watchInBrowserBtn.addEventListener('click', () => {
+    if (activeReadyJob) {
+      readyModal.style.display = 'none';
+      playMedia(activeReadyJob.streamUrl, activeReadyJob.title, activeReadyJob.downloadUrl);
+    }
+  });
+
+  copyLinkBtn.addEventListener('click', () => {
+    if (activeReadyJob) {
+      const fullUrl = window.location.origin + activeReadyJob.downloadUrl;
+      navigator.clipboard.writeText(fullUrl).then(() => {
+        copyLinkText.textContent = 'Copied to Clipboard!';
+        setTimeout(() => { copyLinkText.textContent = 'Copy Download Link'; }, 2000);
+      });
+    }
   });
 }
 
@@ -361,7 +229,7 @@ function setMode(mode) {
   cfgAudioBitrateGroup.style.display = isAudio ? 'flex' : 'none';
 
   if (downloadBtnText) {
-    downloadBtnText.textContent = isAudio ? 'Extract Audio' : 'Start Download';
+    downloadBtnText.textContent = isAudio ? 'Extract Audio' : 'Download Now';
   }
 }
 
@@ -440,9 +308,6 @@ function renderPreviewCard(data) {
     });
   }
 
-  destinationInput.value = targetDirectory;
-  customFilenameInput.value = '';
-
   previewCard.style.display = 'block';
   previewCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -451,14 +316,6 @@ function renderPreviewCard(data) {
 async function startDownload() {
   if (!currentExtractedData) return;
 
-  const saveFolder = destinationInput.value.trim() || targetDirectory;
-  if (!saveFolder) {
-    openSettingsModal(true);
-    return;
-  }
-  targetDirectory = saveFolder;
-  libraryFolderLabel.textContent = saveFolder;
-
   const payload = {
     url: currentExtractedData.sourceUrl || urlInput.value.trim(),
     hlsUrl: currentExtractedData.hlsUrl,
@@ -466,8 +323,6 @@ async function startDownload() {
     title: currentExtractedData.title,
     code: currentExtractedData.code,
     poster: currentExtractedData.poster,
-    outputDir: saveFolder,
-    customFilename: customFilenameInput.value.trim(),
     concurrentFragments: parseInt(concurrencySelect.value, 10) || 8,
     mode: currentMode,
     videoQuality: videoQualitySelect.value,
@@ -485,7 +340,7 @@ async function startDownload() {
   };
 
   startDownloadBtn.disabled = true;
-  downloadBtnText.textContent = 'Starting...';
+  downloadBtnText.textContent = 'Processing...';
 
   try {
     const res = await fetch('/api/download', {
@@ -509,7 +364,7 @@ async function startDownload() {
     alert(`Download Error: ${err.message}`);
   } finally {
     startDownloadBtn.disabled = false;
-    downloadBtnText.textContent = currentMode === 'audio' ? 'Extract Audio' : 'Start Download';
+    downloadBtnText.textContent = currentMode === 'audio' ? 'Extract Audio' : 'Download Now';
   }
 }
 
@@ -521,14 +376,7 @@ async function startBatchDownload() {
     return;
   }
 
-  const saveFolder = destinationInput.value.trim() || targetDirectory;
-  if (!saveFolder) {
-    openSettingsModal(true);
-    return;
-  }
-
   const options = {
-    outputDir: saveFolder,
     mode: currentMode,
     videoQuality: videoQualitySelect.value,
     videoFormat: videoFormatSelect.value,
@@ -542,7 +390,7 @@ async function startBatchDownload() {
   };
 
   startBatchBtn.disabled = true;
-  startBatchBtn.querySelector('span').textContent = 'Dispatching queue...';
+  startBatchBtn.querySelector('span').textContent = 'Processing queue...';
 
   try {
     const res = await fetch('/api/download/batch', {
@@ -568,11 +416,34 @@ async function startBatchDownload() {
     alert(`Batch Error: ${err.message}`);
   } finally {
     startBatchBtn.disabled = false;
-    startBatchBtn.querySelector('span').textContent = 'Download All in Queue';
+    startBatchBtn.querySelector('span').textContent = 'Process & Download All';
   }
 }
 
-// 3. SSE Stream Connection for Live Progress
+// 3. Trigger Browser Download & Show Ready Popup
+function triggerDeviceDownload(job) {
+  activeReadyJob = job;
+
+  readyFileName.textContent = job.filename || job.title;
+  readyFileSize.textContent = job.filesize ? `Size: ${job.filesize}` : '';
+  const ext = (job.filename.split('.').pop() || 'MP4').toUpperCase();
+  readyFileExt.textContent = ext;
+
+  saveToDeviceBtn.href = job.downloadUrl;
+  saveToDeviceBtn.setAttribute('download', job.filename);
+
+  readyModal.style.display = 'flex';
+
+  // Automatically trigger native browser file save
+  const autoAnchor = document.createElement('a');
+  autoAnchor.href = job.downloadUrl;
+  autoAnchor.setAttribute('download', job.filename);
+  document.body.appendChild(autoAnchor);
+  autoAnchor.click();
+  document.body.removeChild(autoAnchor);
+}
+
+// 4. SSE Stream Connection for Live Progress
 function subscribeToJob(jobId) {
   if (activeEventSources.has(jobId)) return;
 
@@ -584,11 +455,13 @@ function subscribeToJob(jobId) {
       const job = JSON.parse(event.data);
       updateJobCard(job);
 
-      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+      if (job.status === 'completed') {
         es.close();
         activeEventSources.delete(jobId);
-        loadLibrary();
-        loadStorageInfo();
+        triggerDeviceDownload(job);
+      } else if (job.status === 'failed' || job.status === 'cancelled') {
+        es.close();
+        activeEventSources.delete(jobId);
       }
     } catch (e) {
       console.error('SSE parse error:', e);
@@ -601,7 +474,7 @@ function subscribeToJob(jobId) {
   };
 }
 
-// 4. Job List Rendering & Updates
+// 5. Job List Rendering & Updates
 async function loadJobs() {
   try {
     const res = await fetch('/api/jobs');
@@ -615,7 +488,7 @@ async function loadJobs() {
 function renderJobsList(jobs) {
   if (!jobs || jobs.length === 0) {
     emptyJobsState.style.display = 'block';
-    activeCountLabel.textContent = '0 Active Jobs';
+    activeCountLabel.textContent = '0 Active';
     queueStatusIndicator.querySelector('.status-dot').classList.remove('active');
     return;
   }
@@ -623,7 +496,7 @@ function renderJobsList(jobs) {
   emptyJobsState.style.display = 'none';
 
   const activeJobs = jobs.filter(j => j.status === 'downloading');
-  activeCountLabel.textContent = `${activeJobs.length} Active Job${activeJobs.length === 1 ? '' : 's'}`;
+  activeCountLabel.textContent = `${activeJobs.length} Active`;
   
   if (activeJobs.length > 0) {
     queueStatusIndicator.querySelector('.status-dot').classList.add('active');
@@ -660,7 +533,7 @@ function createJobCardElement(job) {
           <span class="job-code">${job.code || 'MEDIA'}</span>
           <span class="job-title" id="job-title-${job.id}">${job.title}</span>
         </div>
-        <div class="job-meta">Destination: <strong>${job.outputDir}</strong> &bull; File: <code>${job.filename}</code></div>
+        <div class="job-meta">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
       </div>
       <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status}</span>
     </div>
@@ -685,8 +558,8 @@ function createJobCardElement(job) {
         <span class="metric-value" id="job-metric-eta-${job.id}">${job.progress.eta || '--:--'}</span>
       </div>
       <div class="metric-item">
-        <span class="metric-label">Fragments / Size</span>
-        <span class="metric-value" id="job-metric-frag-${job.id}">${job.progress.currentFrag || 0} / ${job.progress.totalFrag || 0}</span>
+        <span class="metric-label">Size / Streams</span>
+        <span class="metric-value" id="job-metric-frag-${job.id}">${job.progress.totalSize || 'Processing'}</span>
       </div>
     </div>
 
@@ -694,14 +567,20 @@ function createJobCardElement(job) {
     <div class="job-actions">
       <button class="btn-log-toggle" onclick="toggleJobLogs('${job.id}')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-        <span>Toggle Live Logs</span>
+        <span>Toggle Logs</span>
       </button>
-      <div class="job-controls">
+      <div class="job-controls" id="job-controls-${job.id}">
         ${job.status === 'downloading' ? `
           <button class="btn btn-danger" onclick="cancelJob('${job.id}')">Cancel</button>
         ` : ''}
         ${job.status === 'completed' ? `
-          <button class="btn btn-secondary btn-sm" onclick="playMedia('${job.outputDir.replace(/\\/g, '\\\\') + (job.outputDir.endsWith('\\') || job.outputDir.endsWith('/') ? '' : '/') + job.filename.replace(/\\/g, '\\\\')}', '${job.title.replace(/'/g, "\\'")}')">Play Now</button>
+          <a href="${job.downloadUrl}" class="btn btn-primary btn-sm" download>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Save to Device</span>
+          </a>
+          <button class="btn btn-secondary btn-sm" onclick="playMedia('${job.streamUrl}', '${job.title.replace(/'/g, "\\'")}', '${job.downloadUrl}')">
+            <span>Watch</span>
+          </button>
         ` : ''}
       </div>
     </div>
@@ -724,7 +603,7 @@ function updateJobCard(job) {
   const badge = document.getElementById(`job-badge-${job.id}`);
   if (badge) {
     badge.className = `job-status-badge status-${job.status}`;
-    badge.textContent = job.status;
+    badge.textContent = job.status === 'completed' ? 'Ready' : job.status;
   }
 
   const fill = document.getElementById(`job-prog-fill-${job.id}`);
@@ -740,15 +619,25 @@ function updateJobCard(job) {
   if (spd) spd.textContent = job.progress.speed || '0 MB/s';
 
   const eta = document.getElementById(`job-metric-eta-${job.id}`);
-  if (eta) eta.textContent = job.progress.eta || (job.status === 'completed' ? 'Done' : '--:--');
+  if (eta) eta.textContent = job.progress.eta || (job.status === 'completed' ? 'Ready' : '--:--');
 
   const frag = document.getElementById(`job-metric-frag-${job.id}`);
   if (frag) {
-    if (job.progress.totalFrag > 0) {
-      frag.textContent = `${job.progress.currentFrag} / ${job.progress.totalFrag} (${job.progress.totalSize || ''})`;
-    } else {
-      frag.textContent = job.progress.totalSize || 'Ready';
-    }
+    frag.textContent = job.filesize || job.progress.totalSize || 'Ready';
+  }
+
+  // Update controls if completed
+  const controls = document.getElementById(`job-controls-${job.id}`);
+  if (controls && job.status === 'completed' && !controls.querySelector('.btn-primary')) {
+    controls.innerHTML = `
+      <a href="${job.downloadUrl}" class="btn btn-primary btn-sm" download>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span>Save to Device</span>
+      </a>
+      <button class="btn btn-secondary btn-sm" onclick="playMedia('${job.streamUrl}', '${job.title.replace(/'/g, "\\'")}', '${job.downloadUrl}')">
+        <span>Watch</span>
+      </button>
+    `;
   }
 
   const logsEl = document.getElementById(`job-logs-content-${job.id}`);
@@ -781,103 +670,12 @@ window.cancelJob = async function(jobId) {
   }
 };
 
-// 5. Local Library Viewer
-async function loadLibrary() {
-  if (!targetDirectory) {
-    libraryGrid.innerHTML = `
-      <div class="empty-state">
-        <p>No download directory configured yet. Click the <strong>⚙️ Settings</strong> button above to set your folder.</p>
-      </div>
-    `;
-    return;
-  }
-
-  try {
-    const res = await fetch(`/api/library?dir=${encodeURIComponent(targetDirectory)}`);
-    const data = await res.json();
-    libraryMedia = data.files || [];
-    renderLibraryGrid(libraryMedia);
-  } catch (err) {
-    console.warn('Library load error:', err);
-  }
-}
-
-function filterLibrary(query) {
-  const q = query.toLowerCase().trim();
-  if (!q) {
-    renderLibraryGrid(libraryMedia);
-    return;
-  }
-  const filtered = libraryMedia.filter(v => v.name.toLowerCase().includes(q));
-  renderLibraryGrid(filtered);
-}
-
-function renderLibraryGrid(files) {
-  libraryGrid.innerHTML = '';
-
-  if (!files || files.length === 0) {
-    libraryGrid.innerHTML = `
-      <div class="empty-state">
-        <p>No media files found in <strong>${targetDirectory}</strong>.</p>
-      </div>
-    `;
-    return;
-  }
-
-  files.forEach(file => {
-    const card = document.createElement('div');
-    card.className = 'video-card';
-
-    const isAudio = file.type === 'audio';
-
-    const modDate = new Date(file.modified).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-
-    const safePath = file.path.replace(/\\/g, '\\\\');
-    const safeTitle = file.name.replace(/'/g, "\\'");
-
-    card.innerHTML = `
-      <div class="video-card-thumb ${isAudio ? 'audio-thumb' : ''}" onclick="playMedia('${safePath}', '${safeTitle}')">
-        <span class="video-type-badge">${file.ext || (isAudio ? 'AUDIO' : 'VIDEO')}</span>
-        <div class="play-overlay-icon">
-          ${isAudio ? `
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-          ` : `
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-          `}
-        </div>
-      </div>
-      <div class="video-card-body">
-        <div class="video-card-title" title="${file.name}">${file.name}</div>
-        <div class="video-card-meta">
-          <span>${file.sizeFormatted}</span>
-          <span>${modDate}</span>
-        </div>
-        <div class="video-card-actions">
-          <button class="btn btn-primary" onclick="playMedia('${safePath}', '${safeTitle}')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            <span>Play</span>
-          </button>
-          <button class="btn btn-secondary" onclick="openFolderInExplorer('${safePath}')" title="Show file in folder">
-            <span>Locate</span>
-          </button>
-        </div>
-      </div>
-    `;
-
-    libraryGrid.appendChild(card);
-  });
-}
-
-// 6. In-Browser Media Player (Video & Audio)
-window.playMedia = function(filePath, title) {
+// 6. In-Browser Media Player
+window.playMedia = function(streamUrl, title, downloadUrl) {
   modalVideoTitle.textContent = title;
-  modalFileInfo.textContent = filePath;
-  html5Player.src = `/api/stream?file=${encodeURIComponent(filePath)}`;
+  modalFileInfo.textContent = title;
+  html5Player.src = streamUrl;
+  modalDownloadDeviceBtn.href = downloadUrl;
   videoModal.style.display = 'flex';
   html5Player.play().catch(e => console.log('Autoplay deferred:', e));
 };
@@ -886,31 +684,4 @@ function closePlayerModal() {
   html5Player.pause();
   html5Player.src = '';
   videoModal.style.display = 'none';
-}
-
-// 7. System Storage Query
-async function loadStorageInfo() {
-  try {
-    const res = await fetch('/api/system/storage');
-    const drives = await res.json();
-    if (drives && drives.length > 0) {
-      targetDriveName.textContent = drives[0].name || 'Storage';
-      storageVal.textContent = `${drives[0].freeGB} GB free / ${drives[0].totalGB} GB`;
-    }
-  } catch (err) {
-    storageVal.textContent = 'Ready';
-  }
-}
-
-// 8. Open Folder in Explorer
-async function openFolderInExplorer(folderPath) {
-  try {
-    await fetch('/api/open-folder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dir: folderPath })
-    });
-  } catch (err) {
-    console.warn('Failed to open folder:', err);
-  }
 }
