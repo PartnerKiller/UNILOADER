@@ -3,57 +3,42 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execSync } = require('child_process');
-const { extractMetadata } = require('./extractor');
+const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const TEMP_DIR = path.join(__dirname, 'temp_media');
+const MAX_CONCURRENT_DOWNLOADS = 4;
 
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
 app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1h',
+  etag: true
+}));
 
-// Locate yt-dlp and ffmpeg cross-platform
+// Cross-platform tool detection
 function getToolPaths() {
-  if (process.platform !== 'win32') {
-    let ytdlpPath = 'yt-dlp';
-    if (fs.existsSync('/usr/local/bin/yt-dlp')) ytdlpPath = '/usr/local/bin/yt-dlp';
-    else if (fs.existsSync('/usr/bin/yt-dlp')) ytdlpPath = '/usr/bin/yt-dlp';
-    return { ytdlpPath, ffmpegDir: '' };
-  }
-
-  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'AppData', 'Local');
-  
-  const ytdlpCandidates = [
-    path.join(localAppData, 'Microsoft', 'WinGet', 'Packages', 'yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe', 'yt-dlp.exe'),
-    path.join(localAppData, 'Microsoft', 'WinGet', 'Links', 'yt-dlp.exe'),
-    'yt-dlp'
-  ];
-
-  const ffmpegCandidates = [
-    path.join(localAppData, 'Microsoft', 'WinGet', 'Packages', 'Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe', 'ffmpeg-9.0-full_build', 'bin'),
-    path.join(localAppData, 'Microsoft', 'WinGet', 'Packages', 'yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe', 'ffmpeg-N-125875-g5d4d3bdc61-win64-gpl', 'bin'),
-    path.join(localAppData, 'Microsoft', 'WinGet', 'Links'),
-    ''
-  ];
-
-  let ytdlpPath = 'yt-dlp';
-  for (const c of ytdlpCandidates) {
-    if (fs.existsSync(c)) {
-      ytdlpPath = c;
-      break;
-    }
-  }
-
+  const ytdlpPath = getYtDlpPath();
   let ffmpegDir = '';
-  for (const c of ffmpegCandidates) {
-    if (c && fs.existsSync(c)) {
-      ffmpegDir = c;
-      break;
+
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'AppData', 'Local');
+    const ffmpegCandidates = [
+      path.join(localAppData, 'Microsoft', 'WinGet', 'Packages', 'Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe', 'ffmpeg-9.0-full_build', 'bin'),
+      path.join(localAppData, 'Microsoft', 'WinGet', 'Packages', 'yt-dlp.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe', 'ffmpeg-N-125875-g5d4d3bdc61-win64-gpl', 'bin'),
+      path.join(localAppData, 'Microsoft', 'WinGet', 'Links'),
+      ''
+    ];
+    for (const c of ffmpegCandidates) {
+      if (c && fs.existsSync(c)) {
+        ffmpegDir = c;
+        break;
+      }
     }
   }
 
@@ -63,7 +48,7 @@ function getToolPaths() {
 const tools = getToolPaths();
 console.log('Detected Tools:', tools);
 
-// In-memory job store
+// In-memory job & SSE client store
 const jobs = new Map();
 const sseClients = new Map(); // jobId -> Set(res)
 
@@ -71,7 +56,7 @@ function broadcastJobUpdate(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
   const clients = sseClients.get(jobId);
-  if (clients) {
+  if (clients && clients.size > 0) {
     const data = JSON.stringify({
       id: job.id,
       status: job.status,
@@ -86,12 +71,37 @@ function broadcastJobUpdate(jobId) {
       streamUrl: `/api/stream/${job.id}`
     });
     for (const res of clients) {
-      res.write(`data: ${data}\n\n`);
+      try {
+        res.write(`data: ${data}\n\n`);
+      } catch (e) {
+        clients.delete(res);
+      }
     }
   }
 }
 
-// 1. Metadata Extraction
+// Concurrency Queue Manager
+function getActiveDownloadCount() {
+  let count = 0;
+  for (const job of jobs.values()) {
+    if (job.status === 'downloading' && job.process) count++;
+  }
+  return count;
+}
+
+function processDownloadQueue() {
+  const active = getActiveDownloadCount();
+  if (active >= MAX_CONCURRENT_DOWNLOADS) return;
+
+  for (const job of jobs.values()) {
+    if (job.status === 'queued') {
+      startJobProcess(job);
+      if (getActiveDownloadCount() >= MAX_CONCURRENT_DOWNLOADS) break;
+    }
+  }
+}
+
+// 1. Metadata Extraction Endpoint
 app.post('/api/extract', async (req, res) => {
   try {
     const { url } = req.body;
@@ -99,204 +109,169 @@ app.post('/api/extract', async (req, res) => {
     const meta = await extractMetadata(url);
     res.json(meta);
   } catch (err) {
-    console.error('Extract error:', err);
+    console.error('Extract error:', err.message);
     res.status(500).json({ error: err.message || 'Failed to extract video information' });
   }
 });
 
-// Helper to spawn a download job
-function createAndStartJob(opts) {
+// Helper to start the actual process
+function startJobProcess(job) {
+  job.status = 'downloading';
+  job.startTime = Date.now();
+  job.progress.eta = 'Starting...';
+  broadcastJobUpdate(job.id);
+
+  const { opts } = job;
   let {
-    url, customFilename, concurrentFragments, hlsUrl, title, code, poster,
-    downloadTargetUrl, mode, videoQuality, videoFormat, audioFormat, audioBitrate,
-    embedThumbnail, embedMetadata, embedSubtitles, subLangs, autoSubs, sponsorBlock,
-    splitChapters, customArgs
+    url, hlsUrl, downloadTargetUrl, mode, videoQuality, videoFormat,
+    audioFormat, audioBitrate, embedThumbnail, embedMetadata, embedSubtitles,
+    subLangs, autoSubs, sponsorBlock, splitChapters, customArgs, concurrentFragments
   } = opts;
 
   mode = mode || 'video';
   concurrentFragments = parseInt(concurrentFragments, 10) || 8;
-
-  const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
-  const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-
-  const ext = mode === 'audio' ? (audioFormat || 'mp3') : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
-  const finalFilename = `${safeTitle}.${ext}`;
-  const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
-  const outputTemplate = path.join(TEMP_DIR, `${jobId}_${safeTitle}.%(ext)s`);
-
-  const job = {
-    id: jobId,
-    url,
-    hlsUrl,
-    title: safeTitle,
-    code: code || 'MEDIA',
-    poster: poster || '',
-    mode,
-    filePath,
-    filename: finalFilename,
-    filesize: '',
-    status: 'downloading',
-    progress: {
-      percent: 0,
-      speed: '0 MB/s',
-      eta: '--:--',
-      downloadedSize: '0 MB',
-      totalSize: '0 MB',
-      currentFrag: 0,
-      totalFrag: 0
-    },
-    logs: [],
-    error: null,
-    startTime: Date.now(),
-    completedTime: null,
-    process: null
-  };
-
-  jobs.set(jobId, job);
-
-  // Build yt-dlp arguments
-  const args = [
-    '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    '--concurrent-fragments', String(concurrentFragments),
-    '--retries', '10',
-    '--fragment-retries', '10',
-    '--newline',
-    '--impersonate', 'chrome',
-    '-o', outputTemplate
-  ];
-
-  if (tools.ffmpegDir) {
-    args.unshift(tools.ffmpegDir);
-    args.unshift('--ffmpeg-location');
-  }
-
-  // Dynamic Referers for JAV streaming CDNs & sites
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
-  if (rawTarget.includes('surrit.com') || rawTarget.includes('sixyik.com') || (url && url.includes('missav'))) {
-    args.push('--add-header', 'Referer: https://missav.ws/');
-  } else if (url && url.includes('jable.tv')) {
-    args.push('--add-header', 'Referer: https://en.jable.tv/');
-  } else if (url && (url.includes('supjav') || url.includes('supremejav') || rawTarget.includes('turbovid') || rawTarget.includes('turboviplay'))) {
-    args.push('--add-header', 'Referer: https://supjav.com/');
-  } else if (url && url.includes('javgg')) {
-    args.push('--add-header', 'Referer: https://javgg.net/');
-  } else if (url && url.includes('njav')) {
-    args.push('--add-header', 'Referer: https://njav.tv/');
-  } else if ((url && url.includes('jav.guru')) || rawTarget.includes('maxstream.org')) {
-    args.push('--add-header', 'Referer: https://maxstream.org/');
-  } else if (url && (url.includes('xvideos') || url.includes('xnxx'))) {
-    args.push('--add-header', 'Referer: https://www.xvideos.com/');
-  } else if (url && url.includes('xhamster')) {
-    args.push('--add-header', 'Referer: https://xhamster.com/');
-  }
-
-  // 1. Audio-only mode
-  if (mode === 'audio') {
-    args.push('-x');
-    const aFmt = audioFormat || 'mp3';
-    args.push('--audio-format', aFmt);
-    const aBit = audioBitrate || '320k';
-    args.push('--audio-quality', aBit === 'best' ? '0' : aBit);
-  } else {
-    // 2. Video quality & container selection
-    if (videoQuality && videoQuality !== 'best') {
-      const maxHeight = parseInt(videoQuality, 10);
-      args.push('-f', `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
-    } else {
-      args.push('-f', 'bestvideo+bestaudio/best');
-    }
-
-    if (videoFormat && videoFormat !== 'auto') {
-      args.push('--merge-output-format', videoFormat);
-    }
-  }
-
-  // 3. Subtitles
-  if (embedSubtitles) {
-    args.push('--embed-subs');
-    if (subLangs && subLangs.trim()) {
-      args.push('--sub-langs', subLangs.trim());
-    } else {
-      args.push('--sub-langs', 'all,-live_chat');
-    }
-    if (autoSubs) {
-      args.push('--write-auto-subs');
-    }
-  }
-
-  // 4. Metadata & Thumbnails
-  if (embedThumbnail !== false) {
-    args.push('--embed-thumbnail');
-  }
-  if (embedMetadata !== false) {
-    args.push('--embed-metadata');
-    args.push('--embed-chapters');
-  }
-
-  // 5. SponsorBlock
-  if (sponsorBlock) {
-    args.push('--sponsorblock-remove', 'all');
-  }
-
-  // 6. Chapter splitting
-  if (splitChapters) {
-    args.push('--split-chapters');
-  }
-
-  // 7. Custom yt-dlp flags
-  if (customArgs && typeof customArgs === 'string') {
-    const extra = customArgs.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
-    for (const arg of extra) {
-      args.push(arg.replace(/^["']|["']$/g, ''));
-    }
-  }
-
-  // Determine target URL:
-  const isJable = url && url.includes('jable.tv');
-  const targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
-  args.push(targetUrl);
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
 
-  let child;
   if (isJavGuru) {
-    const pythonBin = fs.existsSync('C:\\Users\\sayan\\AppData\\Local\\Programs\\Python\\Python312\\python.exe')
-      ? 'C:\\Users\\sayan\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
-      : 'python';
+    const pythonBin = getPythonBin();
     const hlsScript = path.join(__dirname, 'hls_downloader.py');
-    const finalOutPath = path.join(TEMP_DIR, `${jobId}_${safeTitle}.mp4`);
+    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${job.title}.mp4`);
 
-    job.logs.push(`Starting JavGuru Stream Engine...`);
+    job.logs.push(`Starting JavGuru High-Speed Stream Engine...`);
     job.logs.push(`Target: ${url || rawTarget}`);
 
-    child = spawn(pythonBin, [hlsScript, url || rawTarget, finalOutPath], { windowsHide: true });
+    const child = spawn(pythonBin, [hlsScript, url || rawTarget, finalOutPath], { windowsHide: true });
+    job.process = child;
+    attachProcessListeners(job, child);
   } else {
+    const outputTemplate = path.join(TEMP_DIR, `${job.id}_${job.title}.%(ext)s`);
+    const args = [
+      '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      '--concurrent-fragments', String(concurrentFragments),
+      '--retries', '10',
+      '--fragment-retries', '10',
+      '--newline',
+      '--impersonate', 'chrome',
+      '-o', outputTemplate
+    ];
+
+    if (tools.ffmpegDir) {
+      args.unshift(tools.ffmpegDir);
+      args.unshift('--ffmpeg-location');
+    }
+
+    // Dynamic Referers for JAV streaming CDNs & adult networks
+    if (rawTarget.includes('surrit.com') || rawTarget.includes('sixyik.com') || (url && url.includes('missav'))) {
+      args.push('--add-header', 'Referer: https://missav.ws/');
+    } else if (url && url.includes('jable.tv')) {
+      args.push('--add-header', 'Referer: https://en.jable.tv/');
+    } else if (url && (url.includes('supjav') || url.includes('supremejav') || rawTarget.includes('turbovid') || rawTarget.includes('turboviplay'))) {
+      args.push('--add-header', 'Referer: https://supjav.com/');
+    } else if (url && url.includes('javgg')) {
+      args.push('--add-header', 'Referer: https://javgg.net/');
+    } else if (url && url.includes('njav')) {
+      args.push('--add-header', 'Referer: https://njav.tv/');
+    } else if (url && (url.includes('xvideos') || url.includes('xnxx'))) {
+      args.push('--add-header', 'Referer: https://www.xvideos.com/');
+    } else if (url && url.includes('xhamster')) {
+      args.push('--add-header', 'Referer: https://xhamster.com/');
+    }
+
+    // Mode options
+    if (mode === 'audio') {
+      args.push('-x');
+      const aFmt = audioFormat || 'mp3';
+      args.push('--audio-format', aFmt);
+      const aBit = audioBitrate || '320k';
+      args.push('--audio-quality', aBit === 'best' ? '0' : aBit);
+    } else {
+      if (videoQuality && videoQuality !== 'best') {
+        const maxHeight = parseInt(videoQuality, 10);
+        args.push('-f', `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
+      } else {
+        args.push('-f', 'bestvideo+bestaudio/best');
+      }
+
+      if (videoFormat && videoFormat !== 'auto') {
+        args.push('--merge-output-format', videoFormat);
+      }
+    }
+
+    // Subtitles
+    if (embedSubtitles) {
+      args.push('--embed-subs');
+      if (subLangs && subLangs.trim()) {
+        args.push('--sub-langs', subLangs.trim());
+      } else {
+        args.push('--sub-langs', 'all,-live_chat');
+      }
+      if (autoSubs) {
+        args.push('--write-auto-subs');
+      }
+    }
+
+    // Metadata & Thumbnails
+    if (embedThumbnail !== false) args.push('--embed-thumbnail');
+    if (embedMetadata !== false) {
+      args.push('--embed-metadata');
+      args.push('--embed-chapters');
+    }
+
+    // SponsorBlock
+    if (sponsorBlock) args.push('--sponsorblock-remove', 'all');
+
+    // Split Chapters
+    if (splitChapters) args.push('--split-chapters');
+
+    // Custom flags
+    if (customArgs && typeof customArgs === 'string') {
+      const extra = customArgs.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+      for (const arg of extra) {
+        args.push(arg.replace(/^["']|["']$/g, ''));
+      }
+    }
+
+    const isJable = url && url.includes('jable.tv');
+    const targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
+    args.push(targetUrl);
+
     job.logs.push(`Starting ${mode.toUpperCase()} processing...`);
     job.logs.push(`Arguments: ${args.join(' ')}`);
-    child = spawn(tools.ytdlpPath, args, { windowsHide: true });
+
+    const child = spawn(tools.ytdlpPath, args, { windowsHide: true });
+    job.process = child;
+    attachProcessListeners(job, child);
   }
-  job.process = child;
+}
+
+function attachProcessListeners(job, child) {
+  const jobId = job.id;
 
   const parseProgress = (line) => {
-    const percentMatch = line.match(/([0-9.]+)%/);
-    if (percentMatch) {
-      job.progress.percent = parseFloat(percentMatch[1]);
+    const pMatch = line.match(/\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)\s+ETA\s+([\d:]+|\w+)/i);
+    if (pMatch) {
+      job.progress.percent = parseFloat(pMatch[1]) || 0;
+      if (pMatch[2]) job.progress.totalSize = pMatch[2].trim();
+      if (pMatch[3]) job.progress.speed = pMatch[3].trim();
+      if (pMatch[4]) job.progress.eta = pMatch[4].trim();
+      return;
     }
 
-    const speedMatch = line.match(/at\s+([0-9.]+\s*[KMGT]?i?B\/s)/i);
-    if (speedMatch) {
-      job.progress.speed = speedMatch[1];
+    const pMatch2 = line.match(/\[download\]\s+([\d.]+)%/i);
+    if (pMatch2) {
+      job.progress.percent = parseFloat(pMatch2[1]) || 0;
     }
 
-    const etaMatch = line.match(/ETA\s+([0-9:]+)/i);
-    if (etaMatch) {
-      job.progress.eta = etaMatch[1];
-    }
+    const speedMatch = line.match(/at\s+([\d.]+\s*(?:KiB|MiB|GiB|B|KB|MB|GB)\/s)/i);
+    if (speedMatch) job.progress.speed = speedMatch[1];
 
-    const totalSizeMatch = line.match(/of\s+~?\s*([0-9.]+\s*[KMGT]?i?B)/i);
-    if (totalSizeMatch) {
-      job.progress.totalSize = totalSizeMatch[1];
-    }
+    const etaMatch = line.match(/ETA\s+([\d:]+)/i);
+    if (etaMatch) job.progress.eta = etaMatch[1];
+
+    const sizeMatch = line.match(/of\s+~?\s*([\d.]+\s*(?:KiB|MiB|GiB|B|KB|MB|GB))/i);
+    if (sizeMatch) job.progress.totalSize = sizeMatch[1];
 
     const fragMatch = line.match(/\(frag\s+([0-9]+)\/([0-9]+)\)/i);
     if (fragMatch) {
@@ -309,7 +284,7 @@ function createAndStartJob(opts) {
     const lines = data.toString().split(/[\r\n]+/).filter(Boolean);
     for (const line of lines) {
       job.logs.push(line);
-      if (job.logs.length > 200) job.logs.shift();
+      if (job.logs.length > 80) job.logs.shift();
       parseProgress(line);
     }
     broadcastJobUpdate(jobId);
@@ -319,7 +294,7 @@ function createAndStartJob(opts) {
     const lines = data.toString().split(/[\r\n]+/).filter(Boolean);
     for (const line of lines) {
       job.logs.push(`[ERR] ${line}`);
-      if (job.logs.length > 200) job.logs.shift();
+      if (job.logs.length > 80) job.logs.shift();
     }
     broadcastJobUpdate(jobId);
   });
@@ -327,13 +302,13 @@ function createAndStartJob(opts) {
   child.on('close', (code) => {
     job.completedTime = Date.now();
     job.process = null;
+
     if (code === 0) {
       job.status = 'completed';
       job.progress.percent = 100;
       job.progress.eta = 'Ready';
       job.logs.push('Processing completed! Ready to save to device.');
 
-      // Find actual created file on disk
       try {
         const files = fs.readdirSync(TEMP_DIR);
         const matched = files.find(f => f.startsWith(`${jobId}_`));
@@ -354,12 +329,65 @@ function createAndStartJob(opts) {
       }
     }
     broadcastJobUpdate(jobId);
+    processDownloadQueue();
   });
+}
+
+function createAndStartJob(opts) {
+  let {
+    url, customFilename, title, code, poster, mode, videoFormat, audioFormat
+  } = opts;
+
+  mode = mode || 'video';
+  const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
+  const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
+  const ext = mode === 'audio' ? (audioFormat || 'mp3') : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
+  const finalFilename = `${safeTitle}.${ext}`;
+  const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
+
+  const job = {
+    id: jobId,
+    url,
+    opts,
+    title: safeTitle,
+    code: code || 'MEDIA',
+    poster: poster || '',
+    mode,
+    filePath,
+    filename: finalFilename,
+    filesize: '',
+    status: 'queued',
+    progress: {
+      percent: 0,
+      speed: '0 MB/s',
+      eta: 'Queued',
+      downloadedSize: '0 MB',
+      totalSize: '0 MB',
+      currentFrag: 0,
+      totalFrag: 0
+    },
+    logs: [],
+    error: null,
+    startTime: Date.now(),
+    completedTime: null,
+    process: null
+  };
+
+  jobs.set(jobId, job);
+
+  // Check if we can start immediately or queue
+  if (getActiveDownloadCount() < MAX_CONCURRENT_DOWNLOADS) {
+    startJobProcess(job);
+  } else {
+    job.logs.push('Task queued (waiting for active downloads to complete)...');
+    broadcastJobUpdate(jobId);
+  }
 
   return job;
 }
 
-// 2. Start Single Download Job
+// 2. Start Download Job
 app.post('/api/download', async (req, res) => {
   try {
     const payload = req.body;
@@ -368,12 +396,14 @@ app.post('/api/download', async (req, res) => {
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
     if (!title) {
-      const meta = await extractMetadata(url);
-      payload.hlsUrl = meta.hlsUrl;
-      payload.title = meta.title;
-      payload.code = meta.code;
-      payload.poster = meta.poster;
-      payload.downloadTargetUrl = meta.downloadTargetUrl;
+      try {
+        const meta = await extractMetadata(url);
+        payload.hlsUrl = meta.hlsUrl;
+        payload.title = meta.title;
+        payload.code = meta.code;
+        payload.poster = meta.poster;
+        payload.downloadTargetUrl = meta.downloadTargetUrl;
+      } catch (e) {}
     }
 
     const job = createAndStartJob(payload);
@@ -386,120 +416,119 @@ app.post('/api/download', async (req, res) => {
     });
   } catch (err) {
     console.error('Download dispatch error:', err);
-    res.status(500).json({ error: err.message || 'Failed to start download' });
+    res.status(500).json({ error: err.message || 'Failed to initialize download' });
   }
 });
 
-// 2b. Start Batch Download Jobs
-app.post('/api/download/batch', async (req, res) => {
+// 3. Batch Download
+app.post('/api/batch-download', async (req, res) => {
   try {
-    const { urls, options } = req.body;
-    if (!Array.isArray(urls) || urls.length === 0) {
-      return res.status(400).json({ error: 'Array of URLs is required' });
+    const { urls, ...opts } = req.body;
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ error: 'No URLs provided' });
     }
 
-    const queuedJobs = [];
-    for (const urlItem of urls) {
-      const rawUrl = (typeof urlItem === 'string' ? urlItem : urlItem.url || '').trim();
-      if (!rawUrl) continue;
+    const createdJobs = [];
+    for (const u of urls) {
+      const trimmed = u.trim();
+      if (!trimmed) continue;
 
       let meta = null;
-      try {
-        meta = await extractMetadata(rawUrl);
-      } catch (e) {
-        meta = { title: rawUrl.split('/').pop() || 'media', code: 'MEDIA', hlsUrl: rawUrl };
-      }
+      try { meta = await extractMetadata(trimmed); } catch (e) {}
 
-      const jobPayload = {
-        ...(options || {}),
-        url: rawUrl,
-        hlsUrl: meta.hlsUrl,
-        downloadTargetUrl: meta.downloadTargetUrl || rawUrl,
-        title: meta.title,
-        code: meta.code,
-        poster: meta.poster
+      const jobOpts = {
+        ...opts,
+        url: trimmed,
+        hlsUrl: meta ? meta.hlsUrl : '',
+        title: meta ? meta.title : '',
+        code: meta ? meta.code : '',
+        poster: meta ? meta.poster : '',
+        downloadTargetUrl: meta ? meta.downloadTargetUrl : ''
       };
 
-      const job = createAndStartJob(jobPayload);
-      queuedJobs.push({ jobId: job.id, title: job.title, filename: job.filename });
+      const job = createAndStartJob(jobOpts);
+      createdJobs.push({
+        id: job.id,
+        url: trimmed,
+        title: job.title,
+        filename: job.filename
+      });
     }
 
-    res.json({ success: true, count: queuedJobs.length, jobs: queuedJobs });
+    res.json({ success: true, count: createdJobs.length, jobs: createdJobs });
   } catch (err) {
-    console.error('Batch download error:', err);
-    res.status(500).json({ error: err.message || 'Failed to start batch downloads' });
+    console.error('Batch error:', err);
+    res.status(500).json({ error: err.message || 'Failed to process batch' });
   }
 });
 
-// 3. List All Jobs
-app.get('/api/jobs', (req, res) => {
-  const jobList = Array.from(jobs.values()).map(j => ({
-    id: j.id,
-    url: j.url,
-    title: j.title,
-    code: j.code,
-    poster: j.poster,
-    mode: j.mode,
-    filename: j.filename,
-    filesize: j.filesize || '',
-    status: j.status,
-    progress: j.progress,
-    error: j.error,
-    startTime: j.startTime,
-    completedTime: j.completedTime,
-    downloadUrl: `/api/download-file/${j.id}`,
-    streamUrl: `/api/stream/${j.id}`,
-    lastLog: j.logs[j.logs.length - 1] || ''
-  }));
-  res.json(jobList.reverse());
-});
-
-// 4. SSE Stream for Live Job Progress
+// 4. SSE Events Stream with Keep-Alive Heartbeat
 app.get('/api/jobs/:id/events', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
 
-  if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
+  if (!job) return res.status(404).send('Job not found');
 
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
   if (!sseClients.has(jobId)) {
     sseClients.set(jobId, new Set());
   }
-  sseClients.get(jobId).add(res);
+  const clientSet = sseClients.get(jobId);
+  clientSet.add(res);
 
-  const initialData = JSON.stringify({
-    id: job.id,
-    status: job.status,
-    mode: job.mode,
-    progress: job.progress,
-    logs: job.logs.slice(-30),
-    error: job.error,
-    title: job.title,
-    filename: job.filename,
-    filesize: job.filesize || '',
-    downloadUrl: `/api/download-file/${job.id}`,
-    streamUrl: `/api/stream/${job.id}`
-  });
-  res.write(`data: ${initialData}\n\n`);
+  // Send initial snapshot
+  broadcastJobUpdate(jobId);
+
+  // Heartbeat ping every 15s to keep proxy/browser connections alive
+  const pingTimer = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch (e) {
+      clearInterval(pingTimer);
+    }
+  }, 15000);
 
   req.on('close', () => {
-    const clients = sseClients.get(jobId);
-    if (clients) {
-      clients.delete(res);
-      if (clients.size === 0) {
-        sseClients.delete(jobId);
-      }
+    clearInterval(pingTimer);
+    clientSet.delete(res);
+    if (clientSet.size === 0) {
+      sseClients.delete(jobId);
     }
   });
 });
 
-// 5. Cancel Job (Reliably kills process and removes partial files)
+// Get all jobs
+app.get('/api/jobs', (req, res) => {
+  const list = [];
+  for (const job of jobs.values()) {
+    list.push({
+      id: job.id,
+      url: job.url,
+      title: job.title,
+      code: job.code,
+      poster: job.poster,
+      mode: job.mode,
+      filename: job.filename,
+      filesize: job.filesize || '',
+      status: job.status,
+      progress: job.progress,
+      error: job.error,
+      startTime: job.startTime,
+      completedTime: job.completedTime,
+      downloadUrl: `/api/download-file/${job.id}`,
+      streamUrl: `/api/stream/${job.id}`,
+      lastLog: job.logs.length > 0 ? job.logs[job.logs.length - 1] : ''
+    });
+  }
+  res.json(list);
+});
+
+// 5. Cancel Job (Tree termination & partial cleanup)
 app.post('/api/jobs/:id/cancel', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
@@ -522,21 +551,27 @@ app.post('/api/jobs/:id/cancel', (req, res) => {
     job.process = null;
   }
 
-  // Remove any partial temp files for this job
+  // Clean temp files & parts folders
   try {
     const files = fs.readdirSync(TEMP_DIR);
     for (const f of files) {
       if (f.startsWith(`${jobId}_`)) {
-        fs.unlinkSync(path.join(TEMP_DIR, f));
+        const fullPath = path.join(TEMP_DIR, f);
+        if (fs.lstatSync(fullPath).isDirectory()) {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(fullPath);
+        }
       }
     }
   } catch (e) {}
 
   broadcastJobUpdate(jobId);
+  processDownloadQueue();
   res.json({ success: true, message: 'Download cancelled and cleaned up' });
 });
 
-// 5b. Remove / Delete Single Job
+// Remove Single Job
 app.delete('/api/jobs/:id', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
@@ -554,29 +589,39 @@ app.delete('/api/jobs/:id', (req, res) => {
     }
   }
 
-  // Remove temp files
   try {
     const files = fs.readdirSync(TEMP_DIR);
     for (const f of files) {
       if (f.startsWith(`${jobId}_`)) {
-        fs.unlinkSync(path.join(TEMP_DIR, f));
+        const fullPath = path.join(TEMP_DIR, f);
+        if (fs.lstatSync(fullPath).isDirectory()) {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(fullPath);
+        }
       }
     }
   } catch (e) {}
 
   jobs.delete(jobId);
+  processDownloadQueue();
   res.json({ success: true, message: 'Job deleted' });
 });
 
-// 5c. Clear All Inactive Jobs
+// Clear All Inactive Jobs
 app.delete('/api/jobs', (req, res) => {
   for (const [id, job] of jobs.entries()) {
-    if (job.status !== 'downloading') {
+    if (job.status !== 'downloading' && job.status !== 'queued') {
       try {
         const files = fs.readdirSync(TEMP_DIR);
         for (const f of files) {
           if (f.startsWith(`${id}_`)) {
-            fs.unlinkSync(path.join(TEMP_DIR, f));
+            const fullPath = path.join(TEMP_DIR, f);
+            if (fs.lstatSync(fullPath).isDirectory()) {
+              fs.rmSync(fullPath, { recursive: true, force: true });
+            } else {
+              fs.unlinkSync(fullPath);
+            }
           }
         }
       } catch (e) {}
@@ -586,7 +631,7 @@ app.delete('/api/jobs', (req, res) => {
   res.json({ success: true, message: 'Cleared completed jobs' });
 });
 
-// 6. Direct Browser File Download Endpoint (Delivers directly to user's device Downloads folder)
+// 6. Direct Browser File Download
 app.get('/api/download-file/:id', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
@@ -594,7 +639,7 @@ app.get('/api/download-file/:id', (req, res) => {
   if (!job) {
     try {
       const files = fs.readdirSync(TEMP_DIR);
-      const matched = files.find(f => f.startsWith(`${jobId}_`));
+      const matched = files.find(f => f.startsWith(`${jobId}_`) && !f.endsWith('_parts'));
       if (matched) {
         const fullPath = path.join(TEMP_DIR, matched);
         const clientFilename = matched.replace(`${jobId}_`, '');
@@ -608,10 +653,9 @@ app.get('/api/download-file/:id', (req, res) => {
     return res.download(job.filePath, job.filename);
   }
 
-  // Fallback scan
   try {
     const files = fs.readdirSync(TEMP_DIR);
-    const matched = files.find(f => f.startsWith(`${jobId}_`));
+    const matched = files.find(f => f.startsWith(`${jobId}_`) && !f.endsWith('_parts'));
     if (matched) {
       const fullPath = path.join(TEMP_DIR, matched);
       return res.download(fullPath, job.filename || matched.replace(`${jobId}_`, ''));
@@ -621,7 +665,7 @@ app.get('/api/download-file/:id', (req, res) => {
   res.status(404).send('File is still processing or has expired');
 });
 
-// 7. Media Streaming Endpoint (Video & Audio In-Browser Preview)
+// 7. Media Streaming Endpoint
 app.get('/api/stream/:id', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
@@ -630,7 +674,7 @@ app.get('/api/stream/:id', (req, res) => {
   if (!filePath || !fs.existsSync(filePath)) {
     try {
       const files = fs.readdirSync(TEMP_DIR);
-      const matched = files.find(f => f.startsWith(`${jobId}_`));
+      const matched = files.find(f => f.startsWith(`${jobId}_`) && !f.endsWith('_parts'));
       if (matched) filePath = path.join(TEMP_DIR, matched);
     } catch (e) {}
   }
@@ -662,7 +706,7 @@ app.get('/api/stream/:id', (req, res) => {
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
     const chunksize = (end - start) + 1;
-    const file = fs.createReadStream(filePath, { start, end });
+    const file = fs.createReadStream(filePath, { start, end, highWaterMark: 1024 * 1024 });
     const head = {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
@@ -677,11 +721,11 @@ app.get('/api/stream/:id', (req, res) => {
       'Content-Type': contentType,
     };
     res.writeHead(200, head);
-    fs.createReadStream(filePath).pipe(res);
+    fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 }).pipe(res);
   }
 });
 
-// Periodic cleanup of temp files older than 6 hours
+// Periodic cleanup of temp files and parts folders older than 2 hours
 setInterval(() => {
   try {
     const now = Date.now();
@@ -689,12 +733,37 @@ setInterval(() => {
     for (const f of files) {
       const full = path.join(TEMP_DIR, f);
       const stat = fs.statSync(full);
-      if (now - stat.mtimeMs > 6 * 3600 * 1000) {
-        fs.unlinkSync(full);
+      if (now - stat.mtimeMs > 2 * 3600 * 1000) {
+        if (stat.isDirectory()) {
+          fs.rmSync(full, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(full);
+        }
       }
     }
   } catch (e) {}
-}, 30 * 60 * 1000);
+}, 15 * 60 * 1000);
+
+// Graceful Shutdown
+function gracefulShutdown() {
+  console.log('Shutting down server, terminating active download processes...');
+  for (const job of jobs.values()) {
+    if (job.process) {
+      const pid = job.process.pid;
+      try {
+        if (process.platform === 'win32') {
+          execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+        } else {
+          execSync(`kill -9 ${pid} 2>/dev/null`, { stdio: 'ignore' });
+        }
+      } catch (e) {}
+    }
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);

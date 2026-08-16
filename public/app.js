@@ -409,10 +409,10 @@ async function startBatchDownload() {
   startBatchBtn.querySelector('span').textContent = 'Processing queue...';
 
   try {
-    const res = await fetch('/api/download/batch', {
+    const res = await fetch('/api/batch-download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls, options })
+      body: JSON.stringify({ urls, ...options })
     });
 
     const data = await res.json();
@@ -463,8 +463,8 @@ function triggerDeviceDownload(job) {
   document.body.removeChild(autoAnchor);
 }
 
-// 4. SSE Stream Connection for Live Progress
-function subscribeToJob(jobId) {
+// 4. SSE Stream Connection for Live Progress with Auto-Reconnect Backoff
+function subscribeToJob(jobId, retryCount = 0) {
   if (activeEventSources.has(jobId)) return;
 
   const es = new EventSource(`/api/jobs/${jobId}/events`);
@@ -491,6 +491,12 @@ function subscribeToJob(jobId) {
   es.onerror = () => {
     es.close();
     activeEventSources.delete(jobId);
+    // If job card is still in downloading state, retry SSE connection with backoff
+    const card = document.getElementById(`job-card-${jobId}`);
+    if (card && card.classList.contains('downloading') && retryCount < 6) {
+      const delay = Math.min(1000 * Math.pow(1.5, retryCount), 8000);
+      setTimeout(() => subscribeToJob(jobId, retryCount + 1), delay);
+    }
   };
 }
 

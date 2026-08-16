@@ -1,6 +1,34 @@
-const { execSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+
+// In-memory TTL Cache (10 minutes)
+const metaCache = new Map();
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+function getCachedMetadata(url) {
+  const entry = metaCache.get(url);
+  if (entry) {
+    if (Date.now() < entry.expiresAt) {
+      return entry.data;
+    }
+    metaCache.delete(url);
+  }
+  return null;
+}
+
+function setCachedMetadata(url, data) {
+  if (!data || !data.title) return;
+  // Cap cache size to 500 items to prevent RAM growth
+  if (metaCache.size > 500) {
+    const firstKey = metaCache.keys().next().value;
+    metaCache.delete(firstKey);
+  }
+  metaCache.set(url, {
+    data,
+    expiresAt: Date.now() + CACHE_TTL_MS
+  });
+}
 
 function getYtDlpPath() {
   if (process.platform !== 'win32') {
@@ -36,8 +64,115 @@ function getPythonBin() {
   return 'python';
 }
 
+function runPythonFetcherAsync(pyBin, scriptPath, url, timeoutMs = 25000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(pyBin, [scriptPath, url], { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch (e) {}
+      reject(new Error('Python fetcher timed out'));
+    }, timeoutMs);
+
+    child.stdout.on('data', (d) => stdout += d.toString());
+    child.stderr.on('data', (d) => stderr += d.toString());
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && stdout.trim()) {
+        try {
+          const json = JSON.parse(stdout.trim());
+          if (json && !json.error && json.title) {
+            return resolve(json);
+          }
+        } catch (e) {}
+      }
+      reject(new Error(stderr.trim() || `Python fetcher exited with code ${code}`));
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--dump-single-json',
+      '--skip-download',
+      '--no-warnings',
+      '--no-playlist',
+      '--impersonate', 'chrome',
+      url
+    ];
+
+    const child = spawn(ytdlpPath, args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch (e) {}
+      reject(new Error('yt-dlp extraction timed out'));
+    }, timeoutMs);
+
+    child.stdout.on('data', (d) => stdout += d.toString());
+    child.stderr.on('data', (d) => stderr += d.toString());
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0 || !stdout.trim()) {
+        return reject(new Error(stderr.trim() || `Failed to extract video info (code ${code})`));
+      }
+
+      try {
+        const info = JSON.parse(stdout);
+        const title = info.fulltitle || info.title || 'video_' + Date.now();
+        const codeId = info.display_id || info.id || (url.includes('pornhub') ? (url.match(/viewkey=([^&]+)/) ? url.match(/viewkey=([^&]+)/)[1] : 'PORNHUB') : 'VIDEO');
+
+        let poster = info.thumbnail || '';
+        if (!poster && Array.isArray(info.thumbnails) && info.thumbnails.length > 0) {
+          poster = info.thumbnails[info.thumbnails.length - 1].url;
+        }
+
+        const tags = Array.isArray(info.tags) ? info.tags.slice(0, 10) : (Array.isArray(info.categories) ? info.categories.slice(0, 10) : []);
+        const model = info.uploader || info.channel || info.creator || '';
+        const duration = info.duration_string || (info.duration ? `${Math.floor(info.duration / 60)}m ${info.duration % 60}s` : '');
+
+        let hlsUrl = info.url || url;
+        if (info.formats && Array.isArray(info.formats)) {
+          const hlsFmt = info.formats.find(f => f.protocol === 'm3u8_native' || (f.url && f.url.includes('.m3u8')));
+          if (hlsFmt) hlsUrl = hlsFmt.url;
+        }
+
+        resolve({
+          title: title.trim(),
+          code: String(codeId).toUpperCase(),
+          poster,
+          hlsUrl,
+          downloadTargetUrl: url,
+          tags,
+          model,
+          duration,
+          extractor: info.extractor || 'Universal',
+          sourceUrl: url
+        });
+      } catch (err) {
+        reject(new Error(`Failed to parse metadata: ${err.message}`));
+      }
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new Error(`Failed to spawn extractor: ${err.message}`));
+    });
+  });
+}
+
 /**
- * Extracts metadata and stream information for Jable, Pornhub, Javgg, and universal video sites.
+ * Extracts metadata and stream information with caching, non-blocking async execution, and robust fallbacks.
  */
 async function extractMetadata(inputUrl) {
   const url = inputUrl.trim();
@@ -58,93 +193,36 @@ async function extractMetadata(inputUrl) {
     };
   }
 
-  // 2. Try Python fetcher first (supports curl_cffi for Jable, Pornhub, Javgg, and Cloudflare TLS bypass)
+  // 2. Check in-memory cache
+  const cached = getCachedMetadata(url);
+  if (cached) {
+    return cached;
+  }
+
+  // 3. Try Python fetcher first (non-blocking async)
   const fetcherScript = path.join(__dirname, 'fetcher.py');
   if (fs.existsSync(fetcherScript)) {
     const pyBin = getPythonBin();
     try {
-      const output = execSync(`"${pyBin}" "${fetcherScript}" "${url}"`, {
-        encoding: 'utf-8',
-        maxBuffer: 25 * 1024 * 1024,
-        timeout: 30000
-      });
-      const json = JSON.parse(output.trim());
-      if (json && !json.error && json.title) {
-        return json;
+      const meta = await runPythonFetcherAsync(pyBin, fetcherScript, url);
+      if (meta && meta.title) {
+        setCachedMetadata(url, meta);
+        return meta;
       }
     } catch (e) {
-      console.warn('Python fetcher warning:', e.message);
+      // Fallback silently to yt-dlp
     }
   }
 
-  // 3. Fallback to yt-dlp JSON dump with chrome impersonation
-  return new Promise((resolve, reject) => {
-    const ytdlpPath = getYtDlpPath();
-    const args = [
-      '--dump-single-json',
-      '--skip-download',
-      '--no-warnings',
-      '--no-playlist',
-      '--impersonate', 'chrome',
-      url
-    ];
-
-    const child = spawn(ytdlpPath, args, { windowsHide: true });
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (d) => stdout += d.toString());
-    child.stderr.on('data', (d) => stderr += d.toString());
-
-    child.on('close', (code) => {
-      if (code !== 0 || !stdout.trim()) {
-        return reject(new Error(stderr.trim() || `Failed to extract video information (exit code ${code})`));
-      }
-
-      try {
-        const info = JSON.parse(stdout);
-        const title = info.fulltitle || info.title || 'video_' + Date.now();
-        const code = info.display_id || info.id || (url.includes('pornhub') ? (url.match(/viewkey=([^&]+)/) ? url.match(/viewkey=([^&]+)/)[1] : 'PORNHUB') : 'VIDEO');
-        
-        let poster = info.thumbnail || '';
-        if (!poster && Array.isArray(info.thumbnails) && info.thumbnails.length > 0) {
-          poster = info.thumbnails[info.thumbnails.length - 1].url;
-        }
-
-        const tags = Array.isArray(info.tags) ? info.tags.slice(0, 10) : (Array.isArray(info.categories) ? info.categories.slice(0, 10) : []);
-        const model = info.uploader || info.channel || info.creator || '';
-        const duration = info.duration_string || (info.duration ? `${Math.floor(info.duration / 60)}m ${info.duration % 60}s` : '');
-
-        let hlsUrl = info.url || url;
-        if (info.formats && Array.isArray(info.formats)) {
-          const hlsFmt = info.formats.find(f => f.protocol === 'm3u8_native' || (f.url && f.url.includes('.m3u8')));
-          if (hlsFmt) hlsUrl = hlsFmt.url;
-        }
-
-        resolve({
-          title: title.trim(),
-          code: String(code).toUpperCase(),
-          poster,
-          hlsUrl,
-          downloadTargetUrl: url,
-          tags,
-          model,
-          duration,
-          extractor: info.extractor || 'Universal',
-          sourceUrl: url
-        });
-      } catch (err) {
-        reject(new Error(`Failed to parse metadata: ${err.message}`));
-      }
-    });
-
-    child.on('error', (err) => {
-      reject(new Error(`Failed to spawn extractor engine: ${err.message}`));
-    });
-  });
+  // 4. Fallback to yt-dlp async dump
+  const ytdlpPath = getYtDlpPath();
+  const meta = await runYtDlpDumpAsync(ytdlpPath, url);
+  setCachedMetadata(url, meta);
+  return meta;
 }
 
 module.exports = {
   extractMetadata,
-  getYtDlpPath
+  getYtDlpPath,
+  getPythonBin
 };

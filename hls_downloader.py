@@ -1,11 +1,27 @@
 import sys
 import os
 import time
+import signal
 import concurrent.futures
 from curl_cffi import requests
 import subprocess
 import re
 import json
+import shutil
+
+active_temp_dir = None
+
+def cleanup_signal_handler(signum, frame):
+    global active_temp_dir
+    if active_temp_dir and os.path.exists(active_temp_dir):
+        try:
+            shutil.rmtree(active_temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+    sys.exit(1)
+
+signal.signal(signal.SIGINT, cleanup_signal_handler)
+signal.signal(signal.SIGTERM, cleanup_signal_handler)
 
 def unpack_packer(packed_js):
     match = re.search(r"\}\('(.*)',\s*(\d+),\s*(\d+),\s*'(.*?)'\.split\('\|'\)", packed_js, re.DOTALL)
@@ -46,11 +62,9 @@ def unpack_packer(packed_js):
     return re.sub(r'\b\w+\b', replace_fn, payload)
 
 def resolve_and_download(input_url, output_file, max_workers=16):
-    session = requests.Session(impersonate='chrome124')
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    }
+    global active_temp_dir
 
+    session = requests.Session(impersonate='chrome124')
     m3u8_url = None
     stream_session = session
 
@@ -87,8 +101,6 @@ def resolve_and_download(input_url, output_file, max_workers=16):
                         break
             except Exception:
                 continue
-            if m3u8_url:
-                break
 
     elif 'maxstream.org' in input_url:
         stream_session = requests.Session(impersonate='chrome124')
@@ -141,6 +153,7 @@ def resolve_and_download(input_url, output_file, max_workers=16):
     print(f"[download] Total fragments: {total_segs}", flush=True)
 
     temp_dir = output_file + "_parts"
+    active_temp_dir = temp_dir
     os.makedirs(temp_dir, exist_ok=True)
 
     downloaded_bytes = 0
@@ -149,7 +162,7 @@ def resolve_and_download(input_url, output_file, max_workers=16):
 
     def download_part(idx, seg_url):
         part_path = os.path.join(temp_dir, f"seg_{idx:05d}.ts")
-        if os.path.exists(part_path) and os.path.getsize(part_path) > 0:
+        if os.path.exists(part_path) and os.path.getsize(part_path) > 1024:
             return idx, os.path.getsize(part_path)
 
         for attempt in range(5):
@@ -160,7 +173,7 @@ def resolve_and_download(input_url, output_file, max_workers=16):
                         f.write(res.content)
                     return idx, len(res.content)
             except Exception:
-                time.sleep(0.5)
+                time.sleep(0.3 * (attempt + 1))
 
         raise Exception(f"Failed to download segment {idx}")
 
@@ -215,8 +228,8 @@ def resolve_and_download(input_url, output_file, max_workers=16):
         raise Exception(f"FFmpeg merge failed: {sub.stderr[:400]}")
 
     # Cleanup parts
-    import shutil
     shutil.rmtree(temp_dir, ignore_errors=True)
+    active_temp_dir = None
     print(f"[download] 100% of video downloaded and merged into {output_file}!", flush=True)
 
 if __name__ == "__main__":
