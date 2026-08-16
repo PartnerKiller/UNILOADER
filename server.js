@@ -7,11 +7,32 @@ const { extractMetadata } = require('./extractor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DEFAULT_DIR = process.env.DEFAULT_DIR || (process.platform === 'win32' ? 'D:\\' : '/media/hdd/JAV');
+const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Config file management
+function loadConfig() {
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      if (data && data.downloadDir) {
+        return { downloadDir: data.downloadDir, isConfigured: true };
+      }
+    } catch (e) {
+      console.warn('Failed to parse config.json:', e.message);
+    }
+  }
+  return { downloadDir: '', isConfigured: false };
+}
+
+function saveConfig(downloadDir) {
+  const cfg = { downloadDir: path.resolve(downloadDir) };
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf-8');
+  return cfg;
+}
 
 // Locate yt-dlp and ffmpeg cross-platform
 function getToolPaths() {
@@ -58,7 +79,8 @@ function getToolPaths() {
 
 const tools = getToolPaths();
 console.log('Detected Tools:', tools);
-console.log('Default Storage Directory:', DEFAULT_DIR);
+const initialConfig = loadConfig();
+console.log('Configured Download Directory:', initialConfig.downloadDir || '(Not configured yet)');
 
 // In-memory job store
 const jobs = new Map();
@@ -86,13 +108,39 @@ function broadcastJobUpdate(jobId) {
   }
 }
 
-// 0. Config Info
+// 0. Config Info & Update Endpoints
 app.get('/api/config', (req, res) => {
+  const cfg = loadConfig();
   res.json({
-    defaultDir: DEFAULT_DIR,
+    downloadDir: cfg.downloadDir,
+    isConfigured: cfg.isConfigured,
     platform: process.platform,
     hostname: require('os').hostname()
   });
+});
+
+app.post('/api/config', (req, res) => {
+  try {
+    const { downloadDir } = req.body;
+    if (!downloadDir || !downloadDir.trim()) {
+      return res.status(400).json({ error: 'Download directory is required' });
+    }
+
+    const cleanPath = downloadDir.trim();
+    if (!fs.existsSync(cleanPath)) {
+      try {
+        fs.mkdirSync(cleanPath, { recursive: true });
+      } catch (err) {
+        return res.status(400).json({ error: `Could not create directory "${cleanPath}": ${err.message}` });
+      }
+    }
+
+    const saved = saveConfig(cleanPath);
+    console.log(`Updated download directory to: ${saved.downloadDir}`);
+    res.json({ success: true, downloadDir: saved.downloadDir, isConfigured: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 1. Metadata Extraction
@@ -117,7 +165,13 @@ function createAndStartJob(opts) {
     splitChapters, customArgs
   } = opts;
 
-  outputDir = outputDir || DEFAULT_DIR;
+  const cfg = loadConfig();
+  outputDir = outputDir || cfg.downloadDir;
+
+  if (!outputDir) {
+    throw new Error('No download directory configured. Please set your download directory in settings.');
+  }
+
   mode = mode || 'video';
   concurrentFragments = parseInt(concurrentFragments, 10) || 8;
 
@@ -483,6 +537,7 @@ app.post('/api/jobs/:id/cancel', (req, res) => {
 
 // 6. System Storage Query
 app.get('/api/system/storage', (req, res) => {
+  const cfg = loadConfig();
   try {
     if (process.platform === 'win32') {
       const output = execSync(
@@ -501,8 +556,8 @@ app.get('/api/system/storage', (req, res) => {
       }));
       return res.json(formatted);
     } else {
-      const targetMount = fs.existsSync('/media/hdd') ? '/media/hdd' : '/';
-      const output = execSync(`df -k ${targetMount} / 2>/dev/null | awk 'NR>1 {print $1, $2, $3, $4, $6}'`, { encoding: 'utf-8' });
+      const targetMount = cfg.downloadDir && fs.existsSync(cfg.downloadDir) ? cfg.downloadDir : '/';
+      const output = execSync(`df -k "${targetMount}" / 2>/dev/null | awk 'NR>1 {print $1, $2, $3, $4, $6}'`, { encoding: 'utf-8' });
       const lines = output.trim().split('\n');
       const formatted = [];
       const seen = new Set();
@@ -518,7 +573,7 @@ app.get('/api/system/storage', (req, res) => {
           const freeK = parseInt(parts[3], 10) || 0;
 
           formatted.push({
-            name: mount === '/media/hdd' ? 'HDD' : (mount === '/' ? 'Root' : mount),
+            name: mount === '/' ? 'Root' : mount.split('/').pop() || mount,
             root: mount,
             usedGB: (usedK / (1024 ** 2)).toFixed(1),
             freeGB: (freeK / (1024 ** 2)).toFixed(1),
@@ -530,16 +585,18 @@ app.get('/api/system/storage', (req, res) => {
     }
   } catch (err) {
     res.json([
-      { name: 'Storage', root: DEFAULT_DIR, freeGB: '298.0', totalGB: '300.0' }
+      { name: 'Storage', root: cfg.downloadDir || '/', freeGB: '0', totalGB: '0' }
     ]);
   }
 });
 
-// 7. Library: List files in destination directory (Supports Video & Audio files)
+// 7. Library: List files in destination directory
 app.get('/api/library', (req, res) => {
-  const dir = req.query.dir || DEFAULT_DIR;
-  if (!fs.existsSync(dir)) {
-    return res.json({ dir, files: [] });
+  const cfg = loadConfig();
+  const dir = req.query.dir || cfg.downloadDir;
+  
+  if (!dir || !fs.existsSync(dir)) {
+    return res.json({ dir: dir || '', files: [], isConfigured: Boolean(dir && fs.existsSync(dir)) });
   }
 
   try {
@@ -572,13 +629,13 @@ app.get('/api/library', (req, res) => {
     }
 
     files.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-    res.json({ dir, files });
+    res.json({ dir, files, isConfigured: true });
   } catch (err) {
     res.status(500).json({ error: `Could not read directory: ${err.message}` });
   }
 });
 
-// 8. Media Streaming Endpoint with Range Support (Video & Audio)
+// 8. Media Streaming Endpoint with Range Support
 app.get('/api/stream', (req, res) => {
   const filePath = req.query.file;
   if (!filePath || !fs.existsSync(filePath)) {
@@ -629,7 +686,10 @@ app.get('/api/stream', (req, res) => {
 
 // 9. Open Directory in File Explorer (Windows only)
 app.post('/api/open-folder', (req, res) => {
-  const targetDir = req.body.dir || DEFAULT_DIR;
+  const cfg = loadConfig();
+  const targetDir = req.body.dir || cfg.downloadDir;
+  if (!targetDir) return res.status(400).json({ error: 'No directory configured' });
+
   if (process.platform === 'win32') {
     try {
       spawn('explorer.exe', [targetDir], { detached: true, stdio: 'ignore' });
@@ -657,8 +717,7 @@ app.delete('/api/file', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);
-  console.log(`🚀 Vortex Universal Downloader & Stream Web UI is running!`);
+  console.log(`🚀 JAV-Downloader Web UI is running!`);
   console.log(`🌐 Server listening on http://0.0.0.0:${PORT}`);
-  console.log(`📁 Default Output Directory: ${DEFAULT_DIR}`);
   console.log(`====================================================`);
 });

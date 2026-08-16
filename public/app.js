@@ -2,9 +2,11 @@
 
 let currentExtractedData = null;
 let activeEventSources = new Map(); // jobId -> EventSource
-let targetDirectory = '/media/hdd/JAV';
+let targetDirectory = '';
+let isConfigured = false;
 let currentMode = 'video'; // 'video' | 'audio' | 'batch'
 let libraryMedia = [];
+let serverPlatform = 'win32';
 
 // DOM Elements
 const urlInput = document.getElementById('urlInput');
@@ -89,21 +91,20 @@ const modalFileInfo = document.getElementById('modalFileInfo');
 const closeModalBtn = document.getElementById('closeModalBtn');
 const openInExplorerModalBtn = document.getElementById('openInExplorerModalBtn');
 
+// Settings Modal
+const settingsModal = document.getElementById('settingsModal');
+const settingsBtn = document.getElementById('settingsBtn');
+const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
+const settingsDirInput = document.getElementById('settingsDirInput');
+const quickDirsChips = document.getElementById('quickDirsChips');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const settingsStatusMsg = document.getElementById('settingsStatusMsg');
+const settingsModalTitle = document.getElementById('settingsModalTitle');
+
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const configRes = await fetch('/api/config');
-    const config = await configRes.json();
-    if (config.defaultDir) {
-      targetDirectory = config.defaultDir;
-      if (destinationInput) destinationInput.value = targetDirectory;
-      if (libraryFolderLabel) libraryFolderLabel.textContent = targetDirectory;
-    }
-  } catch (e) {
-    console.warn('Failed to load server config:', e);
-  }
-
   setupEventListeners();
+  await loadServerConfig();
   loadStorageInfo();
   loadLibrary();
   loadJobs();
@@ -112,7 +113,112 @@ document.addEventListener('DOMContentLoaded', async () => {
   setInterval(loadJobs, 4000);
 });
 
+async function loadServerConfig() {
+  try {
+    const configRes = await fetch('/api/config');
+    const config = await configRes.json();
+    serverPlatform = config.platform || 'win32';
+    targetDirectory = config.downloadDir || '';
+    isConfigured = config.isConfigured || false;
+
+    renderSuggestedPaths();
+
+    if (isConfigured && targetDirectory) {
+      if (destinationInput) destinationInput.value = targetDirectory;
+      if (libraryFolderLabel) libraryFolderLabel.textContent = targetDirectory;
+      if (settingsDirInput) settingsDirInput.value = targetDirectory;
+    } else {
+      // First-run: prompt user to configure download directory
+      openSettingsModal(true);
+    }
+  } catch (e) {
+    console.warn('Failed to load server config:', e);
+  }
+}
+
+function renderSuggestedPaths() {
+  quickDirsChips.innerHTML = '';
+  const suggestions = serverPlatform === 'win32'
+    ? ['D:\\Downloads', 'C:\\Downloads', 'D:\\Videos']
+    : ['/media/hdd/JAV', '/home/sakura/Downloads', '/var/media/downloads'];
+
+  suggestions.forEach(pathVal => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'quick-dir-chip';
+    chip.textContent = pathVal;
+    chip.addEventListener('click', () => {
+      settingsDirInput.value = pathVal;
+    });
+    quickDirsChips.appendChild(chip);
+  });
+}
+
+function openSettingsModal(isFirstRun = false) {
+  settingsModalTitle.textContent = isFirstRun ? 'Welcome! Set Your Download Directory' : 'Configure Download Directory';
+  settingsDirInput.value = targetDirectory;
+  settingsStatusMsg.textContent = '';
+  settingsModal.style.display = 'flex';
+}
+
+function closeSettingsModal() {
+  if (!isConfigured && !targetDirectory) {
+    alert('Please configure a download directory to use the application.');
+    return;
+  }
+  settingsModal.style.display = 'none';
+}
+
+async function saveSettings() {
+  const dirPath = settingsDirInput.value.trim();
+  if (!dirPath) {
+    alert('Please enter a valid directory path.');
+    return;
+  }
+
+  saveSettingsBtn.disabled = true;
+  settingsStatusMsg.textContent = 'Saving...';
+
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ downloadDir: dirPath })
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || 'Failed to save configuration');
+    }
+
+    targetDirectory = data.downloadDir;
+    isConfigured = true;
+    destinationInput.value = targetDirectory;
+    libraryFolderLabel.textContent = targetDirectory;
+
+    settingsStatusMsg.textContent = 'Saved successfully!';
+    setTimeout(() => {
+      settingsModal.style.display = 'none';
+      saveSettingsBtn.disabled = false;
+      loadLibrary();
+      loadStorageInfo();
+    }, 600);
+  } catch (err) {
+    alert(`Error: ${err.message}`);
+    saveSettingsBtn.disabled = false;
+    settingsStatusMsg.textContent = '';
+  }
+}
+
 function setupEventListeners() {
+  // Settings Modal
+  settingsBtn.addEventListener('click', () => openSettingsModal(false));
+  closeSettingsModalBtn.addEventListener('click', closeSettingsModal);
+  saveSettingsBtn.addEventListener('click', saveSettings);
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) closeSettingsModal();
+  });
+
   // Mode Tabs
   tabVideoMode.addEventListener('click', () => setMode('video'));
   tabAudioMode.addEventListener('click', () => setMode('audio'));
@@ -346,6 +452,10 @@ async function startDownload() {
   if (!currentExtractedData) return;
 
   const saveFolder = destinationInput.value.trim() || targetDirectory;
+  if (!saveFolder) {
+    openSettingsModal(true);
+    return;
+  }
   targetDirectory = saveFolder;
   libraryFolderLabel.textContent = saveFolder;
 
@@ -412,6 +522,11 @@ async function startBatchDownload() {
   }
 
   const saveFolder = destinationInput.value.trim() || targetDirectory;
+  if (!saveFolder) {
+    openSettingsModal(true);
+    return;
+  }
+
   const options = {
     outputDir: saveFolder,
     mode: currentMode,
@@ -668,6 +783,15 @@ window.cancelJob = async function(jobId) {
 
 // 5. Local Library Viewer
 async function loadLibrary() {
+  if (!targetDirectory) {
+    libraryGrid.innerHTML = `
+      <div class="empty-state">
+        <p>No download directory configured yet. Click the <strong>⚙️ Settings</strong> button above to set your folder.</p>
+      </div>
+    `;
+    return;
+  }
+
   try {
     const res = await fetch(`/api/library?dir=${encodeURIComponent(targetDirectory)}`);
     const data = await res.json();

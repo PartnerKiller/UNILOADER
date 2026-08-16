@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vortex Universal Stream & Video Downloader</title>
+  <title>JAV-Downloader &bull; Universal Media Hub</title>
   <meta name="description" content="High performance universal web downloader and media streaming manager powered by yt-dlp. Features audio extraction, subtitles, SponsorBlock, and multi-threaded streams.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -41,7 +41,7 @@
             </svg>
           </div>
           <div class="storage-info">
-            <span class="storage-label">Target Drive (<span id="targetDriveName">HDD</span>)</span>
+            <span class="storage-label">Target Storage (<span id="targetDriveName">...</span>)</span>
             <span class="storage-val" id="storageVal">Loading...</span>
           </div>
         </div>
@@ -51,7 +51,15 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
-          <span>Open Folder</span>
+          <span>Folder</span>
+        </button>
+
+        <!-- Settings Button -->
+        <button class="btn btn-secondary btn-icon" id="settingsBtn" title="Configure Download Directory">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
         </button>
       </div>
     </header>
@@ -92,7 +100,7 @@
                 type="text" 
                 id="urlInput" 
                 class="url-input" 
-                placeholder="Paste video or audio link from YouTube, Twitter/X, TikTok, Reddit, Jable, Pornhub, etc." 
+                placeholder="Paste video or audio link from Jable, Pornhub, YouTube, Twitter, TikTok, etc." 
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -152,12 +160,14 @@
             Jable: FJIN-082
           </button>
           <button type="button" class="example-chip" id="samplePhBtn" data-url="https://www.pornhub.org/view_video.php?viewkey=68a971b0f3584">
-            Pornhub (viewkey=68a971b0f3584)
+            Pornhub Sample
           </button>
         </div>
 
         <!-- Supported Services Pill Row -->
         <div class="services-row">
+          <span class="service-pill">Jable.tv</span>
+          <span class="service-pill">Pornhub</span>
           <span class="service-pill">YouTube</span>
           <span class="service-pill">Twitter / X</span>
           <span class="service-pill">TikTok</span>
@@ -166,8 +176,6 @@
           <span class="service-pill">Twitch</span>
           <span class="service-pill">Bilibili</span>
           <span class="service-pill">SoundCloud</span>
-          <span class="service-pill">Jable.tv</span>
-          <span class="service-pill">Pornhub</span>
           <span class="service-pill">+1000 Sites</span>
         </div>
 
@@ -246,8 +254,8 @@
               </div>
 
               <div class="config-item">
-                <label for="destinationInput" class="config-label">Save To Folder</label>
-                <input type="text" id="destinationInput" class="config-input" value="/media/hdd/JAV" />
+                <label for="destinationInput" class="config-label">Save Directory</label>
+                <input type="text" id="destinationInput" class="config-input" placeholder="Set download directory..." />
               </div>
 
               <div class="config-item">
@@ -358,7 +366,7 @@
       <section class="section-card library-section" id="librarySection">
         <div class="section-header-flex">
           <div>
-            <h2>Downloaded Media (<span id="libraryFolderLabel">/media/hdd/JAV</span>)</h2>
+            <h2>Downloaded Media (<span id="libraryFolderLabel">Not Configured</span>)</h2>
             <p class="section-description">Explore completed videos & audio tracks, stream directly in-browser, or open locally.</p>
           </div>
           <div class="library-controls">
@@ -387,7 +395,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-      <p>Powered by yt-dlp & FFmpeg &bull; High Throughput Multithread Downloader & Audio Extractor</p>
+      <p>JAV-Downloader &bull; High Performance Stream Engine &bull; Private & Confidential</p>
     </footer>
 
     <!-- Video / Audio Playback Modal -->
@@ -405,6 +413,35 @@
         <div class="modal-footer">
           <span class="modal-file-info" id="modalFileInfo"></span>
           <button class="btn btn-secondary" id="openInExplorerModalBtn">Open in File Explorer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- First-Run / Settings Configuration Modal -->
+    <div class="modal-backdrop" id="settingsModal" style="display: none;">
+      <div class="modal-dialog settings-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title" id="settingsModalTitle">Configure Download Directory</h3>
+          <button class="modal-close" id="closeSettingsModalBtn" title="Close">&times;</button>
+        </div>
+        <div class="settings-modal-body">
+          <p class="settings-intro">
+            Select or enter the full directory path on your system where downloaded videos and audio files should be saved.
+          </p>
+
+          <div class="config-item">
+            <label for="settingsDirInput" class="config-label">Download Directory Path</label>
+            <input type="text" id="settingsDirInput" class="config-input" placeholder="e.g. D:\Videos or /media/hdd/JAV" />
+          </div>
+
+          <div class="quick-dirs-group" id="quickDirsGroup">
+            <span class="quick-dirs-label">Suggested Paths:</span>
+            <div class="quick-dirs-chips" id="quickDirsChips"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="settings-status-msg" id="settingsStatusMsg"></span>
+          <button class="btn btn-primary" id="saveSettingsBtn">Save & Apply</button>
         </div>
       </div>
     </div>

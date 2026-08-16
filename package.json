@@ -6,6 +6,7 @@
   "description": "Modern Web UI for video downloading and local streaming",
   "main": "server.js",
   "scripts": {
+    "setup": "node setup.js",
     "start": "node server.js",
     "dev": "node --watch server.js"
   },

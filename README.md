@@ -7,6 +7,7 @@ A modern, high-performance web application and universal media downloader/stream
 ## ✨ Features
 
 - **Universal Platform Support**: Download from Jable.tv, Pornhub, YouTube, Twitter/X, TikTok, Reddit, Instagram, Twitch, Bilibili, SoundCloud, and 1000+ other platforms supported by `yt-dlp`.
+- **⚙️ Configurable Download Directory**: No hardcoded default path. Select your download directory during installation or configure it anytime in the Web UI.
 - **🎬 Video Mode**:
   - Custom resolution selection: **Best (Auto 4K/1080p)**, **4K (2160p)**, **2K (1440p)**, **1080p Full HD**, **720p HD**, **480p**, **360p**.
   - Container formats: **MP4**, **MKV**, **WEBM**.
@@ -33,17 +34,20 @@ A modern, high-performance web application and universal media downloader/stream
   pip install curl_cffi
   ```
 
-### Installation
+### Installation & Setup
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/PartnerKiller/JAV-Downloader.git
 cd JAV-Downloader
 
-# Install dependencies
+# 2. Install dependencies
 npm install
 
-# Start the server
+# 3. Configure your download directory (interactive setup)
+npm run setup
+
+# 4. Start the server
 npm start
 ```
 
@@ -52,14 +56,18 @@ Open your browser and navigate to:
 http://localhost:3000
 ```
 
+> **Note**: You can also set or change your download directory directly inside the Web UI at any time by clicking the **⚙️ Settings** icon in the header.
+
 ---
 
-## ⚙️ Configuration & Environment Variables
+## ⚙️ Configuration File (`config.json`)
 
-| Variable | Description | Default |
-|---|---|---|
-| `PORT` | Web server port | `3000` |
-| `DEFAULT_DIR` | Destination directory for downloads | `D:\` on Windows, `/media/hdd/JAV` on Linux |
+The chosen download directory is saved locally in `config.json`:
+```json
+{
+  "downloadDir": "D:\\Downloads\\Videos"
+}
+```
 
 ---
 
