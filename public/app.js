@@ -139,8 +139,8 @@ async function loadServerConfig() {
 function renderSuggestedPaths() {
   quickDirsChips.innerHTML = '';
   const suggestions = serverPlatform === 'win32'
-    ? ['D:\\Downloads', 'C:\\Downloads', 'D:\\Videos']
-    : ['/media/hdd/JAV', '/home/sakura/Downloads', '/var/media/downloads'];
+    ? ['C:\\Downloads', 'C:\\Videos']
+    : ['/var/downloads', '/tmp/downloads'];
 
   suggestions.forEach(pathVal => {
     const chip = document.createElement('button');

@@ -14,8 +14,8 @@ console.log('====================================================');
 console.log('🚀 JAV-Downloader &bull; Installation & Setup');
 console.log('====================================================\n');
 
-// Suggest a reasonable placeholder depending on OS
-const placeholder = process.platform === 'win32' ? 'D:\\Downloads\\Videos or C:\\Downloads' : '/media/hdd/JAV or /home/' + (process.env.USER || 'user') + '/Downloads';
+// Generic path example
+const placeholder = process.platform === 'win32' ? 'C:\\Users\\<YourUsername>\\Downloads or C:\\Downloads' : '/home/<username>/Downloads or /var/downloads';
 
 rl.question(`Enter the full path where you want downloads to be saved:\n(Example: ${placeholder})\n> `, (answer) => {
   const dirPath = answer.trim();

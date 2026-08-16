@@ -65,7 +65,7 @@ http://localhost:3000
 The chosen download directory is saved locally in `config.json`:
 ```json
 {
-  "downloadDir": "D:\\Downloads\\Videos"
+  "downloadDir": "/path/to/your/download/folder"
 }
 ```
 
