@@ -22,10 +22,22 @@ function getYtDlpPath() {
   return 'yt-dlp';
 }
 
+function getPythonBin() {
+  if (process.platform !== 'win32') return 'python3';
+  const candidates = [
+    path.join(process.env.LOCALAPPDATA || 'C:\\Users\\sayan\\AppData\\Local', 'Programs', 'Python', 'Python312', 'python.exe'),
+    path.join(process.env.LOCALAPPDATA || 'C:\\Users\\sayan\\AppData\\Local', 'Programs', 'Python', 'Python311', 'python.exe'),
+    'python',
+    'py'
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'python';
+}
+
 /**
- * Extracts metadata and stream information for Jable, Pornhub, and universal video sites.
- * @param {string} inputUrl 
- * @returns {Promise<{title: string, code: string, poster: string, hlsUrl: string, tags: string[], model: string, duration: string, isDirectYtDlp?: boolean, sourceUrl: string}>}
+ * Extracts metadata and stream information for Jable, Pornhub, Javgg, and universal video sites.
  */
 async function extractMetadata(inputUrl) {
   const url = inputUrl.trim();
@@ -46,28 +58,26 @@ async function extractMetadata(inputUrl) {
     };
   }
 
-  // 2. Try Python fetcher first if available (supports curl_cffi for Cloudflare TLS bypass)
+  // 2. Try Python fetcher first (supports curl_cffi for Jable, Pornhub, Javgg, and Cloudflare TLS bypass)
   const fetcherScript = path.join(__dirname, 'fetcher.py');
   if (fs.existsSync(fetcherScript)) {
-    let pyBin = process.platform === 'win32' ? null : 'python3';
-    if (process.platform === 'win32') {
-      try { execSync('python --version', { stdio: 'ignore', timeout: 1500 }); pyBin = 'python'; } catch (e) {
-        try { execSync('py --version', { stdio: 'ignore', timeout: 1500 }); pyBin = 'py'; } catch (e2) {}
+    const pyBin = getPythonBin();
+    try {
+      const output = execSync(`"${pyBin}" "${fetcherScript}" "${url}"`, {
+        encoding: 'utf-8',
+        maxBuffer: 25 * 1024 * 1024,
+        timeout: 30000
+      });
+      const json = JSON.parse(output.trim());
+      if (json && !json.error && json.title) {
+        return json;
       }
-    }
-
-    if (pyBin) {
-      try {
-        const output = execSync(`${pyBin} "${fetcherScript}" "${url}"`, { encoding: 'utf-8', maxBuffer: 15 * 1024 * 1024, timeout: 20000 });
-        const json = JSON.parse(output.trim());
-        if (json && !json.error && json.title) {
-          return json;
-        }
-      } catch (e) {}
+    } catch (e) {
+      console.warn('Python fetcher warning:', e.message);
     }
   }
 
-  // 3. Fallback to yt-dlp JSON dump
+  // 3. Fallback to yt-dlp JSON dump with chrome impersonation
   return new Promise((resolve, reject) => {
     const ytdlpPath = getYtDlpPath();
     const args = [
@@ -75,7 +85,7 @@ async function extractMetadata(inputUrl) {
       '--skip-download',
       '--no-warnings',
       '--no-playlist',
-      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      '--impersonate', 'chrome',
       url
     ];
 
@@ -106,8 +116,9 @@ async function extractMetadata(inputUrl) {
         const duration = info.duration_string || (info.duration ? `${Math.floor(info.duration / 60)}m ${info.duration % 60}s` : '');
 
         let hlsUrl = info.url || url;
-        if (info.requested_downloads && info.requested_downloads[0] && info.requested_downloads[0].url) {
-          hlsUrl = info.requested_downloads[0].url;
+        if (info.formats && Array.isArray(info.formats)) {
+          const hlsFmt = info.formats.find(f => f.protocol === 'm3u8_native' || (f.url && f.url.includes('.m3u8')));
+          if (hlsFmt) hlsUrl = hlsFmt.url;
         }
 
         resolve({
@@ -123,10 +134,17 @@ async function extractMetadata(inputUrl) {
           sourceUrl: url
         });
       } catch (err) {
-        reject(new Error(`Failed to parse yt-dlp JSON: ${err.message}`));
+        reject(new Error(`Failed to parse metadata: ${err.message}`));
       }
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`Failed to spawn extractor engine: ${err.message}`));
     });
   });
 }
 
-module.exports = { extractMetadata, getYtDlpPath };
+module.exports = {
+  extractMetadata,
+  getYtDlpPath
+};
