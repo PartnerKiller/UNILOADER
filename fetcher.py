@@ -566,7 +566,38 @@ def extract_all(url):
         }
 
     # -------------------------------------------------------------
-    # 9. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
+    # 9. xHamster (xhamster.com, xhamster1.com ... xhamster20.com, xhamster.desi, etc.)
+    # -------------------------------------------------------------
+    if 'xhamster' in url:
+        headers['Referer'] = 'https://xhamster.com/'
+        import subprocess
+        cmd = ["yt-dlp", "--dump-single-json", "--skip-download", "--no-warnings", "--no-playlist", "--impersonate", "chrome", url]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode == 0 and res.stdout.strip():
+            info = json.loads(res.stdout)
+            title = info.get('fulltitle') or info.get('title') or 'xHamster Video'
+            code = str(info.get('display_id') or info.get('id') or 'XHAMSTER').upper()
+            poster = info.get('thumbnail') or ''
+            tags = info.get('tags') or info.get('categories') or []
+            model = info.get('uploader') or info.get('channel') or ''
+            duration = info.get('duration_string') or ''
+            hls_url = info.get('url') or url
+
+            return {
+                'title': title.strip(),
+                'code': code,
+                'poster': poster,
+                'hlsUrl': hls_url,
+                'downloadTargetUrl': url,
+                'tags': tags[:10],
+                'model': model,
+                'duration': duration,
+                'extractor': 'xHamster',
+                'sourceUrl': url
+            }
+
+    # -------------------------------------------------------------
+    # 10. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
     # -------------------------------------------------------------
     try:
         r = session.get(url, headers=headers, timeout=20)

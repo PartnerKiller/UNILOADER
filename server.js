@@ -186,6 +186,8 @@ function createAndStartJob(opts) {
     args.push('--add-header', 'Referer: https://maxstream.org/');
   } else if (url && (url.includes('xvideos') || url.includes('xnxx'))) {
     args.push('--add-header', 'Referer: https://www.xvideos.com/');
+  } else if (url && url.includes('xhamster')) {
+    args.push('--add-header', 'Referer: https://xhamster.com/');
   }
 
   // 1. Audio-only mode

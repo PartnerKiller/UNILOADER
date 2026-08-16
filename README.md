@@ -14,6 +14,7 @@ A modern, high-performance web service and online media downloader powered by **
   - **nJAV & nJAVTv** (`njav.tv`, `njav.to`, `njav.org`) &bull; *Embedded player resolvers*
   - **Jable.tv** (`jable.tv`) &bull; *Direct high-speed multi-quality HLS streams*
   - **XVideos & XNXX** (`xvideos.com`, `xnxx.com`, `xvideos.red`, `xnxx.tv`) &bull; *Direct HLS & 1080p MP4 stream extraction*
+  - **xHamster** (`xhamster.com`, `xhamster19.com`, `xhamster.desi`, `xhamster1.com` ... `xhamster20.com`) &bull; *Up to 4K 2160p HDR/SDR multi-bitrate HLS streams*
   - **Pornhub** (`pornhub.com`) &bull; *Multi-resolution HLS media extractor*
   - **TokyoMotion**, **7MMTV**, **JavCL**, **Javmix**, **JavFull**, **JavDoe**, **Javseen**, **JavQuick**, **JavCt**, **JapanHDV**, **JavSubindo**, and more.
 - **Universal Multi-Platform Support**: YouTube, Twitter/X, TikTok, Reddit, Instagram, Twitch, Bilibili, SoundCloud, and 1000+ other platforms supported by `yt-dlp`.
