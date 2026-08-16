@@ -1,4 +1,4 @@
-// Vortex & Seal Hub - Universal Frontend Controller
+// JAV-Downloader & Vortex Hub - Universal Frontend Controller
 
 let currentExtractedData = null;
 let activeEventSources = new Map(); // jobId -> EventSource

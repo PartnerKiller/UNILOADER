@@ -161,7 +161,7 @@ function createAndStartJob(opts) {
 
   jobs.set(jobId, job);
 
-  // Build Seal-inspired yt-dlp arguments
+  // Build yt-dlp arguments
   const args = [
     '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     '--concurrent-fragments', String(concurrentFragments),
@@ -181,7 +181,7 @@ function createAndStartJob(opts) {
     args.push('--add-header', 'Referer: https://en.jable.tv/');
   }
 
-  // 1. Audio-only mode (Seal feature)
+  // 1. Audio-only mode
   if (mode === 'audio') {
     args.push('-x');
     const aFmt = audioFormat || 'mp3';
@@ -189,7 +189,7 @@ function createAndStartJob(opts) {
     const aBit = audioBitrate || '320k';
     args.push('--audio-quality', aBit === 'best' ? '0' : aBit);
   } else {
-    // 2. Video quality & container selection (Seal feature)
+    // 2. Video quality & container selection
     if (videoQuality && videoQuality !== 'best') {
       const maxHeight = parseInt(videoQuality, 10);
       args.push('-f', `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
@@ -202,7 +202,7 @@ function createAndStartJob(opts) {
     }
   }
 
-  // 3. Subtitles (Seal feature)
+  // 3. Subtitles
   if (embedSubtitles) {
     args.push('--embed-subs');
     if (subLangs && subLangs.trim()) {
@@ -215,7 +215,7 @@ function createAndStartJob(opts) {
     }
   }
 
-  // 4. Metadata & Thumbnails (Seal feature)
+  // 4. Metadata & Thumbnails
   if (embedThumbnail !== false) {
     args.push('--embed-thumbnail');
   }
@@ -224,17 +224,17 @@ function createAndStartJob(opts) {
     args.push('--embed-chapters');
   }
 
-  // 5. SponsorBlock (Seal feature)
+  // 5. SponsorBlock
   if (sponsorBlock) {
     args.push('--sponsorblock-remove', 'all');
   }
 
-  // 6. Chapter splitting (Seal feature)
+  // 6. Chapter splitting
   if (splitChapters) {
     args.push('--split-chapters');
   }
 
-  // 7. Custom yt-dlp flags (Seal feature)
+  // 7. Custom yt-dlp flags
   if (customArgs && typeof customArgs === 'string') {
     const extra = customArgs.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
     for (const arg of extra) {
@@ -354,7 +354,7 @@ app.post('/api/download', async (req, res) => {
   }
 });
 
-// 2b. Start Batch Download Jobs (Seal Batch feature)
+// 2b. Start Batch Download Jobs
 app.post('/api/download/batch', async (req, res) => {
   try {
     const { urls, options } = req.body;

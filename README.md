@@ -1,8 +1,6 @@
-# JAV-Downloader &bull; Vortex & Seal Hub
+# JAV-Downloader &bull; Vortex Media Hub
 
-A modern, full-featured web application and universal media downloader/streamer powered by **`yt-dlp`** and **FFmpeg**, featuring high-speed multi-threaded downloads, audio extraction, subtitles, SponsorBlock, and an in-browser media player.
-
-Inspired by [JunkFood02/Seal](https://github.com/JunkFood02/Seal).
+A modern, high-performance web application and universal media downloader/streamer powered by **`yt-dlp`** and **FFmpeg**, featuring multi-threaded stream assembly, audio extraction, subtitles, SponsorBlock, and a built-in media player.
 
 ---
 
@@ -11,12 +9,12 @@ Inspired by [JunkFood02/Seal](https://github.com/JunkFood02/Seal).
 - **Universal Platform Support**: Download from Jable.tv, Pornhub, YouTube, Twitter/X, TikTok, Reddit, Instagram, Twitch, Bilibili, SoundCloud, and 1000+ other platforms supported by `yt-dlp`.
 - **🎬 Video Mode**:
   - Custom resolution selection: **Best (Auto 4K/1080p)**, **4K (2160p)**, **2K (1440p)**, **1080p Full HD**, **720p HD**, **480p**, **360p**.
-  - Containers: **MP4**, **MKV**, **WEBM**.
+  - Container formats: **MP4**, **MKV**, **WEBM**.
 - **🎧 Audio Extraction Mode**:
   - Extract and convert audio to **MP3 (up to 320 kbps)**, **FLAC (Lossless)**, **M4A (AAC)**, **OPUS**, **WAV**, or **AAC**.
-  - Automatically embeds high-resolution cover art and complete ID3 metadata.
-- **📋 Batch Multi-URL Queue**: Paste multiple links (one per line) from different platforms with one-click multi-download.
-- **⚡ Seal Quick Presets**: One-click quick configurations for Best Video, HQ MP3 Audio, Lossless FLAC, Subtitles, and SponsorBlock.
+  - Automatically embeds high-resolution cover art and complete ID3 metadata tags.
+- **📋 Batch Multi-URL Queue**: Paste multiple links (one per line) from different platforms with one-click queued downloading.
+- **⚡ Quick Presets**: One-click quick configurations for Best Video, HQ MP3 Audio, Lossless FLAC, Subtitles, and SponsorBlock.
 - **📝 Subtitles & Captions**: Embed subtitles with custom language filtering (e.g. `en,ja,zh,all`) and auto-generated captions support.
 - **⏩ SponsorBlock & Chapters**: Automatically remove sponsor segments, intros, outros, and split by chapters.
 - **📁 In-Browser Media Library & Player**: Browse downloaded media with formatted sizes, timestamps, and stream videos/audio directly in your browser with HTTP 206 partial content support.
@@ -65,6 +63,7 @@ http://localhost:3000
 
 ---
 
-## 📜 License
+## 🔒 Copyright & License
 
-MIT License. Free and open source.
+Proprietary software. All rights reserved. Private and confidential.
+Unauthorized copying, modification, redistribution, or public deployment is strictly prohibited.
