@@ -1,7 +1,26 @@
+const fs = require('fs');
+const path = require('path');
+
+// Load environment variables from .env file if present
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  try {
+    const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+        const [k, ...rest] = trimmed.split('=');
+        const v = rest.join('=').trim().replace(/^["']|["']$/g, '');
+        if (!process.env[k.trim()]) {
+          process.env[k.trim()] = v;
+        }
+      }
+    }
+  } catch (e) {}
+}
+
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
 const { spawn, execSync } = require('child_process');
 const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
 

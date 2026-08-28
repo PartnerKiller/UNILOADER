@@ -1,9 +1,28 @@
+import os
 import sys
 import json
 import re
 import base64
 import urllib.parse
 from bs4 import BeautifulSoup
+
+def load_env():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+load_env()
 
 def unpack_packer(packed_js):
     """Decodes Dean Edwards packer (eval(function(p,a,c,k,e,d)...))"""
@@ -57,8 +76,11 @@ def extract_all(url):
     # 0. Spotify (open.spotify.com)
     # -------------------------------------------------------------
     if 'spotify.com' in url:
-        SPOTIFY_CLIENT_ID = 'f2506d1af4c94074a0a290b69b43cd6d'
-        SPOTIFY_CLIENT_SECRET = '78911585691345e79b542884044875c2'
+        SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID', '').strip()
+        SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '').strip()
+        if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+            raise Exception("Spotify credentials not configured in .env (set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)")
+
         auth_bytes = base64.b64encode(f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()).decode()
         
         try:
