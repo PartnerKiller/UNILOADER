@@ -165,10 +165,13 @@ function startJobProcess(job) {
     job.process = child;
     attachProcessListeners(job, child);
   } else {
+    const concurrentFragments = parseInt(opts.concurrentFragments, 10) || 16;
     const outputTemplate = path.join(TEMP_DIR, `${job.id}_${job.title}.%(ext)s`);
     const args = [
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
+      '--buffer-size', '16M',
+      '--http-chunk-size', '10M',
       '--retries', '10',
       '--fragment-retries', '10',
       '--newline',
@@ -177,7 +180,13 @@ function startJobProcess(job) {
       '-o', outputTemplate
     ];
 
-    if (process.platform === 'win32') {
+    if (process.platform === 'linux') {
+      try {
+        execSync('which aria2c', { stdio: 'ignore' });
+        args.push('--downloader', 'http,https:aria2c');
+        args.push('--downloader-args', 'aria2c:-s 16 -x 16 -k 1M -j 16 --min-split-size=1M --summary-interval=1');
+      } catch (e) {}
+    } else if (process.platform === 'win32') {
       args.push('--impersonate', 'chrome');
     }
 
@@ -276,6 +285,17 @@ function attachProcessListeners(job, child) {
   const jobId = job.id;
 
   const parseProgress = (line) => {
+    // Aria2 progress parser: [#fd6ef8 510MiB/1.3GiB(36%) CN:16 DL:17MiB ETA:49s]
+    const ariaMatch = line.match(/\[#\w+\s+([\d.]+\s*[a-zA-Z]+)\/([\d.]+\s*[a-zA-Z]+)\((\d+)%\).*?DL:([\d.]+\s*[a-zA-Z]+).*?ETA:([\d:\w]+)/i);
+    if (ariaMatch) {
+      job.progress.downloadedSize = ariaMatch[1];
+      job.progress.totalSize = ariaMatch[2];
+      job.progress.percent = parseFloat(ariaMatch[3]) || 0;
+      job.progress.speed = ariaMatch[4] + '/s';
+      job.progress.eta = ariaMatch[5];
+      return;
+    }
+
     const pMatch = line.match(/\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)\s+ETA\s+([\d:]+|\w+)/i);
     if (pMatch) {
       job.progress.percent = parseFloat(pMatch[1]) || 0;

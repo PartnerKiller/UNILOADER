@@ -61,7 +61,7 @@ def unpack_packer(packed_js):
 
     return re.sub(r'\b\w+\b', replace_fn, payload)
 
-def resolve_and_download(input_url, output_file, max_workers=16):
+def resolve_and_download(input_url, output_file, max_workers=32):
     global active_temp_dir
 
     session = requests.Session(impersonate='chrome124')
