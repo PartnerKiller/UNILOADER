@@ -230,7 +230,7 @@ def extract_all(url):
             'code': code,
             'poster': poster,
             'hlsUrl': target_stream or url,
-            'downloadTargetUrl': target_stream or url,
+            'downloadTargetUrl': url,
             'tags': tags,
             'model': model,
             'duration': duration,
