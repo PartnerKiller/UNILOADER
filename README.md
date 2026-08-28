@@ -17,6 +17,7 @@ A modern, high-performance web service and online media downloader powered by **
   - **xHamster** (`xhamster.com`, `xhamster19.com`, `xhamster.desi`, `xhamster1.com` ... `xhamster20.com`) &bull; *Up to 4K 2160p HDR/SDR multi-bitrate HLS streams*
   - **Pornhub** (`pornhub.com`) &bull; *Multi-resolution HLS media extractor*
   - **TokyoMotion**, **7MMTV**, **JavCL**, **Javmix**, **JavFull**, **JavDoe**, **Javseen**, **JavQuick**, **JavCt**, **JapanHDV**, **JavSubindo**, and more.
+- **Spotify Music Extractor**: Paste any Spotify track, album, or playlist link (`open.spotify.com/track/...`) &bull; *Automated Spotify Web API metadata & artwork resolution with 320kbps MP3 audio matching and ID3 tagging*.
 - **Universal Multi-Platform Support**: YouTube, Twitter/X, TikTok, Reddit, Instagram, Twitch, Bilibili, SoundCloud, and 1000+ other platforms supported by `yt-dlp`.
 - **📥 Direct-to-Device Downloads**: Files are downloaded and delivered directly to the user's browser download folder on any device.
 - **🎬 Video Mode**:

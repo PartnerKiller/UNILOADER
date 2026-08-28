@@ -321,6 +321,14 @@ function renderPreviewCard(data) {
     });
   }
 
+  // Auto-switch to audio mode for Spotify
+  if (data.extractor === 'Spotify' || data.mode === 'audio') {
+    setMode('audio');
+    if (audioFormatSelect) audioFormatSelect.value = 'mp3';
+    if (audioBitrateSelect) audioBitrateSelect.value = '320k';
+    if (chkEmbedThumbnail) chkEmbedThumbnail.checked = true;
+  }
+
   previewCard.style.display = 'block';
   previewCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }

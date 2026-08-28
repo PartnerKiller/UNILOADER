@@ -54,6 +54,115 @@ def extract_all(url):
     }
 
     # -------------------------------------------------------------
+    # 0. Spotify (open.spotify.com)
+    # -------------------------------------------------------------
+    if 'spotify.com' in url:
+        SPOTIFY_CLIENT_ID = 'f2506d1af4c94074a0a290b69b43cd6d'
+        SPOTIFY_CLIENT_SECRET = '78911585691345e79b542884044875c2'
+        auth_bytes = base64.b64encode(f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()).decode()
+        
+        try:
+            token_res = session.post(
+                'https://accounts.spotify.com/api/token',
+                data={'grant_type': 'client_credentials'},
+                headers={'Authorization': f'Basic {auth_bytes}', 'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=10
+            )
+            if token_res.status_code == 200:
+                token = token_res.json().get('access_token')
+                api_headers = {'Authorization': f'Bearer {token}'}
+
+                track_m = re.search(r'spotify\.com/(?:intl-[a-z]+/)?track/([a-zA-Z0-9]+)', url)
+                album_m = re.search(r'spotify\.com/(?:intl-[a-z]+/)?album/([a-zA-Z0-9]+)', url)
+                playlist_m = re.search(r'spotify\.com/(?:intl-[a-z]+/)?playlist/([a-zA-Z0-9]+)', url)
+
+                if track_m:
+                    track_id = track_m.group(1)
+                    tr = session.get(f'https://api.spotify.com/v1/tracks/{track_id}', headers=api_headers, timeout=10)
+                    if tr.status_code == 200:
+                        track = tr.json()
+                        name = track.get('name', 'Spotify Track')
+                        artists = ', '.join(a['name'] for a in track.get('artists', []))
+                        album = track.get('album', {}).get('name', '')
+                        images = track.get('album', {}).get('images', [])
+                        poster = images[0]['url'] if images else ''
+                        dur_ms = track.get('duration_ms', 0)
+                        dur_sec = dur_ms // 1000
+                        duration = f"{dur_sec // 60}:{dur_sec % 60:02d}" if dur_sec else ''
+
+                        full_title = f"{artists} - {name}" if artists else name
+                        download_target = f"ytsearch1:{artists} - {name} audio" if artists else f"ytsearch1:{name} audio"
+
+                        return {
+                            'title': full_title,
+                            'code': 'SPOTIFY',
+                            'poster': poster,
+                            'hlsUrl': download_target,
+                            'downloadTargetUrl': download_target,
+                            'tags': [album, 'Spotify', 'Music'] if album else ['Spotify', 'Music'],
+                            'model': artists,
+                            'duration': duration,
+                            'extractor': 'Spotify',
+                            'sourceUrl': url,
+                            'mode': 'audio'
+                        }
+
+                elif album_m:
+                    album_id = album_m.group(1)
+                    ar = session.get(f'https://api.spotify.com/v1/albums/{album_id}', headers=api_headers, timeout=10)
+                    if ar.status_code == 200:
+                        album_data = ar.json()
+                        album_name = album_data.get('name', 'Spotify Album')
+                        artists = ', '.join(a['name'] for a in album_data.get('artists', []))
+                        images = album_data.get('images', [])
+                        poster = images[0]['url'] if images else ''
+                        tracks = album_data.get('tracks', {}).get('items', [])
+                        first_track_name = tracks[0]['name'] if tracks else album_name
+                        download_target = f"ytsearch1:{artists} - {first_track_name} audio"
+
+                        return {
+                            'title': f"{artists} - {album_name}",
+                            'code': 'SPOTIFY-ALBUM',
+                            'poster': poster,
+                            'hlsUrl': download_target,
+                            'downloadTargetUrl': download_target,
+                            'tags': ['Album', 'Spotify', 'Music'],
+                            'model': artists,
+                            'duration': f"{len(tracks)} Tracks",
+                            'extractor': 'Spotify',
+                            'sourceUrl': url,
+                            'mode': 'audio'
+                        }
+
+                elif playlist_m:
+                    playlist_id = playlist_m.group(1)
+                    pr = session.get(f'https://api.spotify.com/v1/playlists/{playlist_id}', headers=api_headers, timeout=10)
+                    if pr.status_code == 200:
+                        pl_data = pr.json()
+                        pl_name = pl_data.get('name', 'Spotify Playlist')
+                        owner = pl_data.get('owner', {}).get('display_name', '')
+                        images = pl_data.get('images', [])
+                        poster = images[0]['url'] if images else ''
+                        tracks_total = pl_data.get('tracks', {}).get('total', 0)
+                        download_target = f"ytsearch1:{pl_name} audio"
+
+                        return {
+                            'title': pl_name,
+                            'code': 'SPOTIFY-PLAYLIST',
+                            'poster': poster,
+                            'hlsUrl': download_target,
+                            'downloadTargetUrl': download_target,
+                            'tags': ['Playlist', 'Spotify', 'Music'],
+                            'model': owner,
+                            'duration': f"{tracks_total} Tracks",
+                            'extractor': 'Spotify',
+                            'sourceUrl': url,
+                            'mode': 'audio'
+                        }
+        except Exception as e:
+            pass
+
+    # -------------------------------------------------------------
     # 1. Jav.Guru (jav.guru)
     # -------------------------------------------------------------
     if 'jav.guru' in url:
