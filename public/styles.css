@@ -1249,33 +1249,45 @@ body {
   }
 
   .app-header {
-    padding: 12px 14px;
+    padding: 10px 14px;
     margin-bottom: 14px;
+    gap: 8px;
   }
 
   .brand-group {
-    gap: 10px;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
   }
 
   .brand-icon {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     flex-shrink: 0;
   }
 
   .brand-title {
-    font-size: 1.02rem;
+    font-size: 0.92rem;
     white-space: nowrap;
+    letter-spacing: 0.02em;
   }
 
   .brand-subtitle {
-    font-size: 0.7rem;
+    font-size: 0.68rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-right {
+    flex-shrink: 0;
   }
 
   .status-pill-ready {
-    font-size: 0.72rem;
-    padding: 4px 8px;
+    font-size: 0.7rem;
+    padding: 3px 8px;
     white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .section-card {
@@ -1317,7 +1329,9 @@ body {
 
   /* 2-row clean mobile input layout */
   .input-bar-group {
+    display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 10px;
     width: 100%;
   }
@@ -1333,8 +1347,10 @@ body {
     font-size: 0.88rem;
   }
 
-  .btn-fetch {
-    width: 100%;
+  #fetchBtn, .btn-fetch {
+    display: flex;
+    width: 100% !important;
+    justify-content: center;
     padding: 12px 16px;
     font-size: 0.95rem;
     font-weight: 700;
