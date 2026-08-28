@@ -153,9 +153,14 @@ function startJobProcess(job) {
       '--retries', '10',
       '--fragment-retries', '10',
       '--newline',
-      '--impersonate', 'chrome',
+      '--extractor-args', 'youtube:player_client=android,web',
+      '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
       '-o', outputTemplate
     ];
+
+    if (process.platform === 'win32') {
+      args.push('--impersonate', 'chrome');
+    }
 
     if (tools.ffmpegDir) {
       args.unshift(tools.ffmpegDir);
