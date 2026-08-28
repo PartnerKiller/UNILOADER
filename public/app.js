@@ -575,17 +575,19 @@ function createJobCardElement(job) {
 
   card.innerHTML = `
     <div class="job-header">
-      <div class="job-title-group">
-        <div class="job-code-title">
+      <div class="job-header-top">
+        <div class="job-badges-row">
           <span class="job-mode-tag ${isAudio ? 'audio' : 'video'}">${isAudio ? 'AUDIO' : 'VIDEO'}</span>
           <span class="job-code">${job.code || 'MEDIA'}</span>
-          <span class="job-title" id="job-title-${job.id}">${job.title}</span>
         </div>
-        <div class="job-meta">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
+        <div class="job-header-right">
+          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : job.status.toUpperCase()}</span>
+          <button type="button" class="btn-job-remove" onclick="removeJob('${job.id}')" title="Remove task">&times;</button>
+        </div>
       </div>
-      <div class="job-header-right">
-        <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : job.status.toUpperCase()}</span>
-        <button type="button" class="btn-job-remove" onclick="removeJob('${job.id}')" title="Remove task">&times;</button>
+      <div class="job-title-group">
+        <h4 class="job-title" id="job-title-${job.id}">${job.title}</h4>
+        <div class="job-meta">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
       </div>
     </div>
 
