@@ -185,6 +185,60 @@ def extract_all(url):
             pass
 
     # -------------------------------------------------------------
+    # Rule34Video (rule34video.com)
+    # -------------------------------------------------------------
+    if 'rule34video.com' in url:
+        headers['Referer'] = 'https://rule34video.com/'
+        r = session.get(url, headers=headers, timeout=20)
+        html = r.text
+        soup = BeautifulSoup(html, 'html.parser')
+
+        raw_title = soup.title.string.strip() if soup.title else 'Rule34 Video'
+        title = re.sub(r'\s*\|\s*Rule34Video.*$', '', raw_title, flags=re.IGNORECASE).strip()
+
+        video_streams = re.findall(r'(video_url[a-z0-9_]*|video_alt_url[a-z0-9_]*)\s*:\s*[\x27\x22](https?://[^\x27\x22]+)[\x27\x22]', html)
+        stream_dict = {k: v for k, v in video_streams}
+        
+        target_stream = ''
+        for key in ['video_alt_url4', 'video_alt_url3', 'video_alt_url2', 'video_alt_url', 'video_url']:
+            if key in stream_dict:
+                target_stream = stream_dict[key]
+                break
+
+        if not target_stream and video_streams:
+            target_stream = video_streams[-1][1]
+
+        poster_m = re.search(r'preview_url\s*:\s*[\x27\x22](https?://[^\x27\x22]+)[\x27\x22]', html)
+        poster = poster_m.group(1) if poster_m else ''
+
+        dur_list = re.findall(r'<[^>]+>\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*<', html)
+        duration = dur_list[0] if dur_list else ''
+
+        author_m = re.search(r'\[([A-Za-z0-9_\s-]+)\]', title)
+        model = author_m.group(1).strip() if author_m else ''
+        if not model:
+            author_el = soup.find('a', href=re.compile(r'/models/|/uploaders/'))
+            model = author_el.text.strip() if author_el else ''
+
+        tags = [a.text.strip() for a in soup.find_all('a', href=re.compile(r'/tags/')) if a.text.strip() and a.text.strip().lower() != 'tags'][:10]
+
+        code_m = re.search(r'/video/(\d+)', url)
+        code = f"R34V-{code_m.group(1)}" if code_m else "RULE34"
+
+        return {
+            'title': title,
+            'code': code,
+            'poster': poster,
+            'hlsUrl': target_stream or url,
+            'downloadTargetUrl': target_stream or url,
+            'tags': tags,
+            'model': model,
+            'duration': duration,
+            'extractor': 'Rule34Video',
+            'sourceUrl': url
+        }
+
+    # -------------------------------------------------------------
     # 1. Jav.Guru (jav.guru)
     # -------------------------------------------------------------
     if 'jav.guru' in url:

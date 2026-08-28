@@ -105,9 +105,14 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
       '--skip-download',
       '--no-warnings',
       '--no-playlist',
-      '--impersonate', 'chrome',
+      '--extractor-args', 'youtube:player_client=android,web',
+      '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
       url
     ];
+
+    if (process.platform === 'win32') {
+      args.splice(4, 0, '--impersonate', 'chrome');
+    }
 
     const child = spawn(ytdlpPath, args, { windowsHide: true });
     let stdout = '';

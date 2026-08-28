@@ -201,6 +201,8 @@ function startJobProcess(job) {
       args.push('--add-header', 'Referer: https://www.xvideos.com/');
     } else if (url && url.includes('xhamster')) {
       args.push('--add-header', 'Referer: https://xhamster.com/');
+    } else if (url && url.includes('rule34video')) {
+      args.push('--add-header', 'Referer: https://rule34video.com/');
     }
 
     // Mode options

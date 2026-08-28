@@ -15,6 +15,7 @@ A modern, high-performance web service and online media downloader powered by **
   - **Jable.tv** (`jable.tv`) &bull; *Direct high-speed multi-quality HLS streams*
   - **XVideos & XNXX** (`xvideos.com`, `xnxx.com`, `xvideos.red`, `xnxx.tv`) &bull; *Direct HLS & 1080p MP4 stream extraction*
   - **xHamster** (`xhamster.com`, `xhamster19.com`, `xhamster.desi`, `xhamster1.com` ... `xhamster20.com`) &bull; *Up to 4K 2160p HDR/SDR multi-bitrate HLS streams*
+  - **Rule34Video** (`rule34video.com`) &bull; *Direct 4K (2160p), 1080p, 720p stream extraction & preview*
   - **Pornhub** (`pornhub.com`) &bull; *Multi-resolution HLS media extractor*
   - **TokyoMotion**, **7MMTV**, **JavCL**, **Javmix**, **JavFull**, **JavDoe**, **Javseen**, **JavQuick**, **JavCt**, **JapanHDV**, **JavSubindo**, and more.
 - **Spotify Music Extractor**: Paste any Spotify track, album, or playlist link (`open.spotify.com/track/...`) &bull; *Automated Spotify Web API metadata & artwork resolution with 320kbps MP3 audio matching and ID3 tagging*.
