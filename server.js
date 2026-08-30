@@ -157,9 +157,12 @@ function startJobProcess(job) {
 
   mode = mode || 'video';
   concurrentFragments = parseInt(concurrentFragments, 10) || 8;
-  const isMusicStream = (url && (url.includes('spotify.com') || url.includes('music.apple.com') || url.includes('deezer.com')));
+  const rawTarget = downloadTargetUrl || hlsUrl || url || '';
 
-  if (isMusicStream && tools.freyrPath && !opts.fallbackMode) {
+  const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
+  const isAppleOrDeezer = (url && (url.includes('music.apple.com') || url.includes('deezer.com')));
+
+  if (isAppleOrDeezer && tools.freyrPath && !opts.fallbackMode) {
     job.isFreyr = true;
     const freyrArgs = [
       'get',
@@ -202,7 +205,7 @@ function startJobProcess(job) {
       '--retries', '10',
       '--fragment-retries', '10',
       '--newline',
-      '--extractor-args', 'youtube:player_client=android,web',
+      '--extractor-args', 'youtube:player_client=android',
       '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
       '-o', outputTemplate
     ];
@@ -401,11 +404,6 @@ function attachProcessListeners(job, child) {
     }
 
     if (code === 0) {
-      job.status = 'completed';
-      job.progress.percent = 100;
-      job.progress.eta = 'Ready';
-      job.logs.push('Processing completed! Ready to save to device.');
-
       try {
         const files = fs.readdirSync(TEMP_DIR);
         let matched = files.find(f => f.startsWith(`${jobId}_`));
@@ -428,11 +426,29 @@ function attachProcessListeners(job, child) {
           job.filePath = path.join(TEMP_DIR, matched);
           job.filename = matched.replace(`${jobId}_`, '');
           const stat = fs.statSync(job.filePath);
-          job.filesize = stat.size > (1024 ** 3)
-            ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
-            : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+          if (stat.size > 0) {
+            job.status = 'completed';
+            job.progress.percent = 100;
+            job.progress.eta = 'Ready';
+            job.logs.push('Processing completed! Ready to save to device.');
+            job.filesize = stat.size > (1024 ** 3)
+              ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
+              : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+          } else {
+            job.status = 'failed';
+            job.error = 'Downloaded file was 0 bytes.';
+            job.logs.push('[ERR] Media file was empty (0 bytes).');
+          }
+        } else {
+          job.status = 'failed';
+          job.error = 'No output media file was generated.';
+          job.logs.push('[ERR] Media file was not found in temp directory.');
         }
-      } catch (e) {}
+      } catch (e) {
+        job.status = 'failed';
+        job.error = e.message;
+        job.logs.push(`[ERR] File verification error: ${e.message}`);
+      }
     } else {
       if (job.status !== 'cancelled') {
         job.status = 'failed';
