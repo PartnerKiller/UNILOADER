@@ -161,6 +161,7 @@ function startJobProcess(job) {
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
   const isSpotifyPlaylistOrAlbum = url && (url.includes('spotify.com/playlist') || url.includes('spotify.com/album'));
+  const isAppleOrDeezer = url && (url.includes('music.apple.com') || url.includes('deezer.com'));
 
   if (isSpotifyPlaylistOrAlbum) {
     const pythonBin = getPythonBin();
