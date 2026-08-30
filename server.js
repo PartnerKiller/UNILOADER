@@ -160,9 +160,27 @@ function startJobProcess(job) {
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
-  const isAppleOrDeezer = (url && (url.includes('music.apple.com') || url.includes('deezer.com')));
+  const isSpotifyPlaylistOrAlbum = url && (url.includes('spotify.com/playlist') || url.includes('spotify.com/album'));
 
-  if (isAppleOrDeezer && tools.freyrPath && !opts.fallbackMode) {
+  if (isSpotifyPlaylistOrAlbum) {
+    const pythonBin = getPythonBin();
+    const spotifyScript = path.join(__dirname, 'spotify_downloader.py');
+    const safeTitle = (job.title || 'spotify_playlist').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const finalZipPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.zip`);
+
+    job.logs.push(`Starting Spotify Playlist/Album Downloader Engine...`);
+    job.logs.push(`Target: ${url}`);
+
+    const child = spawn(pythonBin, [
+      spotifyScript,
+      url,
+      finalZipPath,
+      audioFormat || 'mp3',
+      audioBitrate || '320k'
+    ], { windowsHide: true });
+    job.process = child;
+    attachProcessListeners(job, child);
+  } else if (isAppleOrDeezer && tools.freyrPath && !opts.fallbackMode) {
     job.isFreyr = true;
     const freyrArgs = [
       'get',
@@ -205,6 +223,8 @@ function startJobProcess(job) {
       '--retries', '10',
       '--fragment-retries', '10',
       '--newline',
+      '--ignore-errors',
+      '--no-abort-on-error',
       '--extractor-args', 'youtube:player_client=android',
       '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
       '-o', outputTemplate
@@ -264,8 +284,8 @@ function startJobProcess(job) {
       }
     }
 
-    // Subtitles
-    if (embedSubtitles) {
+    // Subtitles (only for video)
+    if (embedSubtitles && mode !== 'audio') {
       args.push('--embed-subs');
       if (subLangs && subLangs.trim()) {
         args.push('--sub-langs', subLangs.trim());

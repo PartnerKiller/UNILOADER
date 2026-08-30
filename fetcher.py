@@ -76,111 +76,121 @@ def extract_all(url):
     # 0. Spotify (open.spotify.com)
     # -------------------------------------------------------------
     if 'spotify.com' in url:
-        SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID', '').strip()
-        SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '').strip()
-        if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
-            raise Exception("Spotify credentials not configured in .env (set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)")
-
-        auth_bytes = base64.b64encode(f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()).decode()
-        
         try:
-            token_res = session.post(
-                'https://accounts.spotify.com/api/token',
-                data={'grant_type': 'client_credentials'},
-                headers={'Authorization': f'Basic {auth_bytes}', 'Content-Type': 'application/x-www-form-urlencoded'},
-                timeout=10
-            )
-            if token_res.status_code == 200:
-                token = token_res.json().get('access_token')
-                api_headers = {'Authorization': f'Bearer {token}'}
+            from bs4 import BeautifulSoup
+            pl_m = re.search(r'playlist/([a-zA-Z0-9]+)', url)
+            album_m = re.search(r'album/([a-zA-Z0-9]+)', url)
+            track_m = re.search(r'track/([a-zA-Z0-9]+)', url)
 
-                track_m = re.search(r'spotify\.com/(?:intl-[a-z]+/)?track/([a-zA-Z0-9]+)', url)
-                album_m = re.search(r'spotify\.com/(?:intl-[a-z]+/)?album/([a-zA-Z0-9]+)', url)
-                playlist_m = re.search(r'spotify\.com/(?:intl-[a-z]+/)?playlist/([a-zA-Z0-9]+)', url)
+            if pl_m:
+                pl_id = pl_m.group(1)
+                embed_url = f"https://open.spotify.com/embed/playlist/{pl_id}"
+                r = session.get(embed_url, timeout=10)
+                soup = BeautifulSoup(r.text, 'html.parser')
+                script = soup.find('script', id='__NEXT_DATA__')
+                if script:
+                    data = json.loads(script.text)
+                    entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+                    pl_name = entity.get('name', 'Spotify Playlist')
+                    sources = entity.get('coverArt', {}).get('sources', [])
+                    poster = sources[0].get('url') if sources else ''
+                    raw_tracks = entity.get('trackList', [])
+                    tracks = []
+                    for i, t in enumerate(raw_tracks):
+                        title = t.get('title', '')
+                        subtitle = t.get('subtitle', '')
+                        full_name = f"{subtitle} - {title}" if subtitle else title
+                        tracks.append({
+                            'index': i + 1,
+                            'title': title,
+                            'artist': subtitle,
+                            'fullName': full_name,
+                            'query': f"ytsearch1:{full_name} audio"
+                        })
+                    return {
+                        'title': pl_name,
+                        'code': 'SPOTIFY-PLAYLIST',
+                        'poster': poster,
+                        'hlsUrl': tracks[0]['query'] if tracks else f"ytsearch1:{pl_name} audio",
+                        'downloadTargetUrl': tracks[0]['query'] if tracks else f"ytsearch1:{pl_name} audio",
+                        'tags': ['Playlist', 'Spotify', 'Music'],
+                        'model': f"{len(tracks)} Tracks",
+                        'duration': f"{len(tracks)} Tracks",
+                        'isPlaylist': True,
+                        'playlistTracks': tracks,
+                        'extractor': 'Spotify',
+                        'sourceUrl': url,
+                        'mode': 'audio'
+                    }
 
-                if track_m:
-                    track_id = track_m.group(1)
-                    tr = session.get(f'https://api.spotify.com/v1/tracks/{track_id}', headers=api_headers, timeout=10)
-                    if tr.status_code == 200:
-                        track = tr.json()
-                        name = track.get('name', 'Spotify Track')
-                        artists = ', '.join(a['name'] for a in track.get('artists', []))
-                        album = track.get('album', {}).get('name', '')
-                        images = track.get('album', {}).get('images', [])
-                        poster = images[0]['url'] if images else ''
-                        dur_ms = track.get('duration_ms', 0)
-                        dur_sec = dur_ms // 1000
-                        duration = f"{dur_sec // 60}:{dur_sec % 60:02d}" if dur_sec else ''
+            elif album_m:
+                album_id = album_m.group(1)
+                embed_url = f"https://open.spotify.com/embed/album/{album_id}"
+                r = session.get(embed_url, timeout=10)
+                soup = BeautifulSoup(r.text, 'html.parser')
+                script = soup.find('script', id='__NEXT_DATA__')
+                if script:
+                    data = json.loads(script.text)
+                    entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+                    album_name = entity.get('name', 'Spotify Album')
+                    sources = entity.get('coverArt', {}).get('sources', [])
+                    poster = sources[0].get('url') if sources else ''
+                    raw_tracks = entity.get('trackList', [])
+                    tracks = []
+                    for i, t in enumerate(raw_tracks):
+                        title = t.get('title', '')
+                        subtitle = t.get('subtitle', '')
+                        full_name = f"{subtitle} - {title}" if subtitle else title
+                        tracks.append({
+                            'index': i + 1,
+                            'title': title,
+                            'artist': subtitle,
+                            'fullName': full_name,
+                            'query': f"ytsearch1:{full_name} audio"
+                        })
+                    return {
+                        'title': album_name,
+                        'code': 'SPOTIFY-ALBUM',
+                        'poster': poster,
+                        'hlsUrl': tracks[0]['query'] if tracks else f"ytsearch1:{album_name} audio",
+                        'downloadTargetUrl': tracks[0]['query'] if tracks else f"ytsearch1:{album_name} audio",
+                        'tags': ['Album', 'Spotify', 'Music'],
+                        'model': f"{len(tracks)} Tracks",
+                        'duration': f"{len(tracks)} Tracks",
+                        'isPlaylist': True,
+                        'playlistTracks': tracks,
+                        'extractor': 'Spotify',
+                        'sourceUrl': url,
+                        'mode': 'audio'
+                    }
 
-                        full_title = f"{artists} - {name}" if artists else name
-                        download_target = f"ytsearch1:{artists} - {name} audio" if artists else f"ytsearch1:{name} audio"
-
-                        return {
-                            'title': full_title,
-                            'code': 'SPOTIFY',
-                            'poster': poster,
-                            'hlsUrl': download_target,
-                            'downloadTargetUrl': download_target,
-                            'tags': [album, 'Spotify', 'Music'] if album else ['Spotify', 'Music'],
-                            'model': artists,
-                            'duration': duration,
-                            'extractor': 'Spotify',
-                            'sourceUrl': url,
-                            'mode': 'audio'
-                        }
-
-                elif album_m:
-                    album_id = album_m.group(1)
-                    ar = session.get(f'https://api.spotify.com/v1/albums/{album_id}', headers=api_headers, timeout=10)
-                    if ar.status_code == 200:
-                        album_data = ar.json()
-                        album_name = album_data.get('name', 'Spotify Album')
-                        artists = ', '.join(a['name'] for a in album_data.get('artists', []))
-                        images = album_data.get('images', [])
-                        poster = images[0]['url'] if images else ''
-                        tracks = album_data.get('tracks', {}).get('items', [])
-                        first_track_name = tracks[0]['name'] if tracks else album_name
-                        download_target = f"ytsearch1:{artists} - {first_track_name} audio"
-
-                        return {
-                            'title': f"{artists} - {album_name}",
-                            'code': 'SPOTIFY-ALBUM',
-                            'poster': poster,
-                            'hlsUrl': download_target,
-                            'downloadTargetUrl': download_target,
-                            'tags': ['Album', 'Spotify', 'Music'],
-                            'model': artists,
-                            'duration': f"{len(tracks)} Tracks",
-                            'extractor': 'Spotify',
-                            'sourceUrl': url,
-                            'mode': 'audio'
-                        }
-
-                elif playlist_m:
-                    playlist_id = playlist_m.group(1)
-                    pr = session.get(f'https://api.spotify.com/v1/playlists/{playlist_id}', headers=api_headers, timeout=10)
-                    if pr.status_code == 200:
-                        pl_data = pr.json()
-                        pl_name = pl_data.get('name', 'Spotify Playlist')
-                        owner = pl_data.get('owner', {}).get('display_name', '')
-                        images = pl_data.get('images', [])
-                        poster = images[0]['url'] if images else ''
-                        tracks_total = pl_data.get('tracks', {}).get('total', 0)
-                        download_target = f"ytsearch1:{pl_name} audio"
-
-                        return {
-                            'title': pl_name,
-                            'code': 'SPOTIFY-PLAYLIST',
-                            'poster': poster,
-                            'hlsUrl': download_target,
-                            'downloadTargetUrl': download_target,
-                            'tags': ['Playlist', 'Spotify', 'Music'],
-                            'model': owner,
-                            'duration': f"{tracks_total} Tracks",
-                            'extractor': 'Spotify',
-                            'sourceUrl': url,
-                            'mode': 'audio'
-                        }
+            elif track_m:
+                track_id = track_m.group(1)
+                embed_url = f"https://open.spotify.com/embed/track/{track_id}"
+                r = session.get(embed_url, timeout=10)
+                soup = BeautifulSoup(r.text, 'html.parser')
+                script = soup.find('script', id='__NEXT_DATA__')
+                if script:
+                    data = json.loads(script.text)
+                    entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+                    title = entity.get('name', 'Spotify Track')
+                    artists = ', '.join([a.get('name') for a in entity.get('artists', []) if a.get('name')])
+                    sources = entity.get('coverArt', {}).get('sources', [])
+                    poster = sources[0].get('url') if sources else ''
+                    full_name = f"{artists} - {title}" if artists else title
+                    return {
+                        'title': full_name,
+                        'code': 'SPOTIFY',
+                        'poster': poster,
+                        'hlsUrl': f"ytsearch1:{full_name} audio",
+                        'downloadTargetUrl': f"ytsearch1:{full_name} audio",
+                        'tags': ['Spotify', 'Music'],
+                        'model': artists,
+                        'duration': '',
+                        'extractor': 'Spotify',
+                        'sourceUrl': url,
+                        'mode': 'audio'
+                    }
         except Exception as e:
             pass
 
