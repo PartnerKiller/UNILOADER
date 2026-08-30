@@ -78,16 +78,13 @@ const clearAllCompletedBtn = document.getElementById('clearAllCompletedBtn');
 // Ready Modal
 const readyModal = document.getElementById('readyModal');
 const closeReadyModalBtn = document.getElementById('closeReadyModalBtn');
-const readyFileExt = document.getElementById('readyFileExt');
-const readyFileName = document.getElementById('readyFileName');
-const readyFileSize = document.getElementById('readyFileSize');
-const saveToDeviceBtn = document.getElementById('saveToDeviceBtn');
-const watchInBrowserBtn = document.getElementById('watchInBrowserBtn');
-const copyLinkBtn = document.getElementById('copyLinkBtn');
-const copyLinkText = document.getElementById('copyLinkText');
+const readyModalTitle = document.getElementById('readyModalTitle');
+const readyModalSize = document.getElementById('readyModalSize');
+const readyModalSaveBtn = document.getElementById('readyModalSaveBtn');
+const readyModalWatchBtn = document.getElementById('readyModalWatchBtn');
 
 // Video Player Modal
-const videoModal = document.getElementById('videoModal');
+const playerModal = document.getElementById('playerModal');
 const html5Player = document.getElementById('html5Player');
 const modalVideoTitle = document.getElementById('modalVideoTitle');
 const modalFileInfo = document.getElementById('modalFileInfo');
@@ -189,35 +186,33 @@ function setupEventListeners() {
   }
 
   // Close modals
-  closeModalBtn.addEventListener('click', closePlayerModal);
-  videoModal.addEventListener('click', (e) => {
-    if (e.target === videoModal) closePlayerModal();
-  });
+  if (closeModalBtn) closeModalBtn.addEventListener('click', closePlayerModal);
+  if (playerModal) {
+    playerModal.addEventListener('click', (e) => {
+      if (e.target === playerModal) closePlayerModal();
+    });
+  }
 
-  closeReadyModalBtn.addEventListener('click', () => {
-    readyModal.style.display = 'none';
-  });
-  readyModal.addEventListener('click', (e) => {
-    if (e.target === readyModal) readyModal.style.display = 'none';
-  });
+  if (closeReadyModalBtn) {
+    closeReadyModalBtn.addEventListener('click', () => {
+      if (readyModal) readyModal.style.display = 'none';
+    });
+  }
+  if (readyModal) {
+    readyModal.addEventListener('click', (e) => {
+      if (e.target === readyModal) readyModal.style.display = 'none';
+    });
+  }
 
   // Ready Modal Actions
-  watchInBrowserBtn.addEventListener('click', () => {
-    if (activeReadyJob) {
-      readyModal.style.display = 'none';
-      playMedia(activeReadyJob.streamUrl, activeReadyJob.title, activeReadyJob.downloadUrl);
-    }
-  });
-
-  copyLinkBtn.addEventListener('click', () => {
-    if (activeReadyJob) {
-      const fullUrl = window.location.origin + activeReadyJob.downloadUrl;
-      navigator.clipboard.writeText(fullUrl).then(() => {
-        copyLinkText.textContent = 'Copied to Clipboard!';
-        setTimeout(() => { copyLinkText.textContent = 'Copy Download Link'; }, 2000);
-      });
-    }
-  });
+  if (readyModalWatchBtn) {
+    readyModalWatchBtn.addEventListener('click', () => {
+      if (activeReadyJob) {
+        if (readyModal) readyModal.style.display = 'none';
+        playMedia(activeReadyJob.streamUrl, activeReadyJob.title, activeReadyJob.downloadUrl);
+      }
+    });
+  }
 }
 
 function setMode(mode) {
@@ -452,23 +447,25 @@ async function startBatchDownload() {
 function triggerDeviceDownload(job) {
   activeReadyJob = job;
 
-  readyFileName.textContent = job.filename || job.title;
-  readyFileSize.textContent = job.filesize ? `Size: ${job.filesize}` : '';
-  const ext = (job.filename.split('.').pop() || 'MP4').toUpperCase();
-  readyFileExt.textContent = ext;
+  if (readyModalTitle) readyModalTitle.textContent = job.filename || job.title || 'Download Ready';
+  if (readyModalSize) readyModalSize.textContent = job.filesize ? `Size: ${job.filesize}` : '';
 
-  saveToDeviceBtn.href = job.downloadUrl;
-  saveToDeviceBtn.setAttribute('download', job.filename);
+  if (readyModalSaveBtn) {
+    readyModalSaveBtn.href = job.downloadUrl;
+    readyModalSaveBtn.setAttribute('download', job.filename || 'download');
+  }
 
-  readyModal.style.display = 'flex';
+  if (readyModal) readyModal.style.display = 'flex';
 
   // Automatically trigger native browser file save
-  const autoAnchor = document.createElement('a');
-  autoAnchor.href = job.downloadUrl;
-  autoAnchor.setAttribute('download', job.filename);
-  document.body.appendChild(autoAnchor);
-  autoAnchor.click();
-  document.body.removeChild(autoAnchor);
+  try {
+    const autoAnchor = document.createElement('a');
+    autoAnchor.href = job.downloadUrl;
+    autoAnchor.setAttribute('download', job.filename || 'download');
+    document.body.appendChild(autoAnchor);
+    autoAnchor.click();
+    document.body.removeChild(autoAnchor);
+  } catch (e) {}
 }
 
 // 4. SSE Stream Connection for Live Progress with Auto-Reconnect Backoff
@@ -631,7 +628,7 @@ function createJobCardElement(job) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             <span>Save to Device</span>
           </a>
-          <button class="btn btn-secondary btn-sm" onclick="playMedia('${job.streamUrl}', '${job.title.replace(/'/g, "\\'")}', '${job.downloadUrl}')">
+          <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')">
             <span>Watch</span>
           </button>
         ` : ''}
@@ -691,7 +688,7 @@ function updateJobCard(job) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Save to Device</span>
         </a>
-        <button class="btn btn-secondary btn-sm" onclick="playMedia('${job.streamUrl}', '${job.title.replace(/'/g, "\\'")}', '${job.downloadUrl}')">
+        <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')">
           <span>Watch</span>
         </button>
       `;
@@ -796,16 +793,35 @@ async function clearAllCompletedJobs() {
 
 // 6. In-Browser Media Player
 window.playMedia = function(streamUrl, title, downloadUrl) {
-  modalVideoTitle.textContent = title;
-  modalFileInfo.textContent = title;
-  html5Player.src = streamUrl;
-  modalDownloadDeviceBtn.href = downloadUrl;
-  videoModal.style.display = 'flex';
-  html5Player.play().catch(e => console.log('Autoplay deferred:', e));
+  if (!playerModal) return;
+  if (modalVideoTitle) modalVideoTitle.textContent = title || 'Media Player';
+  if (modalFileInfo) modalFileInfo.textContent = title || '';
+  if (html5Player) {
+    html5Player.src = streamUrl;
+    html5Player.load();
+    html5Player.play().catch(e => console.log('Autoplay deferred:', e));
+  }
+  if (modalDownloadDeviceBtn) modalDownloadDeviceBtn.href = downloadUrl || streamUrl;
+  playerModal.style.display = 'flex';
+};
+
+window.playMediaById = function(jobId) {
+  fetch('/api/jobs').then(r => r.json()).then(jobs => {
+    const job = jobs.find(j => j.id === jobId);
+    if (job) {
+      playMedia(job.streamUrl, job.title, job.downloadUrl);
+    } else {
+      playMedia(`/api/stream/${jobId}`, 'Media Player', `/api/download-file/${jobId}`);
+    }
+  }).catch(() => {
+    playMedia(`/api/stream/${jobId}`, 'Media Player', `/api/download-file/${jobId}`);
+  });
 };
 
 function closePlayerModal() {
-  html5Player.pause();
-  html5Player.src = '';
-  videoModal.style.display = 'none';
+  if (html5Player) {
+    html5Player.pause();
+    html5Player.src = '';
+  }
+  if (playerModal) playerModal.style.display = 'none';
 }
