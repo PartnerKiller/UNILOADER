@@ -64,7 +64,7 @@ function getPythonBin() {
   return 'python';
 }
 
-function runPythonFetcherAsync(pyBin, scriptPath, url, timeoutMs = 25000) {
+function runPythonFetcherAsync(pyBin, scriptPath, url, timeoutMs = 45000) {
   return new Promise((resolve, reject) => {
     const child = spawn(pyBin, [scriptPath, url], { windowsHide: true });
     let stdout = '';
@@ -82,9 +82,12 @@ function runPythonFetcherAsync(pyBin, scriptPath, url, timeoutMs = 25000) {
       clearTimeout(timer);
       if (code === 0 && stdout.trim()) {
         try {
-          const json = JSON.parse(stdout.trim());
-          if (json && !json.error && json.title) {
-            return resolve(json);
+          const match = stdout.match(/\{[\s\S]*\}/);
+          if (match) {
+            const json = JSON.parse(match[0]);
+            if (json && !json.error && json.title) {
+              return resolve(json);
+            }
           }
         } catch (e) {}
       }
