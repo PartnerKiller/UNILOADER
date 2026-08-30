@@ -44,6 +44,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
 function getToolPaths() {
   const ytdlpPath = getYtDlpPath();
   let ffmpegDir = '';
+  let freyrPath = '';
 
   if (process.platform === 'win32') {
     const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'AppData', 'Local');
@@ -59,9 +60,16 @@ function getToolPaths() {
         break;
       }
     }
+    try {
+      freyrPath = execSync('where freyr', { encoding: 'utf-8' }).split(/\r?\n/)[0].trim();
+    } catch (e) {}
+  } else {
+    try {
+      freyrPath = execSync('which freyr', { encoding: 'utf-8' }).trim();
+    } catch (e) {}
   }
 
-  return { ytdlpPath, ffmpegDir };
+  return { ytdlpPath, ffmpegDir, freyrPath };
 }
 
 const tools = getToolPaths();
@@ -149,11 +157,30 @@ function startJobProcess(job) {
 
   mode = mode || 'video';
   concurrentFragments = parseInt(concurrentFragments, 10) || 8;
-  const rawTarget = downloadTargetUrl || hlsUrl || url || '';
+  const isMusicStream = (url && (url.includes('spotify.com') || url.includes('music.apple.com') || url.includes('deezer.com')));
 
-  const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
+  if (isMusicStream && tools.freyrPath && !opts.fallbackMode) {
+    job.isFreyr = true;
+    const freyrArgs = [
+      'get',
+      '--no-logo',
+      '--no-header',
+      '--no-tree',
+      '--no-browser',
+      '--no-auth',
+      '--no-net-check',
+      '-b', '320',
+      '-d', TEMP_DIR,
+      url
+    ];
 
-  if (isJavGuru) {
+    job.logs.push(`Starting Freyr-JS High-Quality Music Engine...`);
+    job.logs.push(`Command: freyr ${freyrArgs.join(' ')}`);
+
+    const child = spawn(tools.freyrPath, freyrArgs, { windowsHide: true });
+    job.process = child;
+    attachProcessListeners(job, child);
+  } else if (isJavGuru) {
     const pythonBin = getPythonBin();
     const hlsScript = path.join(__dirname, 'hls_downloader.py');
     const finalOutPath = path.join(TEMP_DIR, `${job.id}_${job.title}.mp4`);
@@ -319,6 +346,23 @@ function attachProcessListeners(job, child) {
     const sizeMatch = line.match(/of\s+~?\s*([\d.]+\s*(?:KiB|MiB|GiB|B|KB|MB|GB))/i);
     if (sizeMatch) job.progress.totalSize = sizeMatch[1];
 
+    // Freyr-JS progress parsing
+    if (line.includes('Identifying service') || line.includes('Checking authentication')) {
+      job.progress.eta = 'Resolving...';
+      job.progress.percent = 15;
+      return;
+    }
+    if (line.includes('Downloading track') || line.includes('Fetching') || line.includes('Collate:')) {
+      job.progress.eta = 'Downloading...';
+      job.progress.percent = 50;
+      return;
+    }
+    if (line.includes('Embedding metadata') || line.includes('Tagging') || line.includes('Embedding:')) {
+      job.progress.eta = 'Embedding tags...';
+      job.progress.percent = 85;
+      return;
+    }
+
     const fragMatch = line.match(/\(frag\s+([0-9]+)\/([0-9]+)\)/i);
     if (fragMatch) {
       job.progress.currentFrag = parseInt(fragMatch[1], 10);
@@ -349,6 +393,13 @@ function attachProcessListeners(job, child) {
     job.completedTime = Date.now();
     job.process = null;
 
+    if (job.isFreyr && code !== 0) {
+      job.logs.push(`[FALLBACK] Freyr exited with code ${code}. Engaging Universal High-Speed Spotify Engine...`);
+      job.isFreyr = false;
+      startJobProcess(job, { ...job.opts, fallbackMode: true });
+      return;
+    }
+
     if (code === 0) {
       job.status = 'completed';
       job.progress.percent = 100;
@@ -357,7 +408,22 @@ function attachProcessListeners(job, child) {
 
       try {
         const files = fs.readdirSync(TEMP_DIR);
-        const matched = files.find(f => f.startsWith(`${jobId}_`));
+        let matched = files.find(f => f.startsWith(`${jobId}_`));
+
+        // If freyr downloaded without prefix, find recent audio file
+        if (!matched && job.isFreyr) {
+          const musicFiles = files
+            .filter(f => f.endsWith('.m4a') || f.endsWith('.mp3') || f.endsWith('.flac'))
+            .map(f => ({ name: f, time: fs.statSync(path.join(TEMP_DIR, f)).mtimeMs }))
+            .sort((a, b) => b.time - a.time);
+          if (musicFiles.length > 0) {
+            const src = path.join(TEMP_DIR, musicFiles[0].name);
+            const dst = path.join(TEMP_DIR, `${jobId}_${musicFiles[0].name}`);
+            fs.renameSync(src, dst);
+            matched = `${jobId}_${musicFiles[0].name}`;
+          }
+        }
+
         if (matched) {
           job.filePath = path.join(TEMP_DIR, matched);
           job.filename = matched.replace(`${jobId}_`, '');
