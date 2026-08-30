@@ -76,6 +76,93 @@ def extract_all(url):
     # 0. Spotify (open.spotify.com)
     # -------------------------------------------------------------
     if 'spotify.com' in url:
+        # 1. SpotDL full catalog extractor (supports all 100, 300, 1000+ tracks)
+        try:
+            from spotdl.utils.spotify import SpotifyClient
+            SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID', '').strip()
+            SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '').strip()
+            SpotifyClient.init(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET, user_auth=False, use_official_api=False)
+
+            if 'playlist' in url:
+                from spotdl.types.playlist import Playlist
+                meta, songs = Playlist.get_metadata(url)
+                tracks = []
+                for i, s in enumerate(songs):
+                    artist_str = ', '.join(s.artists) if s.artists else s.artist
+                    full_name = f"{artist_str} - {s.name}" if artist_str else s.name
+                    tracks.append({
+                        'index': i + 1,
+                        'title': s.name,
+                        'artist': artist_str,
+                        'fullName': full_name,
+                        'query': f"ytsearch1:{full_name} audio"
+                    })
+                return {
+                    'title': meta.get('name', 'Spotify Playlist'),
+                    'code': 'SPOTIFY-PLAYLIST',
+                    'poster': meta.get('cover_url', ''),
+                    'hlsUrl': tracks[0]['query'] if tracks else f"ytsearch1:{meta.get('name', 'Spotify')} audio",
+                    'downloadTargetUrl': tracks[0]['query'] if tracks else f"ytsearch1:{meta.get('name', 'Spotify')} audio",
+                    'tags': ['Playlist', 'Spotify', 'Music'],
+                    'model': f"{len(tracks)} Tracks",
+                    'duration': f"{len(tracks)} Tracks",
+                    'isPlaylist': True,
+                    'playlistTracks': tracks,
+                    'extractor': 'Spotify',
+                    'sourceUrl': url,
+                    'mode': 'audio'
+                }
+            elif 'album' in url:
+                from spotdl.types.album import Album
+                meta, songs = Album.get_metadata(url)
+                tracks = []
+                for i, s in enumerate(songs):
+                    artist_str = ', '.join(s.artists) if s.artists else s.artist
+                    full_name = f"{artist_str} - {s.name}" if artist_str else s.name
+                    tracks.append({
+                        'index': i + 1,
+                        'title': s.name,
+                        'artist': artist_str,
+                        'fullName': full_name,
+                        'query': f"ytsearch1:{full_name} audio"
+                    })
+                return {
+                    'title': meta.get('name', 'Spotify Album'),
+                    'code': 'SPOTIFY-ALBUM',
+                    'poster': meta.get('cover_url', ''),
+                    'hlsUrl': tracks[0]['query'] if tracks else f"ytsearch1:{meta.get('name', 'Spotify')} audio",
+                    'downloadTargetUrl': tracks[0]['query'] if tracks else f"ytsearch1:{meta.get('name', 'Spotify')} audio",
+                    'tags': ['Album', 'Spotify', 'Music'],
+                    'model': f"{len(tracks)} Tracks",
+                    'duration': f"{len(tracks)} Tracks",
+                    'isPlaylist': True,
+                    'playlistTracks': tracks,
+                    'extractor': 'Spotify',
+                    'sourceUrl': url,
+                    'mode': 'audio'
+                }
+            elif 'track' in url:
+                from spotdl.types.song import Song
+                s = Song.from_url(url)
+                artist_str = ', '.join(s.artists) if s.artists else s.artist
+                full_name = f"{artist_str} - {s.name}" if artist_str else s.name
+                return {
+                    'title': full_name,
+                    'code': 'SPOTIFY',
+                    'poster': s.cover_url or '',
+                    'hlsUrl': f"ytsearch1:{full_name} audio",
+                    'downloadTargetUrl': f"ytsearch1:{full_name} audio",
+                    'tags': ['Spotify', 'Music'],
+                    'model': artist_str,
+                    'duration': '',
+                    'extractor': 'Spotify',
+                    'sourceUrl': url,
+                    'mode': 'audio'
+                }
+        except Exception as e:
+            pass
+
+        # 2. Embed page fallback
         try:
             from bs4 import BeautifulSoup
             pl_m = re.search(r'playlist/([a-zA-Z0-9]+)', url)
