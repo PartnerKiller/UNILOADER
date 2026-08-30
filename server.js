@@ -247,7 +247,9 @@ function startJobProcess(job) {
     }
 
     // Dynamic Referers for JAV streaming CDNs & adult networks
-    if (rawTarget.includes('surrit.com') || rawTarget.includes('sixyik.com') || (url && url.includes('missav'))) {
+    if (rawTarget.includes('phncdn.com') || (url && url.includes('pornhub'))) {
+      args.push('--add-header', 'Referer: https://www.pornhub.com/');
+    } else if (rawTarget.includes('surrit.com') || rawTarget.includes('sixyik.com') || (url && url.includes('missav'))) {
       args.push('--add-header', 'Referer: https://missav.ws/');
     } else if (url && url.includes('jable.tv')) {
       args.push('--add-header', 'Referer: https://en.jable.tv/');

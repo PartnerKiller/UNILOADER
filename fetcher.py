@@ -164,7 +164,6 @@ def extract_all(url):
 
         # 2. Embed page fallback
         try:
-            from bs4 import BeautifulSoup
             pl_m = re.search(r'playlist/([a-zA-Z0-9]+)', url)
             album_m = re.search(r'album/([a-zA-Z0-9]+)', url)
             track_m = re.search(r'track/([a-zA-Z0-9]+)', url)
