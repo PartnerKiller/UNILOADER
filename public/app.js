@@ -1,4 +1,4 @@
-// JAV-Downloader &bull; Universal Web Downloader Controller
+// Universal Downloader &bull; Online Media Downloader Controller
 
 let currentExtractedData = null;
 let activeEventSources = new Map(); // jobId -> EventSource

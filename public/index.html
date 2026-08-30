@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JAV-Downloader &bull; Universal Web Downloader</title>
-  <meta name="description" content="Fast universal online video & audio downloader. Download directly to your device from Jable, Pornhub, YouTube, Twitter, TikTok, and more.">
+  <title>Universal Downloader &bull; Universal Web Downloader</title>
+  <meta name="description" content="Fast universal online video & audio downloader. Download directly to your device from YouTube, Spotify, Rule34Video, Twitter, TikTok, and more.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=2.6.0">
+  <link rel="stylesheet" href="styles.css?v=2.7.0">
 </head>
 <body>
   <div class="app-container">
@@ -24,7 +24,7 @@
           </svg>
         </div>
         <div class="brand-text">
-          <span class="brand-title">JAV-DOWNLOADER</span>
+          <span class="brand-title">UNIVERSAL DOWNLOADER</span>
           <span class="brand-subtitle">Universal Online Media Downloader</span>
         </div>
       </div>
@@ -331,7 +331,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-      <p>JAV-Downloader &bull; High Speed Universal Online Downloader &bull; Private & Confidential</p>
+      <p>Universal Downloader &bull; High Speed Online Media Downloader &bull; Private & Confidential</p>
     </footer>
 
     <!-- Download Ready Popup Modal -->
@@ -344,48 +344,42 @@
           </div>
           <button class="modal-close" id="closeReadyModalBtn" title="Close">&times;</button>
         </div>
-        <div class="ready-modal-body">
-          <div class="ready-file-card">
-            <div class="ready-file-info">
-              <span class="ready-badge" id="readyFileExt">MP4</span>
-              <div class="ready-title-box">
-                <h4 id="readyFileName">video.mp4</h4>
-                <span class="ready-size-tag" id="readyFileSize">Calculating size...</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="ready-actions-grid">
-            <a href="#" class="btn btn-download-device" id="saveToDeviceBtn" download>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <div class="modal-body">
+          <div class="ready-file-preview">
+            <div class="ready-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              <span>Save to Your Device</span>
+            </div>
+            <div class="ready-details">
+              <h4 class="ready-title" id="readyModalTitle">Filename</h4>
+              <span class="ready-size-tag" id="readyModalSize">Size</span>
+            </div>
+          </div>
+          <div class="ready-actions-grid">
+            <a href="#" class="btn btn-primary btn-ready-action" id="readyModalSaveBtn" download>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Save Directly to Device</span>
             </a>
-
-            <button class="btn btn-secondary btn-ready-action" id="watchInBrowserBtn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <button type="button" class="btn btn-secondary btn-ready-action" id="readyModalWatchBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
-              <span>Watch in Browser</span>
-            </button>
-
-            <button class="btn btn-secondary btn-ready-action" id="copyLinkBtn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-              <span id="copyLinkText">Copy Download Link</span>
+              <span>Stream / Preview Online</span>
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Video / Audio In-Browser Playback Modal -->
-    <div class="modal-backdrop" id="videoModal" style="display: none;">
+    <!-- Video Preview Modal -->
+    <div class="modal-backdrop" id="playerModal" style="display: none;">
       <div class="modal-dialog">
         <div class="modal-header">
           <h3 class="modal-title" id="modalVideoTitle">Media Player</h3>
@@ -407,6 +401,6 @@
 
   </div>
 
-  <script src="app.js?v=2.6.0"></script>
+  <script src="app.js?v=2.7.0"></script>
 </body>
 </html>
