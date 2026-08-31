@@ -1,0 +1,30 @@
+{
+  "name": "Universal Downloader",
+  "short_name": "Universal",
+  "description": "Fast universal online video & audio downloader. Download directly to your device from YouTube, Spotify, TikTok, Instagram, and more.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b0f19",
+  "theme_color": "#2563eb",
+  "categories": ["utilities", "multimedia", "music", "video"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

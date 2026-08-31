@@ -78,10 +78,39 @@ console.log('Detected Tools:', tools);
 // In-memory job & SSE client store
 const jobs = new Map();
 const sseClients = new Map(); // jobId -> Set(res)
+const globalSseClients = new Set();
+
+function broadcastGlobalJobUpdate() {
+  if (globalSseClients.size === 0) return;
+  const jobList = Array.from(jobs.values()).map(j => ({
+    id: j.id,
+    mode: j.mode,
+    title: j.title,
+    status: j.status,
+    progress: j.progress,
+    filesize: j.filesize || '',
+    filename: j.filename,
+    error: j.error,
+    createdAt: j.createdAt,
+    downloadUrl: `/api/download-file/${j.id}`,
+    streamUrl: `/api/stream/${j.id}`
+  }));
+  const payload = JSON.stringify(jobList);
+  for (const client of globalSseClients) {
+    try {
+      client.write(`data: ${payload}\n\n`);
+    } catch (e) {
+      globalSseClients.delete(client);
+    }
+  }
+}
 
 function broadcastJobUpdate(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
+  
+  broadcastGlobalJobUpdate();
+
   const clients = sseClients.get(jobId);
   if (clients && clients.size > 0) {
     const data = JSON.stringify({
@@ -106,6 +135,49 @@ function broadcastJobUpdate(jobId) {
     }
   }
 }
+
+// Global SSE Stream Endpoint (60fps realtime live updates)
+app.get('/api/jobs/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.write('\n');
+  globalSseClients.add(res);
+
+  // Send initial jobs payload
+  const initial = Array.from(jobs.values()).map(j => ({
+    id: j.id,
+    mode: j.mode,
+    title: j.title,
+    status: j.status,
+    progress: j.progress,
+    filesize: j.filesize || '',
+    filename: j.filename,
+    error: j.error,
+    createdAt: j.createdAt,
+    downloadUrl: `/api/download-file/${j.id}`,
+    streamUrl: `/api/stream/${j.id}`
+  }));
+  res.write(`data: ${JSON.stringify(initial)}\n\n`);
+
+  req.on('close', () => {
+    globalSseClients.delete(res);
+  });
+});
+
+// SSE Heartbeat every 15 seconds to keep connections persistent
+setInterval(() => {
+  for (const client of globalSseClients) {
+    try {
+      client.write(': keepalive\n\n');
+    } catch (e) {
+      globalSseClients.delete(client);
+    }
+  }
+}, 15000);
 
 // Concurrency Queue Manager
 function getActiveDownloadCount() {
@@ -164,8 +236,28 @@ function startJobProcess(job) {
   const isSpotifyTrackFlac = url && url.includes('spotify.com') && mode === 'audio' && audioFormat === 'flac';
   const isAppleOrDeezer = url && (url.includes('music.apple.com') || url.includes('deezer.com'));
   const isInstagram = url && url.includes('instagram.com');
+  const isTikTok = url && url.includes('tiktok.com');
 
-  if (isInstagram) {
+  if (isTikTok) {
+    const pythonBin = getPythonBin();
+    const ttScript = path.join(__dirname, 'tiktok_engine.py');
+    const safeTitle = (job.title || 'tiktok_media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}`);
+
+    job.logs.push(`Starting TikTok Watermark-Free HD Engine...`);
+    job.logs.push(`Target: ${url}`);
+
+    const child = spawn(pythonBin, [
+      ttScript,
+      url,
+      finalOutPath,
+      mode || 'video',
+      audioFormat || 'mp3',
+      audioBitrate || '320k'
+    ], { windowsHide: true });
+    job.process = child;
+    attachProcessListeners(job, child);
+  } else if (isInstagram) {
     const pythonBin = getPythonBin();
     const igScript = path.join(__dirname, 'instagram_engine.py');
     const safeTitle = (job.title || 'instagram_media').replace(/[\\/:*?"<>|]/g, '_').trim();

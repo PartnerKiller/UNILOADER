@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#1e1b4b" />
+      <stop offset="100%" stop-color="#0b0f19" />
+    </linearGradient>
+    <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#f43f5e" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="6" />
+
+  <!-- Glowing Download Symbol & Tray -->
+  <g filter="url(#glow)">
+    <!-- Download Arrow -->
+    <path d="M256 100 V320 M160 224 L256 320 L352 224" fill="none" stroke="url(#arrowGrad)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+    <!-- Tray Base -->
+    <path d="M120 340 V390 C120 404 132 416 146 416 H366 C380 416 392 404 392 390 V340" fill="none" stroke="url(#arrowGrad)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Cherry Blossom Accent Sparkle -->
+  <circle cx="390" cy="120" r="14" fill="#f43f5e" />
+  <circle cx="390" cy="120" r="28" fill="none" stroke="#f43f5e" stroke-width="4" opacity="0.5" />
+</svg>

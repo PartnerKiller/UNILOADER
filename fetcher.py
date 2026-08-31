@@ -73,6 +73,29 @@ def extract_all(url):
     }
 
     # -------------------------------------------------------------
+    # 0.00 TikTok Watermark-Free HD (tiktok.com)
+    # -------------------------------------------------------------
+    if 'tiktok.com' in url:
+        try:
+            from tiktok_engine import extract_tiktok
+            tt_data = extract_tiktok(url)
+            if tt_data and tt_data.get('video_url'):
+                return {
+                    'title': tt_data.get('title', 'TikTok Video'),
+                    'code': 'TIKTOK',
+                    'poster': tt_data.get('thumbnail', ''),
+                    'hlsUrl': tt_data.get('video_url', ''),
+                    'downloadTargetUrl': url,
+                    'tags': ['TikTok', 'HD', 'NoWatermark'],
+                    'model': tt_data.get('uploader', 'TikTok Creator'),
+                    'duration': tt_data.get('duration') or 'Video',
+                    'extractor': 'TikTok',
+                    'sourceUrl': url
+                }
+        except Exception as e:
+            print(f"[WARN] TikTok custom extractor error: {e}", file=sys.stderr)
+
+    # -------------------------------------------------------------
     # 0.0 Instagram Reels / Posts (instagram.com)
     # -------------------------------------------------------------
     if 'instagram.com' in url:

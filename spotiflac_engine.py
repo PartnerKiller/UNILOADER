@@ -126,8 +126,44 @@ def find_best_audio_stream_url(artist, title, target_duration=None, ytdlp_path='
         return best_match
     return f"ytsearch1:{artist} - {title} audio", 0, 'Fallback search', ''
 
+def fetch_synced_lyrics(artist, title, album=None, duration=None):
+    """Fetches synchronized (.lrc) or plain text lyrics from LRCLIB API."""
+    try:
+        session = requests.Session(impersonate="chrome124")
+        params = {
+            'track_name': title,
+            'artist_name': artist
+        }
+        if album: params['album_name'] = album
+        if duration: params['duration'] = int(duration)
+        
+        r = session.get("https://lrclib.net/api/get", params=params, timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+            synced = data.get('syncedLyrics')
+            plain = data.get('plainLyrics')
+            if synced or plain:
+                print(f"[SpotiFLAC] Synchronized lyrics found for '{artist} - {title}'")
+                sys.stdout.flush()
+                return synced or plain
+        
+        # Search fallback
+        r_search = session.get("https://lrclib.net/api/search", params={'q': f"{artist} {title}"}, timeout=6)
+        if r_search.status_code == 200:
+            results = r_search.json()
+            if results and isinstance(results, list):
+                best = results[0]
+                lyrics_text = best.get('syncedLyrics') or best.get('plainLyrics')
+                if lyrics_text:
+                    print(f"[SpotiFLAC] Synced lyrics matched via search for '{artist} - {title}'")
+                    sys.stdout.flush()
+                    return lyrics_text
+    except Exception as e:
+        print(f"[SpotiFLAC] Lyrics lookup notice: {e}", file=sys.stderr)
+    return None
+
 def tag_flac_file(flac_path, meta):
-    """Tags a FLAC file with full Vorbis comments and embedded high-res cover art."""
+    """Tags a FLAC file with full Vorbis comments, synchronized lyrics, and embedded high-res cover art."""
     try:
         audio = FLAC(flac_path)
         audio.clear()
@@ -141,6 +177,21 @@ def tag_flac_file(flac_path, meta):
         if meta.get('tracks_count'): audio['tracktotal'] = [str(meta['tracks_count'])]
         if meta.get('disc_number'): audio['discnumber'] = [str(meta['disc_number'])]
         if meta.get('isrc'): audio['isrc'] = [meta['isrc']]
+        
+        # Embed Lyrics
+        lyrics = meta.get('lyrics')
+        if lyrics:
+            audio['lyrics'] = [lyrics]
+            audio['unsyncedlyrics'] = [lyrics]
+            
+            # Save companion .lrc sidecar file if synchronized
+            if '[00:' in lyrics or '[01:' in lyrics or '[02:' in lyrics:
+                lrc_path = os.path.splitext(flac_path)[0] + '.lrc'
+                try:
+                    with open(lrc_path, 'w', encoding='utf-8') as lf:
+                        lf.write(lyrics)
+                except Exception:
+                    pass
         
         cover_url = meta.get('cover_url')
         if cover_url:
@@ -229,7 +280,8 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
             except Exception: pass
         os.rename(temp_flac, flac_path)
         
-        # 4. Inject rich Vorbis FLAC tags & cover art
+        # 4. Inject rich Vorbis FLAC tags, synchronized lyrics, & cover art
+        lyrics = fetch_synced_lyrics(artist, title, album=track.get('album_name'), duration=duration)
         meta = {
             'title': title,
             'artist': artist,
@@ -240,7 +292,8 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
             'tracks_count': track.get('tracks_count', 0),
             'disc_number': track.get('disc_number', 1),
             'isrc': isrc,
-            'cover_url': cover_url
+            'cover_url': cover_url,
+            'lyrics': lyrics
         }
         tag_flac_file(flac_path, meta)
         return flac_path
