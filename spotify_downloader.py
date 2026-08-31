@@ -194,6 +194,7 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
     print(f"[download] Starting Spotify Engine: {info.get('name')} ({total_tracks} tracks)", flush=True)
 
     ytdlp_bin = "/usr/local/bin/yt-dlp" if os.path.exists("/usr/local/bin/yt-dlp") else "yt-dlp"
+    start_time = time.time()
 
     if is_multi:
         folder_dir = output_target + "_playlist_dir"
@@ -203,8 +204,18 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
         for i, t in enumerate(tracks):
             idx = t['index']
             track_name = re.sub(r'[\\/:*?"<>|]', '_', t['fullName']).strip()
-            pct = int((i / total_tracks) * 100)
-            print(f"[download] {pct}% of ~{total_tracks} tracks at 10.0MiB/s ETA {total_tracks - i} items", flush=True)
+            
+            # Initial track announcement with time-based ETA
+            elapsed = time.time() - start_time
+            if i > 0 and elapsed > 0:
+                avg_time = elapsed / i
+                rem_sec = int((total_tracks - i) * avg_time)
+                eta_str = f"{rem_sec // 60:02d}:{rem_sec % 60:02d}"
+            else:
+                rem_sec = total_tracks * 5
+                eta_str = f"{rem_sec // 60:02d}:{rem_sec % 60:02d}"
+
+            pct_base = (i / total_tracks) * 100
             print(f"[download] (frag {i+1}/{total_tracks}) Processing track: {t['fullName']}", flush=True)
 
             # Resolve official album audio stream (Topic channel / no MV outskits)
@@ -218,7 +229,9 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             out_tmpl = os.path.join(folder_dir, f"{idx:02d}. {track_name}.%(ext)s")
             cmd = [
                 ytdlp_bin,
-                '--js-runtimes', 'node:/usr/bin/node',
+                '--newline',
+                '--no-warnings',
+                '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
                 '--extractor-args', 'youtube:player_client=android',
                 '-x',
                 '--audio-format', audio_format,
@@ -230,12 +243,32 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                 target_query
             ]
             try:
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                for line in proc.stdout:
+                    line_clean = line.strip()
+                    if '[download]' in line_clean and '%' in line_clean:
+                        # Extract sub-track progress and actual network speed
+                        m_sub = re.search(r'([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)', line_clean)
+                        if m_sub:
+                            sub_pct = float(m_sub.group(1))
+                            speed_str = m_sub.group(3)
+                            overall_pct = ((i + (sub_pct / 100.0)) / total_tracks) * 100.0
+                            
+                            cur_elapsed = time.time() - start_time
+                            if overall_pct > 0.5:
+                                est_total = cur_elapsed / (overall_pct / 100.0)
+                                cur_rem_sec = max(1, int(est_total - cur_elapsed))
+                                cur_eta = f"{cur_rem_sec // 60:02d}:{cur_rem_sec % 60:02d}"
+                            else:
+                                cur_eta = eta_str
+                                
+                            print(f"[download] {overall_pct:4.1f}% of ~{total_tracks} tracks at {speed_str} ETA {cur_eta}", flush=True)
+                proc.wait()
             except Exception as e:
                 print(f"[ERR] Failed to download {t['fullName']}: {e}", flush=True)
 
         # Create zip
-        print(f"[download] 95% Packing playlist into ZIP archive...", flush=True)
+        print(f"[download] 96.0% Packing {total_tracks} tracks into ZIP archive...", flush=True)
         with zipfile.ZipFile(final_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
             for root, _, files in os.walk(folder_dir):
                 for f in files:
@@ -244,7 +277,8 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                     zf.write(full_p, arcname)
 
         shutil.rmtree(folder_dir, ignore_errors=True)
-        print(f"[download] 100% of {os.path.getsize(final_zip) / (1024*1024):.1f}MiB at 10.0MiB/s ETA 00:00", flush=True)
+        final_size_mb = os.path.getsize(final_zip) / (1024*1024)
+        print(f"[download] 100% of {final_size_mb:.1f}MiB at FastCDN ETA 00:00", flush=True)
         print(f"[download] 100% Processing completed! Ready to save to device.", flush=True)
 
     else:
@@ -264,7 +298,9 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
         out_tmpl = output_target + ".%(ext)s"
         cmd = [
             ytdlp_bin,
-            '--js-runtimes', 'node:/usr/bin/node',
+            '--newline',
+            '--no-warnings',
+            '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
             '--extractor-args', 'youtube:player_client=android',
             '-x',
             '--audio-format', audio_format,
@@ -274,7 +310,12 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             '-o', out_tmpl,
             target_query
         ]
-        subprocess.run(cmd, check=True)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        for line in proc.stdout:
+            line_clean = line.strip()
+            if '[download]' in line_clean:
+                print(line_clean, flush=True)
+        proc.wait()
         print(f"[download] 100% Processing completed! Ready to save to device.", flush=True)
 
 if __name__ == '__main__':

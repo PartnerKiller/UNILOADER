@@ -729,6 +729,17 @@ function createJobCardElement(job) {
   return card;
 }
 
+function formatEtaDisplay(eta, status) {
+  if (!eta || eta === '--' || eta === '0') return status === 'completed' ? 'Ready' : '--:--';
+  if (typeof eta === 'string' && /^\d+$/.test(eta.trim())) {
+    const sec = parseInt(eta.trim(), 10);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+  return eta;
+}
+
 function updateJobCard(job) {
   const card = document.getElementById(`job-card-${job.id}`);
   if (!card) return;
@@ -754,7 +765,7 @@ function updateJobCard(job) {
   if (spd) spd.textContent = job.progress.speed || '0 MB/s';
 
   const eta = document.getElementById(`job-metric-eta-${job.id}`);
-  if (eta) eta.textContent = job.progress.eta || (job.status === 'completed' ? 'Ready' : '--:--');
+  if (eta) eta.textContent = formatEtaDisplay(job.progress.eta, job.status);
 
   const frag = document.getElementById(`job-metric-frag-${job.id}`);
   if (frag) {

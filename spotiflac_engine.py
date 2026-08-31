@@ -213,13 +213,14 @@ def tag_flac_file(flac_path, meta):
         print(f"[SpotiFLAC] Tagging error for {flac_path}: {e}", file=sys.stderr)
         return False
 
-def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
+def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0, total_tracks=1, job_start_time=None):
     """
     Downloads an individual track in authentic studio master FLAC.
     1. Matches the official album audio track (Topic channel), avoiding music videos with skits/outros.
     2. Downloads pristine studio audio stream in FLAC format.
-    3. Tags with complete Vorbis metadata and high-res cover art.
+    3. Tags with complete Vorbis metadata, synchronized lyrics, and high-res cover art.
     """
+    import time
     idx = track.get('index', 1)
     title = track.get('title', 'Track')
     artist = track.get('artist', '')
@@ -267,8 +268,23 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
     for line in proc.stdout:
         line_clean = line.strip()
         if '[download]' in line_clean and '%' in line_clean:
-            print(f"[download] {line_clean}")
-            sys.stdout.flush()
+            m_sub = re.search(r'([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)', line_clean)
+            if m_sub and job_start_time:
+                sub_pct = float(m_sub.group(1))
+                speed_str = m_sub.group(3)
+                overall_pct = ((track_idx + (sub_pct / 100.0)) / total_tracks) * 100.0
+                
+                cur_elapsed = time.time() - job_start_time
+                if overall_pct > 0.5:
+                    est_total = cur_elapsed / (overall_pct / 100.0)
+                    cur_rem_sec = max(1, int(est_total - cur_elapsed))
+                    cur_eta = f"{cur_rem_sec // 60:02d}:{cur_rem_sec % 60:02d}"
+                else:
+                    cur_eta = "00:30"
+                    
+                print(f"[download] {overall_pct:4.1f}% of ~{total_tracks} tracks at {speed_str} ETA {cur_eta}", flush=True)
+            else:
+                print(f"[download] {line_clean}", flush=True)
     proc.wait()
     
     # Locate the output temp FLAC file
@@ -411,6 +427,8 @@ def process_spotiflac_job(url, final_output_path):
     print(f"[SpotiFLAC] Starting SpotiFLAC Engine &bull; Total Tracks: {total_tracks}")
     sys.stdout.flush()
     
+    import time
+    job_start_time = time.time()
     completed_files = []
     
     for idx, t in enumerate(tracks):
@@ -419,7 +437,7 @@ def process_spotiflac_job(url, final_output_path):
         print(f"[download] (frag {track_num}/{total_tracks}) [SpotiFLAC] Downloading Studio Master FLAC: {t['fullName']} ({pct}%)")
         sys.stdout.flush()
         
-        flac_file = download_track_lossless(t, work_dir, ytdlp_path=ytdlp_path)
+        flac_file = download_track_lossless(t, work_dir, ytdlp_path=ytdlp_path, track_idx=idx, total_tracks=total_tracks, job_start_time=job_start_time)
         if flac_file and os.path.exists(flac_file):
             completed_files.append(flac_file)
             cur_pct = int((track_num / total_tracks) * 100)
