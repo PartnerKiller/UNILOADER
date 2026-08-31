@@ -163,8 +163,28 @@ function startJobProcess(job) {
   const isSpotifyPlaylistOrAlbum = url && (url.includes('spotify.com/playlist') || url.includes('spotify.com/album'));
   const isSpotifyTrackFlac = url && url.includes('spotify.com') && mode === 'audio' && audioFormat === 'flac';
   const isAppleOrDeezer = url && (url.includes('music.apple.com') || url.includes('deezer.com'));
+  const isInstagram = url && url.includes('instagram.com');
 
-  if (isSpotifyPlaylistOrAlbum || isSpotifyTrackFlac) {
+  if (isInstagram) {
+    const pythonBin = getPythonBin();
+    const igScript = path.join(__dirname, 'instagram_engine.py');
+    const safeTitle = (job.title || 'instagram_media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}`);
+
+    job.logs.push(`Starting Instagram FastCDN Video Engine...`);
+    job.logs.push(`Target: ${url}`);
+
+    const child = spawn(pythonBin, [
+      igScript,
+      url,
+      finalOutPath,
+      mode || 'video',
+      audioFormat || 'mp3',
+      audioBitrate || '320k'
+    ], { windowsHide: true });
+    job.process = child;
+    attachProcessListeners(job, child);
+  } else if (isSpotifyPlaylistOrAlbum || isSpotifyTrackFlac) {
     const pythonBin = getPythonBin();
     const spotifyScript = path.join(__dirname, 'spotify_downloader.py');
     const safeTitle = (job.title || 'spotify_media').replace(/[\\/:*?"<>|]/g, '_').trim();

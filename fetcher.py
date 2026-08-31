@@ -73,6 +73,29 @@ def extract_all(url):
     }
 
     # -------------------------------------------------------------
+    # 0.0 Instagram Reels / Posts (instagram.com)
+    # -------------------------------------------------------------
+    if 'instagram.com' in url:
+        try:
+            from instagram_engine import extract_instagram
+            ig_data = extract_instagram(url)
+            if ig_data and ig_data.get('video_url'):
+                return {
+                    'title': ig_data.get('title', 'Instagram Reel'),
+                    'code': 'INSTAGRAM',
+                    'poster': ig_data.get('thumbnail', ''),
+                    'hlsUrl': ig_data.get('video_url', ''),
+                    'downloadTargetUrl': url,
+                    'tags': ['Instagram', 'Reel', 'Video'],
+                    'model': ig_data.get('uploader', 'Instagram Creator'),
+                    'duration': ig_data.get('duration') or 'Reel',
+                    'extractor': 'Instagram',
+                    'sourceUrl': url
+                }
+        except Exception as e:
+            print(f"[WARN] Instagram custom extractor error: {e}", file=sys.stderr)
+
+    # -------------------------------------------------------------
     # 0. Spotify (open.spotify.com)
     # -------------------------------------------------------------
     if 'spotify.com' in url:
