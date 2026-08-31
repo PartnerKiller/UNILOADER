@@ -328,7 +328,9 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             except Exception:
                 pass
 
-            out_tmpl = output_target + ".%(ext)s"
+            clean_target = re.sub(r'\.(?:flac|mp3|m4a|zip|opus|aac)$', '', output_target)
+            out_tmpl = clean_target + ".%(ext)s"
+            final_file = clean_target + f".{ext}"
             cmd = [
                 ytdlp_bin,
                 '--newline',

@@ -342,7 +342,8 @@ def process_spotiflac_job(url, final_output_path):
     except Exception:
         pass
     
-    work_dir = final_output_path + '_flac_work'
+    clean_path = re.sub(r'\.(?:flac|zip)$', '', final_output_path)
+    work_dir = clean_path + '_temp_work'
     if os.path.exists(work_dir):
         shutil.rmtree(work_dir, ignore_errors=True)
     os.makedirs(work_dir, exist_ok=True)

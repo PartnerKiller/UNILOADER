@@ -544,7 +544,18 @@ function attachProcessListeners(job, child) {
     if (code === 0) {
       try {
         const files = fs.readdirSync(TEMP_DIR);
-        let matched = files.find(f => f.startsWith(`${jobId}_`));
+        // Find actual completed media file (strictly regular files, exclude directories and temporary artifacts)
+        let matched = files.find(f => {
+          if (!f.startsWith(`${jobId}_`)) return false;
+          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.includes('_playlist_dir')) return false;
+          try {
+            const p = path.join(TEMP_DIR, f);
+            const st = fs.statSync(p);
+            return st.isFile() && st.size > 0;
+          } catch (e) {
+            return false;
+          }
+        });
 
         // If freyr downloaded without prefix, find recent audio file
         if (!matched && job.isFreyr) {
@@ -558,6 +569,20 @@ function attachProcessListeners(job, child) {
             fs.renameSync(src, dst);
             matched = `${jobId}_${musicFiles[0].name}`;
           }
+        }
+
+        // Secondary fallback search if extension differed slightly
+        if (!matched) {
+          matched = files.find(f => {
+            if (!f.includes(jobId)) return false;
+            if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl')) return false;
+            try {
+              const p = path.join(TEMP_DIR, f);
+              return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
+            } catch (e) {
+              return false;
+            }
+          });
         }
 
         if (matched) {
