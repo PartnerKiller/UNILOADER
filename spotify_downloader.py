@@ -237,16 +237,18 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                 '--newline',
                 '--no-warnings',
                 '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
-                '--extractor-args', 'youtube:player_client=android',
+                '--extractor-args', 'youtube:player_client=web,ios',
+                '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
                 '-x',
                 '--audio-format', audio_format,
                 '--audio-quality', '0' if audio_format == 'flac' else audio_quality,
                 '--no-playlist',
                 '--ignore-errors',
-                '--no-abort-on-error',
-                '-o', out_tmpl,
-                target_query
+                '--no-abort-on-error'
             ]
+            if audio_format == 'flac':
+                cmd.extend(['--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000'])
+            cmd.extend(['-o', out_tmpl, target_query])
             try:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
                 last_speed = "24.5MiB/s"
@@ -307,15 +309,17 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             '--newline',
             '--no-warnings',
             '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
-            '--extractor-args', 'youtube:player_client=android',
+            '--extractor-args', 'youtube:player_client=web,ios',
+            '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
             '-x',
             '--audio-format', audio_format,
             '--audio-quality', '0' if audio_format == 'flac' else audio_quality,
             '--no-playlist',
-            '--ignore-errors',
-            '-o', out_tmpl,
-            target_query
+            '--ignore-errors'
         ]
+        if audio_format == 'flac':
+            cmd.extend(['--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000'])
+        cmd.extend(['-o', out_tmpl, target_query])
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in proc.stdout:
             line_clean = line.strip()

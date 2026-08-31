@@ -248,18 +248,20 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     print(f"[SpotiFLAC] ({idx}) Studio Master Match: {match_title} [{match_chan}] (ISRC: {isrc or 'N/A'})")
     sys.stdout.flush()
     
-    # 3. Download audio stream in lossless FLAC
+    # 3. Download audio stream in authentic Hi-Res FLAC (Web/iOS client with 48kHz sampling)
     cmd = [
         ytdlp_path,
         '--no-warnings',
         '--newline',
         '--ignore-errors',
         '--no-abort-on-error',
-        '--extractor-args', 'youtube:player_client=android',
+        '--extractor-args', 'youtube:player_client=web,ios',
+        '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
         '--js-runtimes', 'node' if sys.platform == 'win32' else 'node:/usr/bin/node',
         '-x',
         '--audio-format', 'flac',
         '--audio-quality', '0',
+        '--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000',
         '-o', os.path.join(output_dir, f"temp_{idx}_%(title)s.%(ext)s"),
         target_stream_url
     ]
