@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3.6.0">
+  <link rel="stylesheet" href="styles.css?v=3.7.0">
 </head>
 <body>
   <div class="app-layout">
@@ -43,10 +43,6 @@
         <button type="button" class="nav-item" data-view="about" id="navAbout">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
           <span>About & Specs</span>
-        </button>
-        <button type="button" class="nav-item" data-view="admin" id="navAdmin">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          <span>Admin Panel</span>
         </button>
       </nav>
 
@@ -623,192 +619,6 @@
         </section>
       </div>
 
-      <!-- ==========================================
-           PANEL 4: Admin Control Panel (#viewAdmin)
-           ========================================== -->
-      <div class="view-panel" id="viewAdmin" style="display: none;">
-        
-        <!-- Admin Login State (When unauthenticated) -->
-        <div id="adminLoginSection" class="admin-login-wrapper">
-          <div class="admin-login-card">
-            <div class="admin-login-header">
-              <div class="admin-shield-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                </svg>
-              </div>
-              <h2 class="admin-login-title">Admin Console</h2>
-              <p class="admin-login-sub">Sign in with administrative credentials to access server diagnostics and controls.</p>
-            </div>
-
-            <form id="adminLoginForm" class="admin-login-form">
-              <div class="admin-form-group">
-                <label for="adminUsername" class="admin-label">Username</label>
-                <div class="admin-input-wrap">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                  <input type="text" id="adminUsername" class="admin-input" placeholder="sakura" required autocomplete="username" />
-                </div>
-              </div>
-
-              <div class="admin-form-group">
-                <label for="adminPassword" class="admin-label">Password</label>
-                <div class="admin-input-wrap">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                  <input type="password" id="adminPassword" class="admin-input" placeholder="••••••••" required autocomplete="current-password" />
-                </div>
-              </div>
-
-              <button type="submit" class="btn btn-primary btn-admin-login" id="adminLoginBtn">
-                <span class="btn-text">Authenticate & Login</span>
-                <span class="btn-spinner" id="adminLoginSpinner"></span>
-              </button>
-            </form>
-          </div>
-        </div>
-
-        <!-- Admin Dashboard (When authenticated) -->
-        <div id="adminDashboardSection" style="display: none;">
-          <div class="admin-top-bar">
-            <div class="admin-title-area">
-              <div class="admin-badge-live">
-                <span class="status-dot active"></span>
-                <span>AUTHENTICATED</span>
-              </div>
-              <h2 class="admin-panel-title">Server Diagnostics & Controls</h2>
-            </div>
-            <div class="admin-user-bar">
-              <span class="admin-logged-tag">Logged in as: <strong id="adminUserNameDisplay">sakura</strong></span>
-              <button type="button" class="btn btn-sm btn-secondary" id="adminLogoutBtn">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-                <span>Logout</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Live Metrics Grid -->
-          <div class="admin-metrics-grid">
-            <div class="admin-metric-card">
-              <div class="metric-icon-box m-blue">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-              </div>
-              <div class="metric-text-box">
-                <span class="metric-title">Memory Usage</span>
-                <span class="metric-stat" id="statMemory">--</span>
-                <span class="metric-sub" id="statMemoryDetail">--</span>
-              </div>
-            </div>
-
-            <div class="admin-metric-card">
-              <div class="metric-icon-box m-emerald">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              </div>
-              <div class="metric-text-box">
-                <span class="metric-title">Temp Media Storage</span>
-                <span class="metric-stat" id="statTempMedia">--</span>
-                <span class="metric-sub" id="statTempMediaFiles">--</span>
-              </div>
-            </div>
-
-            <div class="admin-metric-card">
-              <div class="metric-icon-box m-purple">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-              </div>
-              <div class="metric-text-box">
-                <span class="metric-title">Server Uptime</span>
-                <span class="metric-stat" id="statUptime">--</span>
-                <span class="metric-sub" id="statNodeVersion">--</span>
-              </div>
-            </div>
-
-            <div class="admin-metric-card">
-              <div class="metric-icon-box m-amber">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-              </div>
-              <div class="metric-text-box">
-                <span class="metric-title">Active Queue Jobs</span>
-                <span class="metric-stat" id="statActiveJobs">--</span>
-                <span class="metric-sub" id="statTotalJobs">--</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Quick Maintenance Actions -->
-          <div class="admin-actions-bar">
-            <h3 class="admin-section-subtitle">Maintenance Actions</h3>
-            <div class="admin-buttons-row">
-              <button type="button" class="btn btn-primary" id="btnAdminUpdateYtdlp">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                <span>Update yt-dlp Core (yt-dlp -U)</span>
-              </button>
-              <button type="button" class="btn btn-secondary" id="btnAdminCleanTemp">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                <span>Purge Temp Media Directory</span>
-              </button>
-              <button type="button" class="btn btn-secondary" id="btnAdminRefreshStats">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                <span>Refresh Diagnostics</span>
-              </button>
-            </div>
-            <div id="adminActionOutput" class="admin-action-log" style="display: none;"></div>
-          </div>
-
-          <!-- Engine Status Matrix -->
-          <div class="admin-engines-card">
-            <h3 class="admin-section-subtitle">Core Engines & Toolchain</h3>
-            <div class="admin-toolchain-grid" id="adminToolchainGrid">
-              <div class="toolchain-item">
-                <span class="tool-name">yt-dlp Core</span>
-                <span class="tool-val" id="toolYtdlpVal">Detecting...</span>
-              </div>
-              <div class="toolchain-item">
-                <span class="tool-name">aria2c Turbo Accelerator</span>
-                <span class="tool-val" id="toolAria2cVal">Detecting...</span>
-              </div>
-              <div class="toolchain-item">
-                <span class="tool-name">FFmpeg Transcoder</span>
-                <span class="tool-val" id="toolFfmpegVal">Detecting...</span>
-              </div>
-              <div class="toolchain-item">
-                <span class="tool-name">SpotiFLAC Studio Lossless</span>
-                <span class="tool-val" id="toolSpotiflacVal">Active</span>
-              </div>
-              <div class="toolchain-item">
-                <span class="tool-name">Instagram FastCDN Engine</span>
-                <span class="tool-val" id="toolInstagramVal">Active</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Active & Historical Jobs Table -->
-          <div class="admin-jobs-section">
-            <div class="admin-jobs-header">
-              <h3 class="admin-section-subtitle">Job Queue Inspector</h3>
-              <button type="button" class="btn btn-sm btn-secondary" id="btnRefreshAdminJobs">Refresh Jobs</button>
-            </div>
-            <div class="admin-table-wrapper">
-              <table class="admin-jobs-table">
-                <thead>
-                  <tr>
-                    <th>Job ID</th>
-                    <th>Type</th>
-                    <th>Title</th>
-                    <th>Status</th>
-                    <th>Size</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody id="adminJobsTableBody">
-                  <tr>
-                    <td colspan="6" class="text-center text-muted">Loading queue data...</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
     </main>
 
     <!-- Mobile Bottom Navigation Bar -->
@@ -824,10 +634,6 @@
       <button type="button" class="bottom-nav-item" data-view="about">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
         <span>About</span>
-      </button>
-      <button type="button" class="bottom-nav-item" data-view="admin">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-        <span>Admin</span>
       </button>
     </nav>
 
@@ -898,6 +704,6 @@
 
   </div>
 
-  <script src="app.js?v=3.6.0"></script>
+  <script src="app.js?v=3.7.0"></script>
 </body>
 </html>
