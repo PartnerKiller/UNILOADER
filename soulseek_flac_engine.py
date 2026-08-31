@@ -88,48 +88,43 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     clean_art = re.sub(r'[\(\)\[\],&/\-_]', ' ', artist).strip()
     clean_tit = re.sub(r'[\(\)\[\],&/\-_]', ' ', title).strip()
     
-    # Simplify query for Soulseek indexing
+    # Simplify queries for Soulseek indexing
     art_words = clean_art.split()[:2]
     tit_words = clean_tit.split()[:3]
-    query = " ".join(art_words + tit_words)
     
-    print(f"[Soulseek HiFi] Searching decentralized network for studio FLAC: '{query}'...", flush=True)
+    # Try Artist first for comprehensive library scan, then combined, then title
+    search_terms = []
+    if art_words:
+        search_terms.append(art_words[0])
+    if len(art_words) > 0 and len(tit_words) > 0:
+        search_terms.append(f"{art_words[0]} {tit_words[0]}")
+    if tit_words:
+        search_terms.append(" ".join(tit_words))
+        
+    peers = []
+    search_id = None
     
+    for term in search_terms:
+        print(f"[Soulseek HiFi] Searching decentralized network for studio FLAC: '{term}'...", flush=True)
+        try:
+            r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": term}, timeout=8)
+            if r_post.status_code in [200, 201]:
+                search_id = r_post.json().get('id')
+                time.sleep(5)
+                r_res = session.get(f"{SLSKD_API_BASE}/searches/{search_id}/responses", timeout=8)
+                if r_res.status_code == 200:
+                    current_peers = r_res.json()
+                    if current_peers:
+                        peers = current_peers
+                        break
+        except Exception:
+            pass
+            
+    if not peers:
+        return False
+        
     try:
-        r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": query}, timeout=8)
-        if r_post.status_code not in [200, 201]:
-            # Try title only
-            r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": " ".join(tit_words)}, timeout=8)
-            if r_post.status_code not in [200, 201]:
-                return False
-        search_data = r_post.json()
-        search_id = search_data.get('id')
-        if not search_id:
-            return False
-            
-        # Collect responses for 5 seconds
-        time.sleep(5)
-        
-        r_res = session.get(f"{SLSKD_API_BASE}/searches/{search_id}/responses", timeout=8)
-        peers = r_res.json() if r_res.status_code == 200 else []
-        
-        # If 0 peers, try title only search
-        if not peers and len(art_words) > 0:
-            query_alt = " ".join(tit_words)
-            print(f"[Soulseek HiFi] Retrying search with title only: '{query_alt}'...", flush=True)
-            r_post2 = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": query_alt}, timeout=8)
-            if r_post2.status_code in [200, 201]:
-                search_id2 = r_post2.json().get('id')
-                time.sleep(4)
-                r_res2 = session.get(f"{SLSKD_API_BASE}/searches/{search_id2}/responses", timeout=8)
-                if r_res2.status_code == 200:
-                    peers = r_res2.json()
-        if r_res.status_code != 200:
-            return False
-            
-        peers = r_res.json()
         candidates = []
-        
         title_lower_words = [w.lower() for w in tit_words if len(w) > 2]
         
         for p in peers:
@@ -143,8 +138,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 ext = f.get('extension', '').lower()
                 size = f.get('size', 0)
                 
-                # Must be a FLAC file of realistic size (12MB - 150MB)
-                if ('flac' in ext or fname.lower().endswith('.flac')) and (12 * 1024 * 1024 <= size <= 180 * 1024 * 1024):
+                # Must be a FLAC file of realistic size (10MB - 180MB)
+                if ('flac' in ext or fname.lower().endswith('.flac')) and (10 * 1024 * 1024 <= size <= 250 * 1024 * 1024):
                     fn_lower = fname.lower()
                     # Check title match
                     if any(tw in fn_lower for tw in title_lower_words) or len(title_lower_words) == 0:
@@ -160,7 +155,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                         })
                         
         if not candidates:
-            print(f"[Soulseek HiFi] No matching FLAC files found for '{query}'", flush=True)
+            print(f"[Soulseek HiFi] No matching FLAC files found in peer catalog", flush=True)
             return False
             
         # Sort best candidates first
@@ -196,14 +191,13 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                             if state in ['Completed', 'Succeeded']:
                                 completed = True
                                 break
-                            elif 'Aborted' in state or 'Cancelled' in state or 'Errored' in state:
+                            elif 'Aborted' in state or 'Cancelled' in state or 'Errored' in state or 'Rejected' in state:
                                 print(f"[Soulseek HiFi] Peer transfer state: {state}", file=sys.stderr)
                                 return False
                 if completed:
                     break
                     
         # Find downloaded file in SLSKD downloads folder
-        # Search recursively for recently completed file
         target_basename = os.path.basename(best['filename'].replace('\\', '/'))
         found_path = None
         
