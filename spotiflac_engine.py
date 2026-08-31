@@ -245,9 +245,16 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
         artist, title, target_duration=duration, ytdlp_path=ytdlp_path
     )
     
-    print(f"[SpotiFLAC] ({idx}) Studio Master Match: {match_title} [{match_chan}] (ISRC: {isrc or 'N/A'})")
-    sys.stdout.flush()
-    
+    # 2.3 Try Tidal Hi-Res Master Stream (Monochrome Engine)
+    try:
+        from tidal_monochrome_engine import download_tidal_flac
+        tidal_ok = download_tidal_flac(artist, title, flac_path, isrc=isrc, cover_url=cover_url, duration=duration)
+        if tidal_ok and os.path.exists(flac_path) and os.path.getsize(flac_path) > 100000:
+            print(f"[SpotiFLAC] ({idx}) 🎉 Authentic 24-bit/16-bit Lossless FLAC streamed directly from Tidal Hi-Res!", flush=True)
+            return flac_path
+    except Exception as e:
+        pass
+
     # 2.4 Try Genuine Soulseek / FLACidal P2P Studio FLAC Master
     try:
         from soulseek_flac_engine import search_and_download_flac

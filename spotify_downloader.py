@@ -220,17 +220,26 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             print(f"[download] {pct_start:4.1f}% of ~{total_tracks} tracks at 24.5MiB/s ETA {cur_eta}", flush=True)
             print(f"[download] (frag {i+1}/{total_tracks}) Processing track: {t['fullName']}", flush=True)
 
-            # Stage 1: Check Soulseek P2P & Deezer HiFi Lossless Stream
+            # Stage 1: Check Tidal Hi-Res, Soulseek P2P & Deezer HiFi Lossless Stream
             flac_direct_ok = False
             if audio_format == 'flac':
                 direct_out = os.path.join(folder_dir, f"{idx:02d}. {track_name}.flac")
                 try:
-                    from soulseek_flac_engine import search_and_download_flac
-                    flac_direct_ok = search_and_download_flac(t.get('artist', ''), t.get('title', ''), direct_out, isrc=t.get('isrc'), duration=t.get('duration'))
+                    from tidal_monochrome_engine import download_tidal_flac
+                    flac_direct_ok = download_tidal_flac(t.get('artist', ''), t.get('title', ''), direct_out, isrc=t.get('isrc'), duration=t.get('duration'))
                     if flac_direct_ok and os.path.exists(direct_out) and os.path.getsize(direct_out) > 100000:
-                        print(f"[download] ({idx:02d}) 🎉 Authentic CD/Studio Lossless FLAC downloaded directly via Soulseek P2P!", flush=True)
+                        print(f"[download] ({idx:02d}) 🎉 Authentic 24-bit/16-bit Lossless FLAC streamed directly from Tidal Hi-Res!", flush=True)
                 except Exception:
                     pass
+
+                if not flac_direct_ok:
+                    try:
+                        from soulseek_flac_engine import search_and_download_flac
+                        flac_direct_ok = search_and_download_flac(t.get('artist', ''), t.get('title', ''), direct_out, isrc=t.get('isrc'), duration=t.get('duration'))
+                        if flac_direct_ok and os.path.exists(direct_out) and os.path.getsize(direct_out) > 100000:
+                            print(f"[download] ({idx:02d}) 🎉 Authentic CD/Studio Lossless FLAC downloaded directly via Soulseek P2P!", flush=True)
+                    except Exception:
+                        pass
 
                 if not flac_direct_ok:
                     try:
@@ -315,16 +324,25 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
         final_file = output_target if output_target.endswith(f'.{ext}') else f"{output_target}.{ext}"
         print(f"[download] Downloading single track: {t['fullName']}", flush=True)
 
-        # Direct Soulseek & Deezer HiFi Stream check for single FLAC
+        # Direct Tidal Hi-Res, Soulseek & Deezer HiFi Stream check for single FLAC
         single_hifi_ok = False
         if audio_format == 'flac':
             try:
-                from soulseek_flac_engine import search_and_download_flac
-                single_hifi_ok = search_and_download_flac(t.get('artist', ''), t.get('title', ''), final_file, isrc=t.get('isrc'), duration=t.get('duration'))
+                from tidal_monochrome_engine import download_tidal_flac
+                single_hifi_ok = download_tidal_flac(t.get('artist', ''), t.get('title', ''), final_file, isrc=t.get('isrc'), duration=t.get('duration'))
                 if single_hifi_ok and os.path.exists(final_file) and os.path.getsize(final_file) > 100000:
-                    print(f"[download] 🎉 Authentic CD/Studio Lossless FLAC downloaded directly via Soulseek P2P!", flush=True)
+                    print(f"[download] 🎉 Authentic 24-bit/16-bit Lossless FLAC streamed directly from Tidal Hi-Res!", flush=True)
             except Exception:
                 pass
+
+            if not single_hifi_ok:
+                try:
+                    from soulseek_flac_engine import search_and_download_flac
+                    single_hifi_ok = search_and_download_flac(t.get('artist', ''), t.get('title', ''), final_file, isrc=t.get('isrc'), duration=t.get('duration'))
+                    if single_hifi_ok and os.path.exists(final_file) and os.path.getsize(final_file) > 100000:
+                        print(f"[download] 🎉 Authentic CD/Studio Lossless FLAC downloaded directly via Soulseek P2P!", flush=True)
+                except Exception:
+                    pass
 
             if not single_hifi_ok:
                 try:
