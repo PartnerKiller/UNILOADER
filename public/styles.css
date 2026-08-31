@@ -1719,62 +1719,70 @@ body {
    Comprehensive Mobile & Tablet Responsive Design
    ========================================================================== */
 
-@media (max-width: 768px) {
-  .app-container {
-    padding: 12px 12px 48px 12px;
+/* ==========================================================================
+   Comprehensive Mobile & Tablet Responsive Design
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  /* Layout Architecture: Full-width stacked layout */
+  .app-layout {
+    flex-direction: column !important;
+    width: 100% !important;
+    min-height: 100vh;
+    overflow-x: hidden;
   }
 
-  .app-header {
-    padding: 10px 12px;
-    margin-bottom: 14px;
-    gap: 6px;
+  .app-sidebar {
+    display: none !important;
   }
 
-  .brand-group {
-    gap: 8px;
-    min-width: 0;
+  /* Sticky Top Header on Mobile */
+  .mobile-header {
+    display: flex !important;
+    width: 100% !important;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    background: hsla(222, 18%, 11%, 0.96);
+    border-bottom: 1px solid var(--border-subtle);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  /* Main Viewport Container */
+  .app-main-viewport {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 12px 10px 84px 10px !important;
+    box-sizing: border-box;
     flex: 1;
+    overflow-x: hidden;
   }
 
-  .brand-icon {
-    width: 32px;
-    height: 32px;
-    flex-shrink: 0;
-  }
-
-  .brand-title {
-    font-size: 0.82rem;
-    font-weight: 800;
-    white-space: nowrap;
-    letter-spacing: 0.01em;
-  }
-
-  .brand-subtitle {
-    font-size: 0.65rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .header-right {
-    flex-shrink: 0;
-  }
-
-  .status-pill-ready {
-    font-size: 0.68rem;
-    padding: 3px 8px;
-    white-space: nowrap;
-    flex-shrink: 0;
+  /* Fixed Frosted-Glass Bottom Bar */
+  .mobile-bottom-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    z-index: 1000;
+    box-sizing: border-box;
   }
 
   .section-card {
-    padding: 16px 12px;
-    margin-bottom: 14px;
-    border-radius: var(--radius-md);
+    padding: 14px 12px !important;
+    margin-bottom: 12px !important;
+    border-radius: var(--radius-md) !important;
+    width: 100% !important;
+    box-sizing: border-box;
   }
 
   .section-header-flex {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
     gap: 8px;
   }
 
@@ -1782,65 +1790,75 @@ body {
     font-size: 1.05rem;
   }
 
-  /* Clean 3-tab layout with icons above labels */
+  /* Mode Switch Tabs */
   .mode-tabs-container {
-    gap: 4px;
-    padding: 4px;
-    margin-bottom: 14px;
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 4px !important;
+    padding: 4px !important;
+    margin-bottom: 12px !important;
+    width: 100% !important;
+    box-sizing: border-box;
   }
 
   .mode-tab {
-    padding: 8px 4px;
-    font-size: 0.75rem;
-    gap: 4px;
-    flex-direction: column;
-    text-align: center;
-    line-height: 1.2;
-    min-height: 52px;
+    padding: 8px 2px !important;
+    font-size: 0.72rem !important;
+    gap: 4px !important;
+    flex-direction: column !important;
+    text-align: center !important;
+    line-height: 1.15 !important;
+    min-height: 48px !important;
   }
 
   .mode-tab svg {
-    width: 17px;
-    height: 17px;
+    width: 16px !important;
+    height: 16px !important;
   }
 
-  /* 2-row clean mobile input layout */
+  /* Input bar */
   .input-bar-group {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    width: 100%;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+    box-sizing: border-box;
   }
 
   .input-wrapper {
-    width: 100%;
-    padding: 8px 10px;
-    min-width: 0;
+    width: 100% !important;
+    padding: 8px 10px !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
   }
 
   .url-input {
-    min-width: 0;
-    font-size: 0.88rem;
+    min-width: 0 !important;
+    font-size: 0.85rem !important;
+    width: 100% !important;
   }
 
   #fetchBtn, .btn-fetch {
-    display: flex;
+    display: flex !important;
     width: 100% !important;
-    justify-content: center;
-    padding: 12px 16px;
-    font-size: 0.95rem;
-    font-weight: 700;
+    justify-content: center !important;
+    padding: 12px 14px !important;
+    font-size: 0.92rem !important;
+    font-weight: 700 !important;
+    box-sizing: border-box;
   }
 
-  /* Smooth swipeable preset & service chips */
+  /* Presets Bar */
   .presets-row {
-    gap: 6px;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    padding-bottom: 4px;
+    gap: 6px !important;
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    padding-bottom: 4px !important;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    width: 100% !important;
+    box-sizing: border-box;
   }
 
   .presets-row::-webkit-scrollbar {
@@ -1848,143 +1866,94 @@ body {
   }
 
   .preset-chip {
-    white-space: nowrap;
-    flex-shrink: 0;
-    font-size: 0.74rem;
-    padding: 4px 10px;
-  }
-
-  .services-row {
-    gap: 5px;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    padding-bottom: 4px;
-    margin-top: 10px;
-    padding-top: 10px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-
-  .services-row::-webkit-scrollbar {
-    display: none;
-  }
-
-  .service-pill {
-    white-space: nowrap;
-    flex-shrink: 0;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    font-size: 0.72rem !important;
+    padding: 5px 10px !important;
   }
 
   /* Preview Card */
   .preview-layout {
-    grid-template-columns: 1fr;
-    gap: 14px;
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+    width: 100% !important;
+  }
+
+  .preview-cover-box {
+    width: 100% !important;
+    max-height: 200px !important;
+    text-align: center;
+  }
+
+  .preview-poster {
+    max-height: 200px !important;
+    width: auto !important;
+    margin: 0 auto;
   }
 
   .preview-title {
-    font-size: 0.98rem;
-    margin-bottom: 10px;
-    word-break: break-word;
-    overflow-wrap: anywhere;
+    font-size: 0.92rem !important;
+    margin-bottom: 10px !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
   }
 
   .download-config-grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .advanced-toggles-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
   }
 
   .preview-actions {
-    flex-direction: column;
-    width: 100%;
-    gap: 10px;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 8px !important;
   }
 
   .preview-actions .btn {
-    width: 100%;
-    justify-content: center;
+    width: 100% !important;
+    justify-content: center !important;
   }
 
   /* Job Cards */
   .job-card {
-    padding: 14px 12px;
-  }
-
-  .job-header {
-    gap: 8px;
-  }
-
-  .job-title-group {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .job-code-title {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
+    padding: 12px 10px !important;
+    width: 100% !important;
+    box-sizing: border-box;
   }
 
   .job-title {
-    width: 100%;
-    font-size: 0.88rem;
-    line-height: 1.35;
-    word-break: break-word;
+    font-size: 0.85rem !important;
+    word-break: break-word !important;
     overflow-wrap: anywhere;
-    margin-top: 2px;
-  }
-
-  .job-meta {
-    font-size: 0.74rem;
-    word-break: break-all;
-  }
-
-  .job-header-right {
-    flex-shrink: 0;
-    gap: 6px;
-  }
-
-  .job-status-badge {
-    font-size: 0.68rem;
-    padding: 3px 8px;
-    white-space: nowrap;
   }
 
   .job-metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-    padding: 8px 10px;
-    background-color: var(--bg-input);
-    border-radius: var(--radius-sm);
-    margin-bottom: 12px;
-  }
-
-  .metric-item {
-    font-size: 0.76rem;
-  }
-
-  .metric-label {
-    font-size: 0.68rem;
-  }
-
-  .metric-value {
-    font-size: 0.82rem;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 6px !important;
+    padding: 8px !important;
   }
 
   .job-actions {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
   }
 
   .job-controls {
-    display: flex;
-    width: 100%;
-    gap: 8px;
+    width: 100% !important;
+    display: flex !important;
+    gap: 8px !important;
   }
 
   .job-controls .btn {
-    flex: 1;
-    justify-content: center;
+    flex: 1 !important;
+    justify-content: center !important;
   }
 
   .btn-log-toggle {
@@ -2007,46 +1976,32 @@ body {
     gap: 16px;
   }
 
-  /* Mobile Layout Breakpoint */
-  .app-sidebar {
-    display: none;
-  }
-
-  .mobile-header {
-    display: flex;
-  }
-
-  .mobile-bottom-nav {
-    display: flex;
-  }
-
-  .app-main-viewport {
-    padding: 16px 12px 80px 12px;
-  }
-
   /* Supported Platforms & About Mobile */
   .platforms-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    width: 100% !important;
   }
 
   .platform-category-card {
-    padding: 16px;
+    padding: 14px !important;
   }
 
   .features-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    width: 100% !important;
   }
 
   .feature-card {
-    padding: 18px;
+    padding: 14px !important;
   }
 
   .specs-bar {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    padding: 14px;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding: 12px !important;
+    width: 100% !important;
   }
 }
 
