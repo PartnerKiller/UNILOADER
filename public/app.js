@@ -213,6 +213,37 @@ function setupEventListeners() {
       }
     });
   }
+
+  // Header Nav Links Active State
+  const navLinks = document.querySelectorAll('.header-nav .nav-link');
+  navLinks.forEach(link => {
+    link.addEventListener('click', () => {
+      navLinks.forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+    });
+  });
+
+  // Scroll Spy for Header Nav
+  window.addEventListener('scroll', () => {
+    const scrollPos = window.scrollY + 100;
+    const downloaderSec = document.getElementById('downloaderSection');
+    const supportedSec = document.getElementById('supportedSection');
+    const aboutSec = document.getElementById('aboutSection');
+    const navDownloader = document.getElementById('navDownloader');
+    const navSupported = document.getElementById('navSupported');
+    const navAbout = document.getElementById('navAbout');
+
+    if (aboutSec && scrollPos >= aboutSec.offsetTop - 150) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      if (navAbout) navAbout.classList.add('active');
+    } else if (supportedSec && scrollPos >= supportedSec.offsetTop - 150) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      if (navSupported) navSupported.classList.add('active');
+    } else if (downloaderSec) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      if (navDownloader) navDownloader.classList.add('active');
+    }
+  }, { passive: true });
 }
 
 function setMode(mode) {

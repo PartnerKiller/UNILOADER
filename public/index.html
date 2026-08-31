@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=2.7.0">
+  <link rel="stylesheet" href="styles.css?v=3.0.0">
 </head>
 <body>
   <div class="app-container">
@@ -29,6 +29,21 @@
         </div>
       </div>
 
+      <nav class="header-nav">
+        <a href="#downloaderSection" class="nav-link active" id="navDownloader">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Downloader</span>
+        </a>
+        <a href="#supportedSection" class="nav-link" id="navSupported">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          <span>Supported Sites</span>
+        </a>
+        <a href="#aboutSection" class="nav-link" id="navAbout">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <span>About & Specs</span>
+        </a>
+      </nav>
+
       <div class="header-right">
         <span class="status-pill-ready">
           <span class="status-dot active"></span>
@@ -41,7 +56,7 @@
     <main class="main-content">
       
       <!-- Fetcher & Downloader Section -->
-      <section class="section-card fetch-section">
+      <section class="section-card fetch-section" id="downloaderSection">
         
         <!-- Mode Tabs -->
         <div class="mode-tabs-container">
@@ -74,7 +89,7 @@
                   type="text" 
                   id="urlInput" 
                   class="url-input" 
-                  placeholder="Paste video or audio link from Jable, XVideos, Spotify, etc." 
+                  placeholder="Paste video or audio link from Spotify, YouTube, Jable, MissAV, etc." 
                   autocomplete="off"
                   spellcheck="false"
                 />
@@ -117,7 +132,7 @@
           <button type="button" class="preset-chip" id="presetAudioMp3" title="Extract Audio as high quality 320k MP3 with embedded album art">
             🎧 MP3 Audio (320k)
           </button>
-          <button type="button" class="preset-chip" id="presetAudioFlac" title="Lossless FLAC Audio">
+          <button type="button" class="preset-chip" id="presetAudioFlac" title="Lossless Studio FLAC Audio via SpotiFLAC">
             🎼 Lossless FLAC
           </button>
           <button type="button" class="preset-chip" id="presetSubtitles" title="Embed available subtitles into MP4/MKV">
@@ -126,30 +141,6 @@
           <button type="button" class="preset-chip" id="presetSponsorBlock" title="Automatically remove sponsored segments">
             ⚡ SponsorBlock Cut
           </button>
-        </div>
-
-        <!-- Supported Services Pill Row -->
-        <div class="services-row">
-          <span class="service-pill">Spotify</span>
-          <span class="service-pill">Apple Music</span>
-          <span class="service-pill">Deezer</span>
-          <span class="service-pill">YouTube Music</span>
-          <span class="service-pill">Jav.Guru</span>
-          <span class="service-pill">MissAV</span>
-          <span class="service-pill">SupJav</span>
-          <span class="service-pill">JavGG</span>
-          <span class="service-pill">nJAV</span>
-          <span class="service-pill">Jable.tv</span>
-          <span class="service-pill">xHamster</span>
-          <span class="service-pill">XVideos</span>
-          <span class="service-pill">Rule34Video</span>
-          <span class="service-pill">Pornhub</span>
-          <span class="service-pill">TokyoMotion</span>
-          <span class="service-pill">7MMTV</span>
-          <span class="service-pill">YouTube</span>
-          <span class="service-pill">Twitter / X</span>
-          <span class="service-pill">TikTok</span>
-          <span class="service-pill">+1000 Sites</span>
         </div>
 
       </section>
@@ -330,6 +321,196 @@
         </div>
       </section>
 
+      <!-- Supported Platforms Section -->
+      <section class="section-card supported-section" id="supportedSection">
+        <div class="section-header-flex">
+          <div>
+            <div class="badge-tag">🌐 High-Compatibility Ecosystem</div>
+            <h2 class="section-title">Supported Platforms & Media Catalogs</h2>
+            <p class="section-description">
+              Powered by specialized direct-stream extractors, high-speed CDN pipelines, and the SpotiFLAC Hi-Res lossless engine. Over 1,000+ streaming sites supported natively.
+            </p>
+          </div>
+        </div>
+
+        <div class="platforms-grid">
+          <!-- Hi-Res Lossless Audio -->
+          <div class="platform-category-card">
+            <div class="category-header">
+              <div class="category-icon music-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+              </div>
+              <div>
+                <h3 class="category-title">Hi-Res Lossless Audio & Music</h3>
+                <span class="category-subtitle">Studio Masters &bull; 16/24-bit FLAC</span>
+              </div>
+            </div>
+            <p class="category-desc">Extract single tracks, full albums, and multi-hundred track playlists with embedded artwork and Vorbis tags.</p>
+            <div class="service-tags-list">
+              <span class="service-tag featured">Spotify <span class="tag-badge">SpotiFLAC</span></span>
+              <span class="service-tag">Apple Music</span>
+              <span class="service-tag">Deezer HiFi</span>
+              <span class="service-tag">YouTube Music</span>
+              <span class="service-tag">SoundCloud</span>
+              <span class="service-tag">Bandcamp</span>
+            </div>
+          </div>
+
+          <!-- Premium Asian & JAV Networks -->
+          <div class="platform-category-card">
+            <div class="category-header">
+              <div class="category-icon stream-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              </div>
+              <div>
+                <h3 class="category-title">Streaming & JAV Networks</h3>
+                <span class="category-subtitle">Direct HLS &bull; 1080p Full HD</span>
+              </div>
+            </div>
+            <p class="category-desc">Multi-threaded segmented stream assembly with dynamic referer bypass and multi-part merging.</p>
+            <div class="service-tags-list">
+              <span class="service-tag">MissAV</span>
+              <span class="service-tag">Jable.tv</span>
+              <span class="service-tag">Jav.Guru</span>
+              <span class="service-tag">SupJav</span>
+              <span class="service-tag">JavGG</span>
+              <span class="service-tag">nJAV</span>
+              <span class="service-tag">7MMTV</span>
+              <span class="service-tag">TokyoMotion</span>
+            </div>
+          </div>
+
+          <!-- Adult & HMV Portals -->
+          <div class="platform-category-card">
+            <div class="category-header">
+              <div class="category-icon adult-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+              </div>
+              <div>
+                <h3 class="category-title">Adult & HMV Portals</h3>
+                <span class="category-subtitle">High Bitrate &bull; Multi-Res</span>
+              </div>
+            </div>
+            <p class="category-desc">High-speed parallel segment acceleration for top video networks with automatic thumbnail embedding.</p>
+            <div class="service-tags-list">
+              <span class="service-tag">Rule34Video</span>
+              <span class="service-tag">Pornhub</span>
+              <span class="service-tag">XVideos</span>
+              <span class="service-tag">xHamster</span>
+              <span class="service-tag">SpankBang</span>
+              <span class="service-tag">YouPorn</span>
+            </div>
+          </div>
+
+          <!-- Mainstream & Social Networks -->
+          <div class="platform-category-card">
+            <div class="category-header">
+              <div class="category-icon social-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+              </div>
+              <div>
+                <h3 class="category-title">Global Social & Video</h3>
+                <span class="category-subtitle">4K UHD &bull; 1000+ Platforms</span>
+              </div>
+            </div>
+            <p class="category-desc">Universal downloader core with subtitle extraction, chapter markers, SponsorBlock trimming, and clean audio ripping.</p>
+            <div class="service-tags-list">
+              <span class="service-tag">YouTube</span>
+              <span class="service-tag">Twitter / X</span>
+              <span class="service-tag">TikTok (HD)</span>
+              <span class="service-tag">Reddit</span>
+              <span class="service-tag">Twitch</span>
+              <span class="service-tag">Bilibili</span>
+              <span class="service-tag">Vimeo</span>
+              <span class="service-tag highlight">+1000 Sites</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- About & Architecture Section -->
+      <section class="section-card about-section" id="aboutSection">
+        <div class="section-header-flex">
+          <div>
+            <div class="badge-tag">⚡ Architecture & Features</div>
+            <h2 class="section-title">About Universal Downloader</h2>
+            <p class="section-description">
+              A private, high-performance media acquisition platform built to deliver uncompressed audio purity, accelerated video stream assembly, and zero-compromise privacy.
+            </p>
+          </div>
+        </div>
+
+        <div class="features-grid">
+          <!-- Feature 1 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper f-blue">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+            </div>
+            <h3 class="feature-title">SpotiFLAC Studio Lossless Engine</h3>
+            <p class="feature-desc">
+              Unlike typical YouTube-to-FLAC rippers that repackage lossy streams, Universal Downloader performs authentic <strong>ISRC digital fingerprinting</strong> to pull genuine 16-bit 44.1kHz and 24-bit Hi-Res studio master streams with rich Vorbis tags and embedded album covers.
+            </p>
+          </div>
+
+          <!-- Feature 2 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper f-emerald">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            </div>
+            <h3 class="feature-title">Turbo Multi-Threaded Acceleration</h3>
+            <p class="feature-desc">
+              Leverages <strong>aria2c</strong> multi-connection engines and concurrent fragment retrieval (up to 16 threads per stream). Saturates your network connection for near-instant downloads even on heavily throttled video hosts.
+            </p>
+          </div>
+
+          <!-- Feature 3 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper f-purple">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            </div>
+            <h3 class="feature-title">Instant In-Browser HTML5 Player</h3>
+            <p class="feature-desc">
+              Watch downloaded videos or preview audio tracks directly in your browser with the integrated video and audio streaming player. Fast seek support, fullscreen mode, and direct one-click save to your device.
+            </p>
+          </div>
+
+          <!-- Feature 4 -->
+          <div class="feature-card">
+            <div class="feature-icon-wrapper f-amber">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </div>
+            <h3 class="feature-title">Zero-Log & Ephemeral Privacy</h3>
+            <p class="feature-desc">
+              Your downloads belong only to you. Universal Downloader operates with <strong>zero telemetry, no database logging, and automated volatile storage purging</strong>. Completed downloads are automatically cleaned after delivery.
+            </p>
+          </div>
+        </div>
+
+        <!-- System Status & Specs Bar -->
+        <div class="specs-bar">
+          <div class="spec-item">
+            <span class="spec-label">Core Engine</span>
+            <span class="spec-value">SpotiFLAC + yt-dlp + aria2c</span>
+          </div>
+          <div class="spec-item">
+            <span class="spec-label">Max Audio Quality</span>
+            <span class="spec-value">24-bit / 96kHz Lossless FLAC</span>
+          </div>
+          <div class="spec-item">
+            <span class="spec-label">Max Video Quality</span>
+            <span class="spec-value">4K UHD (2160p 60fps)</span>
+          </div>
+          <div class="spec-item">
+            <span class="spec-label">Concurrency</span>
+            <span class="spec-value">16-Thread Fragment Acceleration</span>
+          </div>
+          <div class="spec-item">
+            <span class="spec-label">Privacy Policy</span>
+            <span class="spec-value text-emerald">100% Zero-Log / Ephemeral</span>
+          </div>
+        </div>
+      </section>
+
     </main>
 
     <!-- Footer -->
@@ -404,6 +585,6 @@
 
   </div>
 
-  <script src="app.js?v=2.8.0"></script>
+  <script src="app.js?v=3.0.0"></script>
 </body>
 </html>
