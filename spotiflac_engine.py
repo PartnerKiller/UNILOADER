@@ -258,20 +258,18 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     except Exception as e:
         pass
     
-    # 3. Download audio stream in authentic Hi-Res FLAC (Web/iOS client with 48kHz sampling)
+    # 3. Download audio stream in authentic FLAC
     cmd = [
         ytdlp_path,
         '--no-warnings',
         '--newline',
         '--ignore-errors',
         '--no-abort-on-error',
-        '--extractor-args', 'youtube:player_client=web,ios',
-        '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
+        '--extractor-args', 'youtube:player_client=android',
         '--js-runtimes', 'node' if sys.platform == 'win32' else 'node:/usr/bin/node',
         '-x',
         '--audio-format', 'flac',
         '--audio-quality', '0',
-        '--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000',
         '-o', os.path.join(output_dir, f"temp_{idx}_%(title)s.%(ext)s"),
         target_stream_url
     ]
@@ -300,9 +298,10 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     proc.wait()
     
     # Locate the output temp FLAC file
-    temp_files = [f for f in os.listdir(output_dir) if f.startswith(f"temp_{idx}_") and f.endswith('.flac')]
+    temp_files = [f for f in os.listdir(output_dir) if f.startswith(f"temp_{idx}_")]
     if temp_files:
-        temp_flac = os.path.join(output_dir, temp_files[0])
+        flac_candidates = [f for f in temp_files if f.endswith('.flac')]
+        temp_flac = os.path.join(output_dir, flac_candidates[0] if flac_candidates else temp_files[0])
         if os.path.exists(flac_path):
             try: os.remove(flac_path)
             except Exception: pass
