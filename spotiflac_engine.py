@@ -87,7 +87,7 @@ def tag_flac_file(flac_path, meta):
                 if img_resp.status_code == 200:
                     pic = Picture()
                     pic.type = 3  # Cover (front)
-                    pic.mime = 'image/jpeg' if 'jpeg' in cover_url or 'jpg' in cover_url else 'image/png'
+                    pic.mime = 'image/png' if img_resp.content.startswith(b'\x89PNG') else 'image/jpeg'
                     pic.data = img_resp.content
                     audio.add_picture(pic)
             except Exception as e:
