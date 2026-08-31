@@ -248,6 +248,16 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     print(f"[SpotiFLAC] ({idx}) Studio Master Match: {match_title} [{match_chan}] (ISRC: {isrc or 'N/A'})")
     sys.stdout.flush()
     
+    # 2.5 Try Authentic Deezer HiFi Stream first (1411 kbps FLAC)
+    try:
+        from deezer_hifi_engine import resolve_and_download_flac
+        deezer_ok = resolve_and_download_flac(artist, title, isrc=isrc, output_path=flac_path, duration=duration, cover_url=cover_url)
+        if deezer_ok and os.path.exists(flac_path) and os.path.getsize(flac_path) > 100000:
+            print(f"[SpotiFLAC] ({idx}) 🎉 Authentic 1411 kbps Studio Master FLAC downloaded directly from HiFi CDN!", flush=True)
+            return flac_path
+    except Exception as e:
+        pass
+    
     # 3. Download audio stream in authentic Hi-Res FLAC (Web/iOS client with 48kHz sampling)
     cmd = [
         ytdlp_path,

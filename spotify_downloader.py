@@ -220,57 +220,70 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             print(f"[download] {pct_start:4.1f}% of ~{total_tracks} tracks at 24.5MiB/s ETA {cur_eta}", flush=True)
             print(f"[download] (frag {i+1}/{total_tracks}) Processing track: {t['fullName']}", flush=True)
 
-            # Stage 1: Resolve official album audio stream (Topic channel / no MV outskits)
-            target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
-            try:
-                from spotiflac_engine import find_best_audio_stream_url
-                target_query, _, _, _ = find_best_audio_stream_url(t.get('artist', ''), t.get('title', ''), target_duration=t.get('duration'), ytdlp_path=ytdlp_bin)
-            except Exception:
-                pass
-
-            pct_resolved = ((i + 0.25) / total_tracks) * 100.0
-            print(f"[download] {pct_resolved:4.1f}% of ~{total_tracks} tracks at 24.5MiB/s ETA {cur_eta}", flush=True)
-
-            out_tmpl = os.path.join(folder_dir, f"{idx:02d}. {track_name}.%(ext)s")
-            cmd = [
-                ytdlp_bin,
-                '--newline',
-                '--no-warnings',
-                '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
-                '--extractor-args', 'youtube:player_client=web,ios',
-                '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
-                '-x',
-                '--audio-format', audio_format,
-                '--audio-quality', '0' if audio_format == 'flac' else audio_quality,
-                '--no-playlist',
-                '--ignore-errors',
-                '--no-abort-on-error'
-            ]
+            # Stage 1: Check Deezer HiFi Lossless Stream
+            flac_direct_ok = False
             if audio_format == 'flac':
-                cmd.extend(['--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000'])
-            cmd.extend(['-o', out_tmpl, target_query])
-            try:
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-                last_speed = "24.5MiB/s"
-                for line in proc.stdout:
-                    line_clean = line.strip()
-                    if '[download]' in line_clean and '%' in line_clean:
-                        m_sub = re.search(r'([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)', line_clean)
-                        if m_sub:
-                            sub_pct = float(m_sub.group(1))
-                            last_speed = m_sub.group(3)
-                            overall_pct = ((i + 0.25 + 0.55 * (sub_pct / 100.0)) / total_tracks) * 100.0
-                            
-                            cur_elapsed = time.time() - start_time
-                            if overall_pct > 0.5:
-                                est_total = cur_elapsed / (overall_pct / 100.0)
-                                cur_rem_sec = max(1, int(est_total - cur_elapsed))
-                                cur_eta = f"{cur_rem_sec // 60:02d}:{cur_rem_sec % 60:02d}"
+                try:
+                    from deezer_hifi_engine import resolve_and_download_flac
+                    direct_out = os.path.join(folder_dir, f"{idx:02d}. {track_name}.flac")
+                    flac_direct_ok = resolve_and_download_flac(t.get('artist', ''), t.get('title', ''), isrc=t.get('isrc'), output_path=direct_out, duration=t.get('duration'))
+                    if flac_direct_ok and os.path.exists(direct_out) and os.path.getsize(direct_out) > 100000:
+                        print(f"[download] ({idx:02d}) 🎉 Authentic 1411 kbps Studio Master FLAC downloaded directly from HiFi CDN!", flush=True)
+                except Exception:
+                    pass
+
+            if not flac_direct_ok:
+                # Stage 1: Resolve official album audio stream (Topic channel / no MV outskits)
+                target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
+                try:
+                    from spotiflac_engine import find_best_audio_stream_url
+                    target_query, _, _, _ = find_best_audio_stream_url(t.get('artist', ''), t.get('title', ''), target_duration=t.get('duration'), ytdlp_path=ytdlp_bin)
+                except Exception:
+                    pass
+
+                pct_resolved = ((i + 0.25) / total_tracks) * 100.0
+                print(f"[download] {pct_resolved:4.1f}% of ~{total_tracks} tracks at 24.5MiB/s ETA {cur_eta}", flush=True)
+
+                out_tmpl = os.path.join(folder_dir, f"{idx:02d}. {track_name}.%(ext)s")
+                cmd = [
+                    ytdlp_bin,
+                    '--newline',
+                    '--no-warnings',
+                    '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
+                    '--extractor-args', 'youtube:player_client=web,ios',
+                    '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
+                    '-x',
+                    '--audio-format', audio_format,
+                    '--audio-quality', '0' if audio_format == 'flac' else audio_quality,
+                    '--no-playlist',
+                    '--ignore-errors',
+                    '--no-abort-on-error'
+                ]
+                if audio_format == 'flac':
+                    cmd.extend(['--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000'])
+                cmd.extend(['-o', out_tmpl, target_query])
+                try:
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                    last_speed = "24.5MiB/s"
+                    for line in proc.stdout:
+                        line_clean = line.strip()
+                        if '[download]' in line_clean and '%' in line_clean:
+                            m_sub = re.search(r'([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)', line_clean)
+                            if m_sub:
+                                sub_pct = float(m_sub.group(1))
+                                last_speed = m_sub.group(3)
+                                overall_pct = ((i + 0.25 + 0.55 * (sub_pct / 100.0)) / total_tracks) * 100.0
                                 
-                            print(f"[download] {overall_pct:4.1f}% of ~{total_tracks} tracks at {last_speed} ETA {cur_eta}", flush=True)
-                proc.wait()
-            except Exception as e:
-                print(f"[ERR] Failed to download {t['fullName']}: {e}", flush=True)
+                                cur_elapsed = time.time() - start_time
+                                if overall_pct > 0.5:
+                                    est_total = cur_elapsed / (overall_pct / 100.0)
+                                    cur_rem_sec = max(1, int(est_total - cur_elapsed))
+                                    cur_eta = f"{cur_rem_sec // 60:02d}:{cur_rem_sec % 60:02d}"
+                                    
+                                print(f"[download] {overall_pct:4.1f}% of ~{total_tracks} tracks at {last_speed} ETA {cur_eta}", flush=True)
+                    proc.wait()
+                except Exception as e:
+                    print(f"[ERR] Failed to download {t['fullName']}: {e}", flush=True)
 
             pct_done = ((i + 1.0) / total_tracks) * 100.0
             print(f"[download] {pct_done:4.1f}% of ~{total_tracks} tracks at {last_speed} ETA {cur_eta}", flush=True)
@@ -295,37 +308,49 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
         final_file = output_target if output_target.endswith(f'.{ext}') else f"{output_target}.{ext}"
         print(f"[download] Downloading single track: {t['fullName']}", flush=True)
 
-        # Resolve official album audio stream (Topic channel / no MV outskits)
-        target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
-        try:
-            from spotiflac_engine import find_best_audio_stream_url
-            target_query, _, _, _ = find_best_audio_stream_url(t.get('artist', ''), t.get('title', ''), target_duration=t.get('duration'), ytdlp_path=ytdlp_bin)
-        except Exception:
-            pass
-
-        out_tmpl = output_target + ".%(ext)s"
-        cmd = [
-            ytdlp_bin,
-            '--newline',
-            '--no-warnings',
-            '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
-            '--extractor-args', 'youtube:player_client=web,ios',
-            '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
-            '-x',
-            '--audio-format', audio_format,
-            '--audio-quality', '0' if audio_format == 'flac' else audio_quality,
-            '--no-playlist',
-            '--ignore-errors'
-        ]
+        # Direct Deezer HiFi Stream check for single FLAC
+        single_hifi_ok = False
         if audio_format == 'flac':
-            cmd.extend(['--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000'])
-        cmd.extend(['-o', out_tmpl, target_query])
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        for line in proc.stdout:
-            line_clean = line.strip()
-            if '[download]' in line_clean:
-                print(line_clean, flush=True)
-        proc.wait()
+            try:
+                from deezer_hifi_engine import resolve_and_download_flac
+                single_hifi_ok = resolve_and_download_flac(t.get('artist', ''), t.get('title', ''), isrc=t.get('isrc'), output_path=final_file, duration=t.get('duration'))
+                if single_hifi_ok and os.path.exists(final_file) and os.path.getsize(final_file) > 100000:
+                    print(f"[download] 🎉 Authentic 1411 kbps Studio Master FLAC downloaded directly from HiFi CDN!", flush=True)
+            except Exception:
+                pass
+
+        if not single_hifi_ok:
+            # Resolve official album audio stream (Topic channel / no MV outskits)
+            target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
+            try:
+                from spotiflac_engine import find_best_audio_stream_url
+                target_query, _, _, _ = find_best_audio_stream_url(t.get('artist', ''), t.get('title', ''), target_duration=t.get('duration'), ytdlp_path=ytdlp_bin)
+            except Exception:
+                pass
+
+            out_tmpl = output_target + ".%(ext)s"
+            cmd = [
+                ytdlp_bin,
+                '--newline',
+                '--no-warnings',
+                '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
+                '--extractor-args', 'youtube:player_client=web,ios',
+                '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
+                '-x',
+                '--audio-format', audio_format,
+                '--audio-quality', '0' if audio_format == 'flac' else audio_quality,
+                '--no-playlist',
+                '--ignore-errors'
+            ]
+            if audio_format == 'flac':
+                cmd.extend(['--postprocessor-args', 'FFmpegExtractAudio:-sample_fmt s32 -ar 48000'])
+            cmd.extend(['-o', out_tmpl, target_query])
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            for line in proc.stdout:
+                line_clean = line.strip()
+                if '[download]' in line_clean:
+                    print(line_clean, flush=True)
+            proc.wait()
         print(f"[download] 100% Processing completed! Ready to save to device.", flush=True)
 
 if __name__ == '__main__':
