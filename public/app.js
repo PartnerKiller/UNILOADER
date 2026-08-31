@@ -237,7 +237,6 @@ function switchView(viewName) {
   // 1. Hide all view panels and show target panel
   const panels = {
     downloader: document.getElementById('viewDownloader'),
-    vault: document.getElementById('viewVault'),
     supported: document.getElementById('viewSupported'),
     about: document.getElementById('viewAbout')
   };
@@ -259,10 +258,6 @@ function switchView(viewName) {
     const isCurrent = btn.getAttribute('data-view') === viewName;
     btn.classList.toggle('active', isCurrent);
   });
-
-  if (viewName === 'vault') {
-    renderVaultItems();
-  }
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -984,12 +979,6 @@ function initGlobalSSEStream() {
         const jobs = JSON.parse(event.data);
         if (Array.isArray(jobs)) {
           renderJobs(jobs);
-          // Check completed jobs and save to client Vault
-          jobs.forEach(j => {
-            if (j.status === 'completed' && sessionJobIds.has(j.id)) {
-              saveJobToVault(j);
-            }
-          });
         }
       } catch (e) {}
     };
@@ -1003,171 +992,8 @@ function initGlobalSSEStream() {
   connect();
 }
 
-// ==========================================================================
-// 9. Client-Side Private Media Vault (IndexedDB)
-// ==========================================================================
-
-const DB_NAME = 'UniversalMediaVaultDB';
-const DB_VERSION = 1;
-const STORE_NAME = 'media_items';
-let vaultDB = null;
-
-function initVaultDB() {
-  return new Promise((resolve) => {
-    if (!window.indexedDB) return resolve(null);
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        store.createIndex('timestamp', 'timestamp', { unique: false });
-        store.createIndex('platform', 'platform', { unique: false });
-      }
-    };
-    req.onsuccess = (e) => {
-      vaultDB = e.target.result;
-      resolve(vaultDB);
-    };
-    req.onerror = () => resolve(null);
-  });
-}
-
-async function saveJobToVault(job) {
-  if (!vaultDB || !job || !job.id) return;
-  try {
-    let platform = 'Universal';
-    const titleLower = (job.title || '').toLowerCase();
-    if (titleLower.includes('spotify') || job.mode === 'audio') platform = 'Spotify';
-    else if (titleLower.includes('tiktok')) platform = 'TikTok';
-    else if (titleLower.includes('instagram')) platform = 'Instagram';
-    else if (titleLower.includes('youtube')) platform = 'YouTube';
-
-    const item = {
-      id: job.id,
-      title: job.title || 'Downloaded Media',
-      filename: job.filename || 'media',
-      filesize: job.filesize || '',
-      mode: job.mode || 'video',
-      platform,
-      downloadUrl: job.downloadUrl || `/api/download-file/${job.id}`,
-      streamUrl: job.streamUrl || `/api/stream/${job.id}`,
-      timestamp: Date.now()
-    };
-
-    const tx = vaultDB.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).put(item);
-  } catch (e) {}
-}
-
-async function getVaultItems() {
-  if (!vaultDB) await initVaultDB();
-  if (!vaultDB) return [];
-
-  return new Promise((resolve) => {
-    try {
-      const tx = vaultDB.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.getAll();
-      req.onsuccess = () => resolve((req.result || []).reverse());
-      req.onerror = () => resolve([]);
-    } catch (e) {
-      resolve([]);
-    }
-  });
-}
-
-const vaultSearchInput = document.getElementById('vaultSearchInput');
-const vaultGridList = document.getElementById('vaultGridList');
-const vaultEmptyState = document.getElementById('vaultEmptyState');
-const btnClearVaultBtn = document.getElementById('btnClearVaultBtn');
-let currentVaultFilter = 'all';
-
-async function renderVaultItems() {
-  const items = await getVaultItems();
-  const query = vaultSearchInput ? vaultSearchInput.value.trim().toLowerCase() : '';
-
-  const filtered = items.filter(item => {
-    if (currentVaultFilter !== 'all') {
-      const p = (item.platform || '').toLowerCase();
-      if (!p.includes(currentVaultFilter)) return false;
-    }
-    if (query) {
-      const t = (item.title || '').toLowerCase();
-      return t.includes(query);
-    }
-    return true;
-  });
-
-  if (!vaultGridList) return;
-
-  if (filtered.length === 0) {
-    vaultGridList.innerHTML = '';
-    if (vaultEmptyState) {
-      vaultGridList.appendChild(vaultEmptyState);
-      vaultEmptyState.style.display = 'block';
-    }
-    return;
-  }
-
-  vaultGridList.innerHTML = filtered.map(item => `
-    <div class="vault-card">
-      <div class="vault-card-top">
-        <div class="vault-thumb-wrap">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-primary);">
-            ${item.mode === 'audio' ? '<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>' : '<polygon points="5 3 19 12 5 21 5 3"></polygon>'}
-          </svg>
-        </div>
-        <div class="vault-meta">
-          <h4 class="vault-item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h4>
-          <div class="vault-item-tags">
-            <span class="vault-source-badge">${escapeHtml(item.platform)}</span>
-            <span class="vault-size-badge">${escapeHtml(item.filesize || '')}</span>
-          </div>
-        </div>
-      </div>
-      <div class="vault-card-actions">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="playMedia('${escapeHtml(item.streamUrl)}', '${escapeHtml(item.title)}', '${escapeHtml(item.downloadUrl)}')">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-          <span>Preview</span>
-        </button>
-        <a href="${escapeHtml(item.downloadUrl)}" class="btn btn-primary btn-sm" download>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          <span>Save</span>
-        </a>
-      </div>
-    </div>
-  `).join('');
-}
-
-if (vaultSearchInput) {
-  vaultSearchInput.addEventListener('input', renderVaultItems);
-}
-
-document.querySelectorAll('.vault-chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    document.querySelectorAll('.vault-chip').forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
-    currentVaultFilter = chip.getAttribute('data-filter') || 'all';
-    renderVaultItems();
-  });
-});
-
-if (btnClearVaultBtn) {
-  btnClearVaultBtn.addEventListener('click', () => {
-    if (!vaultDB) return;
-    try {
-      const tx = vaultDB.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).clear();
-      tx.oncomplete = () => {
-        showToast('Media vault cleared', 'info');
-        renderVaultItems();
-      };
-    } catch (e) {}
-  });
-}
-
-// Initialize Vault DB and SSE on startup
-initVaultDB();
+// Initialize SSE Stream on startup
 initGlobalSSEStream();
+
 
 
