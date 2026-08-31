@@ -214,36 +214,44 @@ function setupEventListeners() {
     });
   }
 
-  // Header Nav Links Active State
-  const navLinks = document.querySelectorAll('.header-nav .nav-link');
-  navLinks.forEach(link => {
-    link.addEventListener('click', () => {
-      navLinks.forEach(l => l.classList.remove('active'));
-      link.classList.add('active');
+  // Sidebar & Mobile Navigation View Switching
+  const allNavButtons = document.querySelectorAll('[data-view]');
+  allNavButtons.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const view = btn.getAttribute('data-view');
+      switchView(view);
     });
   });
+}
 
-  // Scroll Spy for Header Nav
-  window.addEventListener('scroll', () => {
-    const scrollPos = window.scrollY + 100;
-    const downloaderSec = document.getElementById('downloaderSection');
-    const supportedSec = document.getElementById('supportedSection');
-    const aboutSec = document.getElementById('aboutSection');
-    const navDownloader = document.getElementById('navDownloader');
-    const navSupported = document.getElementById('navSupported');
-    const navAbout = document.getElementById('navAbout');
+function switchView(viewName) {
+  // 1. Hide all view panels and show target panel
+  const panels = {
+    downloader: document.getElementById('viewDownloader'),
+    supported: document.getElementById('viewSupported'),
+    about: document.getElementById('viewAbout')
+  };
 
-    if (aboutSec && scrollPos >= aboutSec.offsetTop - 150) {
-      navLinks.forEach(l => l.classList.remove('active'));
-      if (navAbout) navAbout.classList.add('active');
-    } else if (supportedSec && scrollPos >= supportedSec.offsetTop - 150) {
-      navLinks.forEach(l => l.classList.remove('active'));
-      if (navSupported) navSupported.classList.add('active');
-    } else if (downloaderSec) {
-      navLinks.forEach(l => l.classList.remove('active'));
-      if (navDownloader) navDownloader.classList.add('active');
+  Object.keys(panels).forEach(key => {
+    if (panels[key]) {
+      if (key === viewName) {
+        panels[key].style.display = 'block';
+        panels[key].classList.add('active');
+      } else {
+        panels[key].style.display = 'none';
+        panels[key].classList.remove('active');
+      }
     }
-  }, { passive: true });
+  });
+
+  // 2. Update active state across sidebar and bottom navigation
+  document.querySelectorAll('[data-view]').forEach(btn => {
+    const isCurrent = btn.getAttribute('data-view') === viewName;
+    btn.classList.toggle('active', isCurrent);
+  });
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function setMode(mode) {
