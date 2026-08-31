@@ -161,22 +161,25 @@ function startJobProcess(job) {
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
   const isSpotifyPlaylistOrAlbum = url && (url.includes('spotify.com/playlist') || url.includes('spotify.com/album'));
+  const isSpotifyTrackFlac = url && url.includes('spotify.com') && mode === 'audio' && audioFormat === 'flac';
   const isAppleOrDeezer = url && (url.includes('music.apple.com') || url.includes('deezer.com'));
 
-  if (isSpotifyPlaylistOrAlbum) {
+  if (isSpotifyPlaylistOrAlbum || isSpotifyTrackFlac) {
     const pythonBin = getPythonBin();
     const spotifyScript = path.join(__dirname, 'spotify_downloader.py');
-    const safeTitle = (job.title || 'spotify_playlist').replace(/[\\/:*?"<>|]/g, '_').trim();
-    const finalZipPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.zip`);
+    const safeTitle = (job.title || 'spotify_media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const finalOutPath = isSpotifyPlaylistOrAlbum
+      ? path.join(TEMP_DIR, `${job.id}_${safeTitle}.zip`)
+      : path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
 
-    job.logs.push(`Starting Spotify Playlist/Album Downloader Engine...`);
+    job.logs.push(`Starting SpotiFLAC Lossless Audio Engine...`);
     job.logs.push(`Target: ${url}`);
 
     const child = spawn(pythonBin, [
       spotifyScript,
       url,
-      finalZipPath,
-      audioFormat || 'mp3',
+      finalOutPath,
+      audioFormat || 'flac',
       audioBitrate || '320k'
     ], { windowsHide: true });
     job.process = child;

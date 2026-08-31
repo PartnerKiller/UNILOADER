@@ -174,6 +174,15 @@ def get_spotify_playlist_info(url):
     return None
 
 def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k'):
+    if audio_format.lower() == 'flac':
+        try:
+            from spotiflac_engine import process_spotiflac_job
+            print(f"[SpotiFLAC] Routing through SpotiFLAC True Lossless FLAC Engine: {url}", flush=True)
+            process_spotiflac_job(url, output_target)
+            return
+        except Exception as e:
+            print(f"[WARN] SpotiFLAC engine fallback to standard pipeline: {e}", flush=True)
+
     info = get_spotify_playlist_info(url)
     if not info or not info.get('tracks'):
         raise Exception("Failed to retrieve tracks from Spotify link")
