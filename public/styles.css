@@ -2195,13 +2195,13 @@ body {
 }
 
 .creator-card {
-  background: linear-gradient(145deg, hsla(222, 16%, 13%, 0.9), hsla(222, 18%, 10%, 0.9));
-  border-color: hsla(212, 85%, 52%, 0.3);
+  background: linear-gradient(145deg, hsla(335, 30%, 13%, 0.9), hsla(222, 18%, 10%, 0.9));
+  border-color: hsla(335, 80%, 65%, 0.35);
 }
 
 .creator-card:hover {
-  border-color: var(--accent-primary);
-  box-shadow: 0 8px 26px rgba(37, 99, 235, 0.25);
+  border-color: hsl(335, 85%, 65%);
+  box-shadow: 0 8px 26px rgba(244, 63, 94, 0.25);
 }
 
 .ai-card {
@@ -2234,8 +2234,8 @@ body {
 }
 
 .avatar-creator {
-  background: linear-gradient(135deg, hsl(212, 85%, 48%), hsl(222, 80%, 36%));
-  border: 1px solid hsla(212, 90%, 65%, 0.4);
+  background: linear-gradient(135deg, hsl(335, 80%, 55%), hsl(350, 85%, 42%));
+  border: 1px solid hsla(335, 90%, 75%, 0.45);
 }
 
 .avatar-ai {
