@@ -245,12 +245,7 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     
     isrc = songlink_info.get('isrc') or track.get('isrc')
     
-    # 2. Locate exact studio album audio stream
-    target_stream_url, match_dur, match_title, match_chan = find_best_audio_stream_url(
-        artist, title, target_duration=duration, ytdlp_path=ytdlp_path
-    )
-    
-    # 2.3 Try Tidal Hi-Res Master Stream (Monochrome Engine)
+    # 2.1 Try Tidal Hi-Res Master Stream (Monochrome Engine)
     try:
         from tidal_monochrome_engine import download_tidal_flac
         tidal_ok = download_tidal_flac(artist, title, flac_path, isrc=isrc, cover_url=cover_url, duration=duration)
@@ -260,7 +255,7 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     except Exception as e:
         pass
 
-    # 2.4 Try Genuine Soulseek / FLACidal P2P Studio FLAC Master
+    # 2.2 Try Genuine Soulseek / FLACidal P2P Studio FLAC Master
     try:
         from soulseek_flac_engine import search_and_download_flac
         slsk_ok = search_and_download_flac(artist, title, flac_path, isrc=isrc, cover_url=cover_url, duration=duration)
@@ -270,7 +265,7 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     except Exception as e:
         pass
 
-    # 2.5 Try Authentic Deezer HiFi Stream (1411 kbps FLAC)
+    # 2.3 Try Authentic Deezer HiFi Stream (1411 kbps FLAC)
     try:
         from deezer_hifi_engine import resolve_and_download_flac
         deezer_ok = resolve_and_download_flac(artist, title, isrc=isrc, output_path=flac_path, duration=duration, cover_url=cover_url)
@@ -279,6 +274,11 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
             return flac_path
     except Exception as e:
         pass
+        
+    # 2.4 Locate exact studio album audio stream as fallback
+    target_stream_url, match_dur, match_title, match_chan = find_best_audio_stream_url(
+        artist, title, target_duration=duration, ytdlp_path=ytdlp_path
+    )
     
     # 3. Download audio stream in authentic FLAC
     cmd = [
