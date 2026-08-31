@@ -137,42 +137,17 @@ function setupEventListeners() {
   tabAudioMode.addEventListener('click', () => setMode('audio'));
   tabBatchMode.addEventListener('click', () => setMode('batch'));
 
-  // Quick Presets
-  presetBestVideo.addEventListener('click', () => {
-    setMode('video');
-    videoQualitySelect.value = 'best';
-    videoFormatSelect.value = 'mp4';
-    chkEmbedThumbnail.checked = true;
-    highlightPreset(presetBestVideo);
-  });
+  // Quick Presets (Desktop & Mobile Synchronized)
+  presetBestVideo.addEventListener('click', () => applyPreset('bestVideo'));
+  presetAudioMp3.addEventListener('click', () => applyPreset('audioMp3'));
+  presetAudioFlac.addEventListener('click', () => applyPreset('audioFlac'));
+  presetSubtitles.addEventListener('click', () => applyPreset('subtitles'));
+  presetSponsorBlock.addEventListener('click', () => applyPreset('sponsorBlock'));
 
-  presetAudioMp3.addEventListener('click', () => {
-    setMode('audio');
-    audioFormatSelect.value = 'mp3';
-    audioBitrateSelect.value = '320k';
-    chkEmbedThumbnail.checked = true;
-    highlightPreset(presetAudioMp3);
-  });
-
-  presetAudioFlac.addEventListener('click', () => {
-    setMode('audio');
-    audioFormatSelect.value = 'flac';
-    chkEmbedThumbnail.checked = true;
-    highlightPreset(presetAudioFlac);
-  });
-
-  presetSubtitles.addEventListener('click', () => {
-    setMode('video');
-    chkEmbedSubtitles.checked = true;
-    chkAutoSubs.checked = true;
-    highlightPreset(presetSubtitles);
-  });
-
-  presetSponsorBlock.addEventListener('click', () => {
-    chkSponsorBlock.checked = !chkSponsorBlock.checked;
-    if (chkSponsorBlock.checked) highlightPreset(presetSponsorBlock);
-    else presetSponsorBlock.classList.remove('active');
-  });
+  const mobilePresetSelect = document.getElementById('mobilePresetSelect');
+  if (mobilePresetSelect) {
+    mobilePresetSelect.addEventListener('change', (e) => applyPreset(e.target.value));
+  }
 
   // Fetch Form
   document.getElementById('fetchForm').addEventListener('submit', (e) => {
@@ -310,6 +285,41 @@ function setMode(mode) {
 
   if (downloadBtnText) {
     downloadBtnText.textContent = isAudio ? 'Extract Audio' : 'Download Now';
+  }
+}
+
+function applyPreset(presetKey) {
+  const mobileSelect = document.getElementById('mobilePresetSelect');
+  if (mobileSelect && mobileSelect.value !== presetKey) {
+    mobileSelect.value = presetKey;
+  }
+
+  if (presetKey === 'bestVideo') {
+    setMode('video');
+    videoQualitySelect.value = 'best';
+    videoFormatSelect.value = 'mp4';
+    chkEmbedThumbnail.checked = true;
+    highlightPreset(presetBestVideo);
+  } else if (presetKey === 'audioMp3') {
+    setMode('audio');
+    audioFormatSelect.value = 'mp3';
+    audioBitrateSelect.value = '320k';
+    chkEmbedThumbnail.checked = true;
+    highlightPreset(presetAudioMp3);
+  } else if (presetKey === 'audioFlac') {
+    setMode('audio');
+    audioFormatSelect.value = 'flac';
+    chkEmbedThumbnail.checked = true;
+    highlightPreset(presetAudioFlac);
+  } else if (presetKey === 'subtitles') {
+    setMode('video');
+    chkEmbedSubtitles.checked = true;
+    chkAutoSubs.checked = true;
+    highlightPreset(presetSubtitles);
+  } else if (presetKey === 'sponsorBlock') {
+    chkSponsorBlock.checked = !chkSponsorBlock.checked;
+    if (chkSponsorBlock.checked) highlightPreset(presetSponsorBlock);
+    else presetSponsorBlock.classList.remove('active');
   }
 }
 

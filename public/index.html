@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3.3.0">
+  <link rel="stylesheet" href="styles.css?v=3.4.0">
 </head>
 <body>
   <div class="app-layout">
@@ -150,8 +150,8 @@
             </div>
           </div>
 
-          <!-- Quick Presets Bar -->
-          <div class="presets-row">
+          <!-- Quick Presets Desktop Chips -->
+          <div class="presets-row desktop-presets">
             <span class="presets-label">Quick Presets:</span>
             <button type="button" class="preset-chip active" id="presetBestVideo" title="Best available quality video with cover">
               🎬 Best Video (1080p/4K)
@@ -168,6 +168,23 @@
             <button type="button" class="preset-chip" id="presetSponsorBlock" title="Automatically remove sponsored segments">
               ⚡ SponsorBlock Cut
             </button>
+          </div>
+
+          <!-- Quick Presets Mobile Dropdown -->
+          <div class="presets-mobile-group">
+            <label for="mobilePresetSelect" class="presets-mobile-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+              <span>Quick Preset Mode:</span>
+            </label>
+            <div class="select-wrapper">
+              <select id="mobilePresetSelect" class="mobile-preset-select">
+                <option value="bestVideo" selected>🎬 Best Video (1080p / 4K Ultra HD)</option>
+                <option value="audioMp3">🎧 MP3 Audio (320k Extreme Quality)</option>
+                <option value="audioFlac">🎼 Lossless FLAC (Studio 24-bit Master)</option>
+                <option value="subtitles">📝 Video with Embedded Subtitles</option>
+                <option value="sponsorBlock">⚡ SponsorBlock Trimming</option>
+              </select>
+            </div>
           </div>
 
         </section>
@@ -627,6 +644,6 @@
 
   </div>
 
-  <script src="app.js?v=3.3.0"></script>
+  <script src="app.js?v=3.4.0"></script>
 </body>
 </html>
