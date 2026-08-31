@@ -401,8 +401,17 @@ function renderPreviewCard(data) {
   // Auto-switch to audio mode for Spotify
   if (data.extractor === 'Spotify' || data.mode === 'audio') {
     setMode('audio');
-    if (audioFormatSelect) audioFormatSelect.value = 'mp3';
-    if (audioBitrateSelect) audioBitrateSelect.value = '320k';
+    const isFlacPreset = presetAudioFlac && presetAudioFlac.classList.contains('active');
+    if (audioFormatSelect) {
+      if (isFlacPreset || audioFormatSelect.value === 'flac') {
+        audioFormatSelect.value = 'flac';
+      } else if (!audioFormatSelect.value) {
+        audioFormatSelect.value = 'mp3';
+      }
+    }
+    if (audioBitrateSelect && audioFormatSelect && audioFormatSelect.value !== 'flac') {
+      audioBitrateSelect.value = '320k';
+    }
     if (chkEmbedThumbnail) chkEmbedThumbnail.checked = true;
   }
 
