@@ -258,25 +258,58 @@ def extract_all(url):
                 script = soup.find('script', id='__NEXT_DATA__')
                 if script:
                     data = json.loads(script.text)
-                    entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
-                    title = entity.get('name', 'Spotify Track')
-                    artists = ', '.join([a.get('name') for a in entity.get('artists', []) if a.get('name')])
-                    sources = entity.get('coverArt', {}).get('sources', [])
-                    poster = sources[0].get('url') if sources else ''
-                    full_name = f"{artists} - {title}" if artists else title
-                    return {
-                        'title': full_name,
-                        'code': 'SPOTIFY',
-                        'poster': poster,
-                        'hlsUrl': f"ytsearch1:{full_name} audio",
-                        'downloadTargetUrl': f"ytsearch1:{full_name} audio",
-                        'tags': ['Spotify', 'Music'],
-                        'model': artists,
-                        'duration': '',
-                        'extractor': 'Spotify',
-                        'sourceUrl': url,
-                        'mode': 'audio'
-                    }
+                    if entity and entity.get('name'):
+                        title = entity.get('name')
+                        artists = ', '.join([a.get('name') for a in entity.get('artists', []) if a.get('name')])
+                        sources = entity.get('coverArt', {}).get('sources', [])
+                        poster = sources[0].get('url') if sources else ''
+                        full_name = f"{artists} - {title}" if artists else title
+                        return {
+                            'title': full_name,
+                            'code': 'SPOTIFY',
+                            'poster': poster,
+                            'hlsUrl': f"ytsearch1:{full_name} audio",
+                            'downloadTargetUrl': f"ytsearch1:{full_name} audio",
+                            'tags': ['Spotify', 'Music'],
+                            'model': artists,
+                            'duration': '',
+                            'extractor': 'Spotify',
+                            'sourceUrl': url,
+                            'mode': 'audio'
+                        }
+        except Exception as e:
+            pass
+
+        # 3. Songlink / Odesli metadata resolver
+        try:
+            track_m = re.search(r'track/([a-zA-Z0-9]+)', url)
+            if track_m:
+                track_id = track_m.group(1)
+                r_sl = session.get(f"https://song.link/s/{track_id}", timeout=10)
+                if r_sl.status_code == 200:
+                    soup_sl = BeautifulSoup(r_sl.text, 'html.parser')
+                    s_sl = soup_sl.find('script', id='__NEXT_DATA__')
+                    if s_sl:
+                        d_sl = json.loads(s_sl.text)
+                        ed = d_sl.get('props', {}).get('pageProps', {}).get('pageData', {}).get('entityData', {})
+                        sl_title = ed.get('title')
+                        sl_artist = ed.get('artistName')
+                        sl_thumb = ed.get('thumbnailUrl')
+                        if sl_title:
+                            full_name = f"{sl_artist} - {sl_title}" if sl_artist else sl_title
+                            return {
+                                'title': full_name,
+                                'code': 'SPOTIFY',
+                                'poster': sl_thumb or '',
+                                'hlsUrl': f"ytsearch1:{full_name} audio",
+                                'downloadTargetUrl': f"ytsearch1:{full_name} audio",
+                                'tags': ['Spotify', 'Music'],
+                                'model': sl_artist or '',
+                                'duration': '',
+                                'extractor': 'Spotify',
+                                'sourceUrl': url,
+                                'mode': 'audio'
+                            }
         except Exception as e:
             pass
 

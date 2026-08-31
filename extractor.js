@@ -222,7 +222,13 @@ async function extractMetadata(inputUrl) {
     }
   }
 
-  // 4. Fallback to yt-dlp async dump
+  // 4. If music URL and Python fetcher couldn't extract, return helpful error rather than yt-dlp DRM message
+  const isMusicUrl = url && (url.includes('spotify.com') || url.includes('music.apple.com') || url.includes('deezer.com'));
+  if (isMusicUrl) {
+    throw new Error('Unable to extract Spotify/music metadata. Please verify that the link is a valid public track, album, or playlist.');
+  }
+
+  // 5. Fallback to yt-dlp async dump for video & generic sites
   const ytdlpPath = getYtDlpPath();
   const meta = await runYtDlpDumpAsync(ytdlpPath, url);
   setCachedMetadata(url, meta);
