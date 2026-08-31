@@ -248,7 +248,17 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     print(f"[SpotiFLAC] ({idx}) Studio Master Match: {match_title} [{match_chan}] (ISRC: {isrc or 'N/A'})")
     sys.stdout.flush()
     
-    # 2.5 Try Authentic Deezer HiFi Stream first (1411 kbps FLAC)
+    # 2.4 Try Genuine Soulseek / FLACidal P2P Studio FLAC Master
+    try:
+        from soulseek_flac_engine import search_and_download_flac
+        slsk_ok = search_and_download_flac(artist, title, flac_path, isrc=isrc, cover_url=cover_url, duration=duration)
+        if slsk_ok and os.path.exists(flac_path) and os.path.getsize(flac_path) > 100000:
+            print(f"[SpotiFLAC] ({idx}) 🎉 Authentic CD/Studio Lossless FLAC downloaded directly via Soulseek P2P!", flush=True)
+            return flac_path
+    except Exception as e:
+        pass
+
+    # 2.5 Try Authentic Deezer HiFi Stream (1411 kbps FLAC)
     try:
         from deezer_hifi_engine import resolve_and_download_flac
         deezer_ok = resolve_and_download_flac(artist, title, isrc=isrc, output_path=flac_path, duration=duration, cover_url=cover_url)
