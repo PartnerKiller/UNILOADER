@@ -85,8 +85,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     if not is_slskd_available():
         return False
         
-    clean_art = re.sub(r'[\(\)\[\],&]', ' ', artist).strip()
-    clean_tit = re.sub(r'[\(\)\[\],&]', ' ', title).strip()
+    clean_art = re.sub(r'[\(\)\[\],&/\-_]', ' ', artist).strip()
+    clean_tit = re.sub(r'[\(\)\[\],&/\-_]', ' ', title).strip()
     
     # Simplify query for Soulseek indexing
     art_words = clean_art.split()[:2]
@@ -98,7 +98,10 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     try:
         r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": query}, timeout=8)
         if r_post.status_code not in [200, 201]:
-            return False
+            # Try title only
+            r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": " ".join(tit_words)}, timeout=8)
+            if r_post.status_code not in [200, 201]:
+                return False
         search_data = r_post.json()
         search_id = search_data.get('id')
         if not search_id:
@@ -108,6 +111,19 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         time.sleep(5)
         
         r_res = session.get(f"{SLSKD_API_BASE}/searches/{search_id}/responses", timeout=8)
+        peers = r_res.json() if r_res.status_code == 200 else []
+        
+        # If 0 peers, try title only search
+        if not peers and len(art_words) > 0:
+            query_alt = " ".join(tit_words)
+            print(f"[Soulseek HiFi] Retrying search with title only: '{query_alt}'...", flush=True)
+            r_post2 = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": query_alt}, timeout=8)
+            if r_post2.status_code in [200, 201]:
+                search_id2 = r_post2.json().get('id')
+                time.sleep(4)
+                r_res2 = session.get(f"{SLSKD_API_BASE}/searches/{search_id2}/responses", timeout=8)
+                if r_res2.status_code == 200:
+                    peers = r_res2.json()
         if r_res.status_code != 200:
             return False
             
