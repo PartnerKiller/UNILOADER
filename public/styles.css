@@ -2139,3 +2139,180 @@ body {
   }
 }
 
+/* ==========================================================================
+   Engineering & Credits Section Styles
+   ========================================================================== */
+
+.credits-section {
+  margin-top: 32px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.credits-header {
+  margin-bottom: 20px;
+}
+
+.credits-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  margin-top: 4px;
+}
+
+.credits-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .credits-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+}
+
+.credit-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition-fast);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.credit-card:hover {
+  transform: translateY(-2px);
+  border-color: hsl(222, 12%, 35%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.creator-card {
+  background: linear-gradient(145deg, hsla(222, 16%, 13%, 0.9), hsla(222, 18%, 10%, 0.9));
+  border-color: hsla(212, 85%, 52%, 0.3);
+}
+
+.creator-card:hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 8px 26px rgba(37, 99, 235, 0.25);
+}
+
+.ai-card {
+  background: linear-gradient(145deg, hsla(260, 25%, 13%, 0.9), hsla(222, 18%, 10%, 0.9));
+  border-color: hsla(260, 80%, 65%, 0.3);
+}
+
+.ai-card:hover {
+  border-color: hsl(260, 80%, 65%);
+  box-shadow: 0 8px 26px rgba(147, 51, 234, 0.25);
+}
+
+.credit-badge-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.credit-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.avatar-creator {
+  background: linear-gradient(135deg, hsl(212, 85%, 48%), hsl(222, 80%, 36%));
+  border: 1px solid hsla(212, 90%, 65%, 0.4);
+}
+
+.avatar-ai {
+  background: linear-gradient(135deg, hsl(260, 80%, 55%), hsl(280, 85%, 40%));
+  border: 1px solid hsla(260, 90%, 75%, 0.4);
+}
+
+.credit-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.credit-name {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.credit-role {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.credit-bio {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.credit-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.c-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: hsla(212, 80%, 50%, 0.15);
+  color: hsl(212, 90%, 70%);
+  border: 1px solid hsla(212, 80%, 50%, 0.25);
+  font-family: var(--font-mono);
+}
+
+.c-tag-ai {
+  background: hsla(260, 80%, 60%, 0.15);
+  color: hsl(260, 90%, 78%);
+  border-color: hsla(260, 80%, 60%, 0.25);
+}
+
+.credits-footer-bar {
+  background: hsla(222, 18%, 10%, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.credits-footer-bar strong {
+  color: var(--text-secondary);
+}
+
+.footer-creators-badge {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 4px;
+}
+
+.footer-creators-badge strong {
+  color: var(--text-secondary);
+}
+
