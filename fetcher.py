@@ -81,7 +81,7 @@ def extract_all(url):
             from spotdl.utils.spotify import SpotifyClient
             SPOTIFY_CLIENT_ID = os.environ.get('SPOTIFY_CLIENT_ID', '').strip()
             SPOTIFY_CLIENT_SECRET = os.environ.get('SPOTIFY_CLIENT_SECRET', '').strip()
-            SpotifyClient.init(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET, user_auth=False, use_official_api=False)
+            SpotifyClient.init(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET, user_auth=False, use_official_api=bool(SPOTIFY_CLIENT_ID))
 
             if 'playlist' in url:
                 from spotdl.types.playlist import Playlist

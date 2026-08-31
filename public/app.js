@@ -12,6 +12,39 @@ function saveSessionJobs() {
   sessionStorage.setItem('vortex_session_jobs', JSON.stringify(Array.from(sessionJobIds)));
 }
 
+// Toast Notifications
+function showToast(message, type = 'error') {
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast-item toast-${type}`;
+  toast.innerHTML = `
+    <div class="toast-icon">${type === 'error' ? '⚠️' : '✓'}</div>
+    <div class="toast-content">${message}</div>
+    <button class="toast-close" type="button">&times;</button>
+  `;
+
+  toast.querySelector('.toast-close').addEventListener('click', () => {
+    toast.classList.add('toast-hiding');
+    setTimeout(() => toast.remove(), 250);
+  });
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.classList.add('toast-hiding');
+      setTimeout(() => toast.remove(), 250);
+    }
+  }, 6000);
+}
+
 // DOM Elements
 const urlInput = document.getElementById('urlInput');
 const fetchBtn = document.getElementById('fetchBtn');
@@ -307,7 +340,7 @@ async function fetchVideoMetadata() {
     currentExtractedData = data;
     renderPreviewCard(data);
   } catch (err) {
-    alert(`Error: ${err.message}`);
+    showToast(`${err.message}`, 'error');
   } finally {
     setFetchingState(false);
   }
@@ -419,7 +452,7 @@ async function startDownload() {
     subscribeToJob(data.jobId);
     loadJobs();
   } catch (err) {
-    alert(`Download Error: ${err.message}`);
+    showToast(`Download Error: ${err.message}`, 'error');
   } finally {
     startDownloadBtn.disabled = false;
     downloadBtnText.textContent = currentMode === 'audio' ? 'Extract Audio' : 'Download Now';
@@ -430,7 +463,7 @@ async function startDownload() {
 async function startBatchDownload() {
   const urls = batchUrlsInput.value.split('\n').map(u => u.trim()).filter(Boolean);
   if (urls.length === 0) {
-    alert('Please enter at least one URL');
+    showToast('Please enter at least one URL', 'error');
     return;
   }
 
@@ -475,7 +508,7 @@ async function startBatchDownload() {
     loadJobs();
     setMode('video');
   } catch (err) {
-    alert(`Batch Error: ${err.message}`);
+    showToast(`Batch Error: ${err.message}`, 'error');
   } finally {
     startBatchBtn.disabled = false;
     startBatchBtn.querySelector('span').textContent = 'Process & Download All';
