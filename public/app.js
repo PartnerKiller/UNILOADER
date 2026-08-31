@@ -238,7 +238,8 @@ function switchView(viewName) {
   const panels = {
     downloader: document.getElementById('viewDownloader'),
     supported: document.getElementById('viewSupported'),
-    about: document.getElementById('viewAbout')
+    about: document.getElementById('viewAbout'),
+    admin: document.getElementById('viewAdmin')
   };
 
   Object.keys(panels).forEach(key => {
@@ -258,6 +259,10 @@ function switchView(viewName) {
     const isCurrent = btn.getAttribute('data-view') === viewName;
     btn.classList.toggle('active', isCurrent);
   });
+
+  if (viewName === 'admin') {
+    checkAdminAuth();
+  }
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -906,4 +911,309 @@ function closePlayerModal() {
     html5Player.src = '';
   }
   if (playerModal) playerModal.style.display = 'none';
+}
+
+// ==========================================================================
+// 7. Admin Panel Management & Operations
+// ==========================================================================
+
+const adminLoginSection = document.getElementById('adminLoginSection');
+const adminDashboardSection = document.getElementById('adminDashboardSection');
+const adminLoginForm = document.getElementById('adminLoginForm');
+const adminUsernameInput = document.getElementById('adminUsername');
+const adminPasswordInput = document.getElementById('adminPassword');
+const adminLoginSpinner = document.getElementById('adminLoginSpinner');
+const adminLogoutBtn = document.getElementById('adminLogoutBtn');
+const adminUserNameDisplay = document.getElementById('adminUserNameDisplay');
+
+const statMemory = document.getElementById('statMemory');
+const statMemoryDetail = document.getElementById('statMemoryDetail');
+const statTempMedia = document.getElementById('statTempMedia');
+const statTempMediaFiles = document.getElementById('statTempMediaFiles');
+const statUptime = document.getElementById('statUptime');
+const statNodeVersion = document.getElementById('statNodeVersion');
+const statActiveJobs = document.getElementById('statActiveJobs');
+const statTotalJobs = document.getElementById('statTotalJobs');
+
+const toolYtdlpVal = document.getElementById('toolYtdlpVal');
+const toolAria2cVal = document.getElementById('toolAria2cVal');
+const toolFfmpegVal = document.getElementById('toolFfmpegVal');
+const toolSpotiflacVal = document.getElementById('toolSpotiflacVal');
+const toolInstagramVal = document.getElementById('toolInstagramVal');
+
+const btnAdminUpdateYtdlp = document.getElementById('btnAdminUpdateYtdlp');
+const btnAdminCleanTemp = document.getElementById('btnAdminCleanTemp');
+const btnAdminRefreshStats = document.getElementById('btnAdminRefreshStats');
+const btnRefreshAdminJobs = document.getElementById('btnRefreshAdminJobs');
+const adminActionOutput = document.getElementById('adminActionOutput');
+const adminJobsTableBody = document.getElementById('adminJobsTableBody');
+
+function getAdminToken() {
+  return localStorage.getItem('adminToken') || '';
+}
+
+function setAdminToken(token) {
+  if (token) localStorage.setItem('adminToken', token);
+  else localStorage.removeItem('adminToken');
+}
+
+async function checkAdminAuth() {
+  const token = getAdminToken();
+  if (!token) {
+    showAdminLogin();
+    return false;
+  }
+
+  try {
+    const res = await fetch('/api/admin/verify', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      showAdminDashboard(data.user || 'sakura');
+      fetchAdminStats();
+      fetchAdminJobs();
+      return true;
+    } else {
+      setAdminToken(null);
+      showAdminLogin();
+      return false;
+    }
+  } catch (err) {
+    showAdminLogin();
+    return false;
+  }
+}
+
+function showAdminLogin() {
+  if (adminLoginSection) adminLoginSection.style.display = 'flex';
+  if (adminDashboardSection) adminDashboardSection.style.display = 'none';
+}
+
+function showAdminDashboard(user) {
+  if (adminLoginSection) adminLoginSection.style.display = 'none';
+  if (adminDashboardSection) adminDashboardSection.style.display = 'block';
+  if (adminUserNameDisplay) adminUserNameDisplay.textContent = user || 'sakura';
+}
+
+if (adminLoginForm) {
+  adminLoginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = adminUsernameInput.value.trim();
+    const password = adminPasswordInput.value.trim();
+
+    if (!username || !password) {
+      showToast('Please enter both username and password', 'error');
+      return;
+    }
+
+    if (adminLoginSpinner) adminLoginSpinner.style.display = 'inline-block';
+
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.token) {
+        setAdminToken(data.token);
+        showToast('Welcome back, Sakura! Authenticated.', 'success');
+        showAdminDashboard(data.user);
+        fetchAdminStats();
+        fetchAdminJobs();
+      } else {
+        showToast(data.error || 'Authentication failed. Incorrect credentials.', 'error');
+      }
+    } catch (err) {
+      showToast(`Login error: ${err.message}`, 'error');
+    } finally {
+      if (adminLoginSpinner) adminLoginSpinner.style.display = 'none';
+    }
+  });
+}
+
+if (adminLogoutBtn) {
+  adminLogoutBtn.addEventListener('click', () => {
+    setAdminToken(null);
+    showAdminLogin();
+    showToast('Logged out of Admin Console', 'info');
+  });
+}
+
+async function fetchAdminStats() {
+  const token = getAdminToken();
+  if (!token) return;
+
+  try {
+    const res = await fetch('/api/admin/stats', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (statMemory) statMemory.textContent = `${data.system.memory.percent}% (${data.system.memory.used})`;
+    if (statMemoryDetail) statMemoryDetail.textContent = `Total: ${data.system.memory.total} | Free: ${data.system.memory.free}`;
+
+    if (statTempMedia) statTempMedia.textContent = data.storage.tempSizeFormatted;
+    if (statTempMediaFiles) statTempMediaFiles.textContent = `${data.storage.tempFiles} files in temp_media`;
+
+    const uptimeHrs = Math.floor(data.system.uptimeSeconds / 3600);
+    const uptimeMins = Math.floor((data.system.uptimeSeconds % 3600) / 60);
+    if (statUptime) statUptime.textContent = `${uptimeHrs}h ${uptimeMins}m`;
+    if (statNodeVersion) statNodeVersion.textContent = `Node ${data.system.nodeVersion} (${data.system.platform})`;
+
+    if (statActiveJobs) statActiveJobs.textContent = data.jobs.active;
+    if (statTotalJobs) statTotalJobs.textContent = `${data.jobs.total} lifetime jobs`;
+
+    if (toolYtdlpVal) toolYtdlpVal.textContent = data.tools.ytdlp;
+    if (toolAria2cVal) toolAria2cVal.textContent = data.tools.aria2c;
+    if (toolFfmpegVal) toolFfmpegVal.textContent = data.tools.ffmpeg;
+    if (toolSpotiflacVal) toolSpotiflacVal.textContent = data.tools.spotiflac;
+    if (toolInstagramVal) toolInstagramVal.textContent = data.tools.instagram;
+  } catch (err) {
+    console.warn('Failed to fetch admin stats:', err);
+  }
+}
+
+async function fetchAdminJobs() {
+  const token = getAdminToken();
+  if (!token || !adminJobsTableBody) return;
+
+  try {
+    const res = await fetch('/api/admin/jobs', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (!data.jobs || data.jobs.length === 0) {
+      adminJobsTableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding: 20px;">No queue jobs recorded yet.</td></tr>`;
+      return;
+    }
+
+    adminJobsTableBody.innerHTML = data.jobs.map(j => `
+      <tr>
+        <td style="font-family: var(--font-mono); font-weight: 700; color: var(--text-primary);">${escapeHtml(j.id)}</td>
+        <td><span class="status-badge" style="background: hsla(212, 80%, 50%, 0.15); color: var(--accent-primary);">${escapeHtml(j.mode || 'video')}</span></td>
+        <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(j.title || '')}">${escapeHtml(j.title || 'Untitled')}</td>
+        <td><span class="status-badge status-${j.status}">${escapeHtml(j.status)}</span></td>
+        <td>${escapeHtml(j.filesize || '--')}</td>
+        <td>
+          ${j.status === 'running' || j.status === 'queued' ? `
+            <button type="button" class="btn btn-sm" style="background: hsla(350, 80%, 50%, 0.2); color: hsl(350, 90%, 75%); border: 1px solid hsla(350, 80%, 50%, 0.3);" onclick="cancelAdminJob('${escapeHtml(j.id)}')">Terminate</button>
+          ` : `
+            <span class="text-muted" style="font-size: 0.76rem;">Finished</span>
+          `}
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.warn('Failed to fetch admin jobs:', err);
+  }
+}
+
+window.cancelAdminJob = async function(jobId) {
+  const token = getAdminToken();
+  if (!token) return;
+
+  try {
+    const res = await fetch('/api/admin/cancel-job', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ jobId })
+    });
+
+    if (res.ok) {
+      showToast(`Job ${jobId} cancelled by administrator`, 'info');
+      fetchAdminJobs();
+      fetchAdminStats();
+    } else {
+      showToast('Failed to cancel job', 'error');
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  }
+};
+
+if (btnAdminCleanTemp) {
+  btnAdminCleanTemp.addEventListener('click', async () => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    btnAdminCleanTemp.disabled = true;
+    try {
+      const res = await fetch('/api/admin/action/clean-temp', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Purged ${data.deletedCount} files (${data.freedFormatted} freed)`, 'success');
+        fetchAdminStats();
+      } else {
+        showToast(data.error || 'Failed to clean temp media', 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`, 'error');
+    } finally {
+      btnAdminCleanTemp.disabled = false;
+    }
+  });
+}
+
+if (btnAdminUpdateYtdlp) {
+  btnAdminUpdateYtdlp.addEventListener('click', async () => {
+    const token = getAdminToken();
+    if (!token) return;
+
+    btnAdminUpdateYtdlp.disabled = true;
+    if (adminActionOutput) {
+      adminActionOutput.style.display = 'block';
+      adminActionOutput.textContent = 'Executing yt-dlp update core...\n';
+    }
+
+    try {
+      const res = await fetch('/api/admin/action/update-ytdlp', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (adminActionOutput) adminActionOutput.textContent = data.output || 'yt-dlp update command completed.';
+        showToast('yt-dlp update command completed', 'success');
+        fetchAdminStats();
+      } else {
+        if (adminActionOutput) adminActionOutput.textContent = data.error || 'Update failed.';
+        showToast(data.error || 'Failed to update yt-dlp', 'error');
+      }
+    } catch (err) {
+      if (adminActionOutput) adminActionOutput.textContent = `Error: ${err.message}`;
+      showToast(`Error: ${err.message}`, 'error');
+    } finally {
+      btnAdminUpdateYtdlp.disabled = false;
+    }
+  });
+}
+
+if (btnAdminRefreshStats) {
+  btnAdminRefreshStats.addEventListener('click', () => {
+    fetchAdminStats();
+    showToast('Diagnostics refreshed', 'info');
+  });
+}
+
+if (btnRefreshAdminJobs) {
+  btnRefreshAdminJobs.addEventListener('click', () => {
+    fetchAdminJobs();
+    showToast('Jobs queue refreshed', 'info');
+  });
 }
