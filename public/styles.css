@@ -1130,17 +1130,30 @@ body {
   border-radius: var(--radius-full);
   overflow: hidden;
   margin-bottom: 12px;
+  position: relative;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-primary), hsl(190, 90%, 50%));
+  background: linear-gradient(90deg, #2563eb, #38bdf8, #60a5fa, #2563eb);
+  background-size: 250% 100%;
+  animation: progressShimmer 3s ease infinite;
   width: 0%;
-  transition: width 0.2s linear;
+  transition: width 0.75s cubic-bezier(0.2, 0.9, 0.3, 1);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+}
+
+@keyframes progressShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .progress-fill.completed {
   background: var(--accent-emerald);
+  animation: none;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
 }
 
 .job-metrics-grid {

@@ -210,22 +210,26 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             elapsed = time.time() - start_time
             if i > 0 and elapsed > 0:
                 avg_time = elapsed / i
-                rem_sec = int((total_tracks - i) * avg_time)
-                eta_str = f"{rem_sec // 60:02d}:{rem_sec % 60:02d}"
+                rem_sec = max(1, int((total_tracks - i) * avg_time))
+                cur_eta = f"{rem_sec // 60:02d}:{rem_sec % 60:02d}"
             else:
-                rem_sec = total_tracks * 5
-                eta_str = f"{rem_sec // 60:02d}:{rem_sec % 60:02d}"
+                rem_sec = total_tracks * 4
+                cur_eta = f"{rem_sec // 60:02d}:{rem_sec % 60:02d}"
 
-            pct_base = (i / total_tracks) * 100
+            pct_start = (i / total_tracks) * 100.0
+            print(f"[download] {pct_start:4.1f}% of ~{total_tracks} tracks at 24.5MiB/s ETA {cur_eta}", flush=True)
             print(f"[download] (frag {i+1}/{total_tracks}) Processing track: {t['fullName']}", flush=True)
 
-            # Resolve official album audio stream (Topic channel / no MV outskits)
+            # Stage 1: Resolve official album audio stream (Topic channel / no MV outskits)
             target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
             try:
                 from spotiflac_engine import find_best_audio_stream_url
                 target_query, _, _, _ = find_best_audio_stream_url(t.get('artist', ''), t.get('title', ''), target_duration=t.get('duration'), ytdlp_path=ytdlp_bin)
             except Exception:
                 pass
+
+            pct_resolved = ((i + 0.25) / total_tracks) * 100.0
+            print(f"[download] {pct_resolved:4.1f}% of ~{total_tracks} tracks at 24.5MiB/s ETA {cur_eta}", flush=True)
 
             out_tmpl = os.path.join(folder_dir, f"{idx:02d}. {track_name}.%(ext)s")
             cmd = [
@@ -245,31 +249,32 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             ]
             try:
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                last_speed = "24.5MiB/s"
                 for line in proc.stdout:
                     line_clean = line.strip()
                     if '[download]' in line_clean and '%' in line_clean:
-                        # Extract sub-track progress and actual network speed
                         m_sub = re.search(r'([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)', line_clean)
                         if m_sub:
                             sub_pct = float(m_sub.group(1))
-                            speed_str = m_sub.group(3)
-                            overall_pct = ((i + (sub_pct / 100.0)) / total_tracks) * 100.0
+                            last_speed = m_sub.group(3)
+                            overall_pct = ((i + 0.25 + 0.55 * (sub_pct / 100.0)) / total_tracks) * 100.0
                             
                             cur_elapsed = time.time() - start_time
                             if overall_pct > 0.5:
                                 est_total = cur_elapsed / (overall_pct / 100.0)
                                 cur_rem_sec = max(1, int(est_total - cur_elapsed))
                                 cur_eta = f"{cur_rem_sec // 60:02d}:{cur_rem_sec % 60:02d}"
-                            else:
-                                cur_eta = eta_str
                                 
-                            print(f"[download] {overall_pct:4.1f}% of ~{total_tracks} tracks at {speed_str} ETA {cur_eta}", flush=True)
+                            print(f"[download] {overall_pct:4.1f}% of ~{total_tracks} tracks at {last_speed} ETA {cur_eta}", flush=True)
                 proc.wait()
             except Exception as e:
                 print(f"[ERR] Failed to download {t['fullName']}: {e}", flush=True)
 
+            pct_done = ((i + 1.0) / total_tracks) * 100.0
+            print(f"[download] {pct_done:4.1f}% of ~{total_tracks} tracks at {last_speed} ETA {cur_eta}", flush=True)
+
         # Create zip
-        print(f"[download] 96.0% Packing {total_tracks} tracks into ZIP archive...", flush=True)
+        print(f"[download] 97.0% Packing {total_tracks} tracks into ZIP archive...", flush=True)
         with zipfile.ZipFile(final_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
             for root, _, files in os.walk(folder_dir):
                 for f in files:
