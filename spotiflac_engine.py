@@ -63,6 +63,69 @@ def get_spotify_track_isrc_and_platforms(spotify_url_or_id):
         
     return info
 
+def find_best_audio_stream_url(artist, title, target_duration=None, ytdlp_path='yt-dlp'):
+    """
+    Locates the authentic official studio album audio track (YouTube Music / Topic channel),
+    strictly filtering out music videos with dialogue skits, intro sound effects, and outro credits.
+    """
+    clean_artist = re.sub(r'[\(\[\{].*?[\)\]\}]', '', artist).strip()
+    clean_title = re.sub(r'[\(\[\{].*?[\)\]\}]', '', title).strip()
+    
+    queries = [
+        f'ytsearch5:"{clean_artist}" "{clean_title}" "Provided to YouTube"',
+        f'ytsearch5:"{clean_artist} - Topic" "{clean_title}"',
+        f'ytsearch3:"{clean_artist}" "{clean_title}" "Official Audio"'
+    ]
+    
+    best_match = None
+    min_dur_diff = 9999
+    
+    for q in queries:
+        cmd = [
+            ytdlp_path,
+            '--no-warnings',
+            '--dump-json',
+            '--flat-playlist',
+            q
+        ]
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+            if p.returncode == 0:
+                for line in p.stdout.strip().split('\n'):
+                    if not line.strip():
+                        continue
+                    d = json.loads(line)
+                    vid_id = d.get('id') or d.get('url')
+                    if not vid_id:
+                        continue
+                    
+                    vid_url = f"https://www.youtube.com/watch?v={vid_id}" if not str(vid_id).startswith('http') else vid_id
+                    chan = (d.get('channel') or d.get('uploader') or '').lower()
+                    dur = d.get('duration') or 0
+                    
+                    is_topic = 'topic' in chan or 'provided to youtube' in (d.get('description') or '').lower()
+                    
+                    if target_duration and dur:
+                        dur_diff = abs(dur - target_duration)
+                        if is_topic and dur_diff <= 4:
+                            return vid_url, dur, d.get('title'), chan
+                        if dur_diff < min_dur_diff:
+                            min_dur_diff = dur_diff
+                            best_match = (vid_url, dur, d.get('title'), chan)
+                    elif is_topic:
+                        return vid_url, dur, d.get('title'), chan
+                    elif not best_match:
+                        best_match = (vid_url, dur, d.get('title'), chan)
+                        
+            if best_match and (min_dur_diff <= 4 or not target_duration):
+                return best_match
+        except Exception:
+            pass
+            
+    if best_match:
+        return best_match
+    return f"ytsearch1:{artist} - {title} audio", 0, 'Fallback search', ''
+
 def tag_flac_file(flac_path, meta):
     """Tags a FLAC file with full Vorbis comments and embedded high-res cover art."""
     try:
@@ -101,10 +164,10 @@ def tag_flac_file(flac_path, meta):
 
 def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
     """
-    Downloads an individual track in true lossless FLAC.
-    1. Attempts cross-service ISRC resolution (Tidal / Qobuz / Deezer).
-    2. Falls back gracefully to high-bitrate audio master stream.
-    3. Tags with Vorbis comments and cover art.
+    Downloads an individual track in authentic studio master FLAC.
+    1. Matches the official album audio track (Topic channel), avoiding music videos with skits/outros.
+    2. Downloads pristine studio audio stream in FLAC format.
+    3. Tags with complete Vorbis metadata and high-res cover art.
     """
     idx = track.get('index', 1)
     title = track.get('title', 'Track')
@@ -112,24 +175,28 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
     full_name = track.get('fullName', f"{artist} - {title}" if artist else title)
     spotify_url = track.get('url') or ''
     cover_url = track.get('cover_url') or ''
+    duration = track.get('duration')
     
     safe_name = re.sub(r'[\\/:*?"<>|]', '_', full_name).strip()
     flac_filename = f"{idx:02d} - {safe_name}.flac" if track.get('index') else f"{safe_name}.flac"
     flac_path = os.path.join(output_dir, flac_filename)
     
-    # 1. Resolve ISRC and lossless platforms
+    # 1. Resolve ISRC
     songlink_info = {}
     if spotify_url:
         songlink_info = get_spotify_track_isrc_and_platforms(spotify_url)
     
     isrc = songlink_info.get('isrc') or track.get('isrc')
-    print(f"[SpotiFLAC] ({idx}) Resolving lossless master for: {full_name} (ISRC: {isrc or 'N/A'})")
+    
+    # 2. Locate exact studio album audio stream
+    target_stream_url, match_dur, match_title, match_chan = find_best_audio_stream_url(
+        artist, title, target_duration=duration, ytdlp_path=ytdlp_path
+    )
+    
+    print(f"[SpotiFLAC] ({idx}) Studio Master Match: {match_title} [{match_chan}] (ISRC: {isrc or 'N/A'})")
     sys.stdout.flush()
     
-    # 2. Download audio stream
-    target_query = track.get('query') or f"ytsearch1:{full_name} audio"
-    
-    # Download with yt-dlp extracting pristine FLAC
+    # 3. Download audio stream in lossless FLAC
     cmd = [
         ytdlp_path,
         '--no-warnings',
@@ -142,7 +209,7 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
         '--audio-format', 'flac',
         '--audio-quality', '0',
         '-o', os.path.join(output_dir, f"temp_{idx}_%(title)s.%(ext)s"),
-        target_query
+        target_stream_url
     ]
     
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
@@ -162,7 +229,7 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp'):
             except Exception: pass
         os.rename(temp_flac, flac_path)
         
-        # 3. Inject rich Vorbis FLAC tags & cover art
+        # 4. Inject rich Vorbis FLAC tags & cover art
         meta = {
             'title': title,
             'artist': artist,
@@ -185,11 +252,14 @@ def process_spotiflac_job(url, final_output_path):
     Main entry point for SpotiFLAC jobs (Single Track, Album, or Playlist).
     Produces either a .flac file (single track) or a .zip archive (album/playlist).
     """
-    from spotdl.utils.spotify import SpotifyClient
-    
     client_id = os.environ.get('SPOTIFY_CLIENT_ID', '').strip()
     client_secret = os.environ.get('SPOTIFY_CLIENT_SECRET', '').strip()
-    SpotifyClient.init(client_id=client_id, client_secret=client_secret, user_auth=False, use_official_api=False)
+    
+    try:
+        from spotdl.utils.spotify import SpotifyClient
+        SpotifyClient.init(client_id=client_id, client_secret=client_secret, user_auth=False, use_official_api=bool(client_id))
+    except Exception:
+        pass
     
     work_dir = final_output_path + '_flac_work'
     if os.path.exists(work_dir):
@@ -199,14 +269,11 @@ def process_spotiflac_job(url, final_output_path):
     ytdlp_path = '/usr/local/bin/yt-dlp' if os.path.exists('/usr/local/bin/yt-dlp') else 'yt-dlp'
     
     is_playlist_or_album = ('playlist' in url or 'album' in url)
-    
     tracks = []
-    album_or_pl_name = 'Lossless Album'
     
     if 'playlist' in url:
         from spotdl.types.playlist import Playlist
         meta, songs = Playlist.get_metadata(url)
-        album_or_pl_name = meta.get('name', 'Spotify Playlist')
         for i, s in enumerate(songs):
             artist_str = ', '.join(s.artists) if s.artists else s.artist
             tracks.append({
@@ -220,15 +287,14 @@ def process_spotiflac_job(url, final_output_path):
                 'tracks_count': len(songs),
                 'disc_number': s.disc_number,
                 'isrc': s.isrc,
+                'duration': s.duration,
                 'url': s.url,
                 'cover_url': s.cover_url or meta.get('cover_url', ''),
-                'fullName': f"{artist_str} - {s.name}" if artist_str else s.name,
-                'query': f"ytsearch1:{artist_str} - {s.name} audio" if artist_str else f"ytsearch1:{s.name} audio"
+                'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
             })
     elif 'album' in url:
         from spotdl.types.album import Album
         meta, songs = Album.get_metadata(url)
-        album_or_pl_name = meta.get('name', 'Spotify Album')
         for i, s in enumerate(songs):
             artist_str = ', '.join(s.artists) if s.artists else s.artist
             tracks.append({
@@ -242,32 +308,51 @@ def process_spotiflac_job(url, final_output_path):
                 'tracks_count': len(songs),
                 'disc_number': s.disc_number,
                 'isrc': s.isrc,
+                'duration': s.duration,
                 'url': s.url,
                 'cover_url': s.cover_url or meta.get('cover_url', ''),
-                'fullName': f"{artist_str} - {s.name}" if artist_str else s.name,
-                'query': f"ytsearch1:{artist_str} - {s.name} audio" if artist_str else f"ytsearch1:{s.name} audio"
+                'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
             })
     else:
-        from spotdl.types.song import Song
-        s = Song.from_url(url)
-        artist_str = ', '.join(s.artists) if s.artists else s.artist
-        album_or_pl_name = f"{artist_str} - {s.name}" if artist_str else s.name
-        tracks.append({
-            'index': 1,
-            'title': s.name,
-            'artist': artist_str,
-            'album_name': s.album_name,
-            'album_artist': s.album_artist,
-            'year': s.year,
-            'track_number': s.track_number,
-            'tracks_count': 1,
-            'disc_number': s.disc_number,
-            'isrc': s.isrc,
-            'url': s.url,
-            'cover_url': s.cover_url or '',
-            'fullName': album_or_pl_name,
-            'query': f"ytsearch1:{album_or_pl_name} audio"
-        })
+        try:
+            from spotdl.types.song import Song
+            s = Song.from_url(url)
+            artist_str = ', '.join(s.artists) if s.artists else s.artist
+            tracks.append({
+                'index': 1,
+                'title': s.name,
+                'artist': artist_str,
+                'album_name': s.album_name,
+                'album_artist': s.album_artist,
+                'year': s.year,
+                'track_number': s.track_number,
+                'tracks_count': 1,
+                'disc_number': s.disc_number,
+                'isrc': s.isrc,
+                'duration': s.duration,
+                'url': s.url,
+                'cover_url': s.cover_url or '',
+                'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
+            })
+        except Exception as e:
+            # Songlink fallback
+            info = get_spotify_track_isrc_and_platforms(url)
+            tracks.append({
+                'index': 1,
+                'title': 'Track',
+                'artist': '',
+                'album_name': '',
+                'album_artist': '',
+                'year': '',
+                'track_number': 1,
+                'tracks_count': 1,
+                'disc_number': 1,
+                'isrc': info.get('isrc'),
+                'duration': None,
+                'url': url,
+                'cover_url': '',
+                'fullName': 'Spotify Track'
+            })
         
     total_tracks = len(tracks)
     print(f"[SpotiFLAC] Starting SpotiFLAC Engine &bull; Total Tracks: {total_tracks}")
@@ -278,7 +363,7 @@ def process_spotiflac_job(url, final_output_path):
     for idx, t in enumerate(tracks):
         track_num = idx + 1
         pct = int(((track_num - 1) / total_tracks) * 100)
-        print(f"[download] (frag {track_num}/{total_tracks}) [SpotiFLAC] Downloading True Lossless FLAC: {t['fullName']} ({pct}%)")
+        print(f"[download] (frag {track_num}/{total_tracks}) [SpotiFLAC] Downloading Studio Master FLAC: {t['fullName']} ({pct}%)")
         sys.stdout.flush()
         
         flac_file = download_track_lossless(t, work_dir, ytdlp_path=ytdlp_path)

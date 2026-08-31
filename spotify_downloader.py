@@ -12,9 +12,9 @@ from bs4 import BeautifulSoup
 def init_spotify_client():
     try:
         from spotdl.utils.spotify import SpotifyClient
-        client_id = os.environ.get('SPOTIFY_CLIENT_ID', '')
-        client_secret = os.environ.get('SPOTIFY_CLIENT_SECRET', '')
-        SpotifyClient.init(client_id=client_id, client_secret=client_secret, user_auth=False, use_official_api=False)
+        client_id = os.environ.get('SPOTIFY_CLIENT_ID', '').strip()
+        client_secret = os.environ.get('SPOTIFY_CLIENT_SECRET', '').strip()
+        SpotifyClient.init(client_id=client_id, client_secret=client_secret, user_auth=False, use_official_api=bool(client_id))
         return True
     except Exception:
         return False
@@ -207,6 +207,14 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             print(f"[download] {pct}% of ~{total_tracks} tracks at 10.0MiB/s ETA {total_tracks - i} items", flush=True)
             print(f"[download] (frag {i+1}/{total_tracks}) Processing track: {t['fullName']}", flush=True)
 
+            # Resolve official album audio stream (Topic channel / no MV outskits)
+            target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
+            try:
+                from spotiflac_engine import find_best_audio_stream_url
+                target_query, _, _, _ = find_best_audio_stream_url(t.get('artist', ''), t.get('title', ''), target_duration=t.get('duration'), ytdlp_path=ytdlp_bin)
+            except Exception:
+                pass
+
             out_tmpl = os.path.join(folder_dir, f"{idx:02d}. {track_name}.%(ext)s")
             cmd = [
                 ytdlp_bin,
@@ -219,7 +227,7 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                 '--ignore-errors',
                 '--no-abort-on-error',
                 '-o', out_tmpl,
-                t['query']
+                target_query
             ]
             try:
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
@@ -244,6 +252,15 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
         ext = audio_format
         final_file = output_target if output_target.endswith(f'.{ext}') else f"{output_target}.{ext}"
         print(f"[download] Downloading single track: {t['fullName']}", flush=True)
+
+        # Resolve official album audio stream (Topic channel / no MV outskits)
+        target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
+        try:
+            from spotiflac_engine import find_best_audio_stream_url
+            target_query, _, _, _ = find_best_audio_stream_url(t.get('artist', ''), t.get('title', ''), target_duration=t.get('duration'), ytdlp_path=ytdlp_bin)
+        except Exception:
+            pass
+
         out_tmpl = output_target + ".%(ext)s"
         cmd = [
             ytdlp_bin,
@@ -255,7 +272,7 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
             '--no-playlist',
             '--ignore-errors',
             '-o', out_tmpl,
-            t['query']
+            target_query
         ]
         subprocess.run(cmd, check=True)
         print(f"[download] 100% Processing completed! Ready to save to device.", flush=True)
