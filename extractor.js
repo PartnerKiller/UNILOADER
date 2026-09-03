@@ -108,14 +108,18 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
       '--skip-download',
       '--no-warnings',
       '--no-playlist',
-      '--extractor-args', 'youtube:player_client=android,web',
-      '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
-      url
+      '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node'
     ];
 
-    if (process.platform === 'win32') {
-      args.splice(4, 0, '--impersonate', 'chrome');
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      args.push('--extractor-args', 'youtube:player_client=android,web');
     }
+
+    if (process.platform === 'win32') {
+      args.push('--impersonate', 'chrome');
+    }
+
+    args.push(url);
 
     const child = spawn(ytdlpPath, args, { windowsHide: true });
     let stdout = '';
@@ -222,9 +226,20 @@ async function extractMetadata(inputUrl) {
     }
   }
 
-  // 4. If music URL and Python fetcher couldn't extract, return helpful error rather than yt-dlp DRM message
+  // 4. If music URL and Python fetcher couldn't extract, try SpotiFLAC-Next direct Songlink scraper
   const isMusicUrl = url && (url.includes('spotify.com') || url.includes('music.apple.com') || url.includes('deezer.com'));
   if (isMusicUrl) {
+    const nextScript = path.join(__dirname, 'spotiflac_next_engine.py');
+    if (fs.existsSync(nextScript)) {
+      const pyBin = getPythonBin();
+      try {
+        const meta = await runPythonFetcherAsync(pyBin, nextScript, url);
+        if (meta && meta.title) {
+          setCachedMetadata(url, meta);
+          return meta;
+        }
+      } catch (e) {}
+    }
     throw new Error('Unable to extract Spotify/music metadata. Please verify that the link is a valid public track, album, or playlist.');
   }
 

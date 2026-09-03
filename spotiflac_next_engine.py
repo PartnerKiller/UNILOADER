@@ -433,8 +433,31 @@ def process_spotiflac_next_job(url, final_output_path):
         sys.stdout.flush()
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print("Usage: python spotiflac_next_engine.py <url> <final_output_path>")
+    if len(sys.argv) < 2:
+        print("Usage: python spotiflac_next_engine.py <url> [final_output_path]")
         sys.exit(1)
         
+    if len(sys.argv) == 2:
+        u = sys.argv[1]
+        info = scrape_songlink_metadata(u)
+        if info and info.get('title'):
+            full_title = f"{info.get('artist', '')} - {info.get('title', '')}".strip(' -')
+            print(json.dumps({
+                'title': full_title,
+                'code': 'SPOTIFY',
+                'poster': info.get('thumbnail', ''),
+                'hlsUrl': f"ytsearch1:{full_title} audio",
+                'downloadTargetUrl': f"ytsearch1:{full_title} audio",
+                'tags': ['Spotify', 'FLAC', 'Lossless', 'Music'],
+                'model': info.get('artist', 'Spotify Artist'),
+                'duration': 'Lossless Audio',
+                'extractor': 'SpotiFLAC-Next',
+                'sourceUrl': u,
+                'mode': 'audio'
+            }))
+            sys.exit(0)
+        else:
+            print(json.dumps({'error': 'Failed to scrape metadata'}))
+            sys.exit(1)
+            
     process_spotiflac_next_job(sys.argv[1], sys.argv[2])

@@ -198,7 +198,25 @@ function processDownloadQueue() {
       if (getActiveDownloadCount() >= MAX_CONCURRENT_DOWNLOADS) break;
     }
   }
-}
+// Health & Engine Status Endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    activeDownloads: getActiveDownloadCount(),
+    maxConcurrent: MAX_CONCURRENT_DOWNLOADS,
+    totalJobs: jobs.size,
+    platform: process.platform,
+    engines: {
+      spotiflacNext: true,
+      soulseekP2P: true,
+      tidalMonochrome: true,
+      deezerHiFi: true,
+      tiktokHD: true,
+      instagramHD: true,
+      universalYtdlp: true
+    }
+  });
+});
 
 // 1. Metadata Extraction Endpoint
 app.post('/api/extract', async (req, res) => {

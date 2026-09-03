@@ -304,6 +304,7 @@ def extract_all(url):
                 script = soup.find('script', id='__NEXT_DATA__')
                 if script:
                     data = json.loads(script.text)
+                    entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
                     if entity and entity.get('name'):
                         title = entity.get('name')
                         artists = ', '.join([a.get('name') for a in entity.get('artists', []) if a.get('name')])
