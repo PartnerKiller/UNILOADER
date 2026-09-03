@@ -284,7 +284,7 @@ function startJobProcess(job) {
       ? path.join(TEMP_DIR, `${job.id}_${safeTitle}.zip`)
       : path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
 
-    job.logs.push(`Starting SpotiFLAC Lossless Audio Engine...`);
+    job.logs.push(`Starting SpotiFLAC-Next True Lossless Audio Engine...`);
     job.logs.push(`Target: ${url}`);
 
     const child = spawn(pythonBin, [

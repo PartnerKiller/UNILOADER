@@ -94,17 +94,17 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     tit_primary = re.sub(r'\(.*?\)|\[.*?\]', ' ', tit_primary)
     clean_tit = re.sub(r'[\(\)\[\],&/\-_]', ' ', tit_primary).strip()
     
-    art_words = clean_art.split()[:2]
-    tit_words = clean_tit.split()[:3]
+    art_words = [w for w in clean_art.split() if len(w) > 1]
+    tit_words = [w for w in clean_tit.split() if len(w) > 1]
     
     # Search terms in priority order
     search_terms = []
-    if art_words:
-        search_terms.append(art_words[0])
-    if len(art_words) > 0 and len(tit_words) > 0:
-        search_terms.append(f"{art_words[0]} {tit_words[0]}")
-    if tit_words:
-        search_terms.append(" ".join(tit_words))
+    if clean_art and clean_tit:
+        search_terms.append(f"{clean_art} {clean_tit}")
+    if len(clean_tit) > 3:
+        search_terms.append(clean_tit)
+    if len(clean_art) > 3:
+        search_terms.append(clean_art)
         
     peers = []
     search_id = None
@@ -115,28 +115,28 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": term}, timeout=8)
             if r_post.status_code in [200, 201]:
                 search_id = r_post.json().get('id')
-                time.sleep(5)
+                time.sleep(4)
                 # Wait for responses
                 for _ in range(3):
                     time.sleep(1)
                     r_chk = session.get(f"{SLSKD_API_BASE}/searches/{search_id}", timeout=4)
-                    if r_chk.status_code == 200 and r_chk.json().get('fileCount', 0) > 100:
+                    if r_chk.status_code == 200 and r_chk.json().get('fileCount', 0) > 60:
                         break
                 r_res = session.get(f"{SLSKD_API_BASE}/searches/{search_id}/responses", timeout=8)
-                if r_res.status_code == 200:
-                    current_peers = r_res.json()
-                    if current_peers:
-                        peers = current_peers
-                        break
-        except Exception:
-            pass
+                if r_res.status_code == 200 and len(r_res.json()) > 0:
+                    peers = r_res.json()
+                    break
+        except Exception as e:
+            print(f"[Soulseek HiFi] Query error: {e}", file=sys.stderr)
             
     if not peers:
+        print(f"[Soulseek HiFi] No peer results found for '{artist} - {title}'.", flush=True)
         return False
         
     try:
         candidates = []
-        title_lower_words = [w.lower() for w in tit_words if len(w) > 2]
+        title_lower_words = [w.lower() for w in tit_words if len(w) >= 2]
+        art_lower_words = [w.lower() for w in art_words if len(w) >= 2]
         
         for p in peers:
             uname = p.get('username')
@@ -149,20 +149,22 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 ext = f.get('extension', '').lower()
                 size = f.get('size', 0)
                 
-                # Must be a FLAC file of realistic size (10MB - 250MB)
-                if ('flac' in ext or fname.lower().endswith('.flac')) and (10 * 1024 * 1024 <= size <= 250 * 1024 * 1024):
+                # Must be a FLAC file of realistic size (8MB - 250MB)
+                if ('flac' in ext or fname.lower().endswith('.flac')) and (8 * 1024 * 1024 <= size <= 250 * 1024 * 1024):
                     fn_lower = fname.lower()
-                    # Check title match
-                    if all(tw in fn_lower for tw in title_lower_words) or (len(title_lower_words) > 1 and any(tw in fn_lower for tw in title_lower_words)):
-                        # Rank by free slot, queue length, and speed
-                        score = (1000 if free_slot else 0) - (queue_len * 10) + min(speed / 100000, 500)
+                    # Check that ALL meaningful title words exist in the path/filename
+                    if title_lower_words and all(tw in fn_lower for tw in title_lower_words):
+                        # Bonus if artist name also matches
+                        has_art = any(aw in fn_lower for aw in art_lower_words) if art_lower_words else True
+                        score = (1500 if free_slot else 0) + (500 if has_art else 0) - (queue_len * 10) + min(speed / 100000, 500)
                         candidates.append({
                             'username': uname,
                             'filename': fname,
                             'size': size,
-                            'score': score,
                             'free_slot': free_slot,
-                            'queue_len': queue_len
+                            'queue_len': queue_len,
+                            'speed': speed,
+                            'score': score
                         })
                         
         if not candidates:
