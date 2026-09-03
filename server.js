@@ -198,6 +198,8 @@ function processDownloadQueue() {
       if (getActiveDownloadCount() >= MAX_CONCURRENT_DOWNLOADS) break;
     }
   }
+}
+
 // Health & Engine Status Endpoint
 app.get('/api/health', (req, res) => {
   res.json({
