@@ -128,9 +128,48 @@ def extract_all(url):
             print(f"[WARN] Instagram custom extractor error: {e}", file=sys.stderr)
 
     # -------------------------------------------------------------
+    # 0.000 SoundCloud (soundcloud.com)
+    # -------------------------------------------------------------
+    if 'soundcloud.com' in url:
+        try:
+            oe_url = f"https://soundcloud.com/oembed?format=json&url={urllib.parse.quote(url)}"
+            r_oe = session.get(oe_url, timeout=8)
+            if r_oe.status_code == 200:
+                oe_data = r_oe.json()
+                sc_title = oe_data.get('title') or 'SoundCloud Track'
+                sc_author = oe_data.get('author_name') or 'SoundCloud Artist'
+                sc_thumb = oe_data.get('thumbnail_url') or ''
+                return {
+                    'title': sc_title,
+                    'code': 'SOUNDCLOUD',
+                    'poster': sc_thumb,
+                    'hlsUrl': url,
+                    'downloadTargetUrl': url,
+                    'tags': ['SoundCloud', 'Audio', 'Music'],
+                    'model': sc_author,
+                    'duration': 'Audio Track',
+                    'extractor': 'SoundCloud',
+                    'sourceUrl': url,
+                    'mode': 'audio'
+                }
+        except Exception as e:
+            print(f"[WARN] SoundCloud oEmbed notice: {e}", file=sys.stderr)
+
+    # -------------------------------------------------------------
     # 0. Spotify (open.spotify.com)
     # -------------------------------------------------------------
     if 'spotify.com' in url:
+        # Fast oEmbed verification (0-auth, detects 404s in 100ms)
+        oembed_data = None
+        try:
+            r_oe = session.get(f"https://open.spotify.com/oembed?url={urllib.parse.quote(url)}", timeout=6)
+            if r_oe.status_code == 200:
+                oembed_data = r_oe.json()
+            elif r_oe.status_code == 404:
+                return {'error': 'Spotify track, album, or playlist not found (HTTP 404). Please verify that the link is public and active.'}
+        except Exception:
+            pass
+
         # 1. SpotDL full catalog extractor (supports all 100, 300, 1000+ tracks)
         try:
             from spotdl.utils.spotify import SpotifyClient
@@ -365,9 +404,26 @@ def extract_all(url):
                                 'extractor': 'Spotify',
                                 'sourceUrl': url,
                                 'mode': 'audio'
-                            }
         except Exception as e:
             pass
+
+        # 4. oEmbed Final Fallback
+        if oembed_data and oembed_data.get('title'):
+            oe_title = oembed_data.get('title')
+            oe_thumb = oembed_data.get('thumbnail_url', '')
+            return {
+                'title': oe_title,
+                'code': 'SPOTIFY',
+                'poster': oe_thumb,
+                'hlsUrl': f"ytsearch1:{oe_title} audio",
+                'downloadTargetUrl': f"ytsearch1:{oe_title} audio",
+                'tags': ['Spotify', 'Music'],
+                'model': 'Spotify Artist',
+                'duration': '',
+                'extractor': 'Spotify',
+                'sourceUrl': url,
+                'mode': 'audio'
+            }
 
     # -------------------------------------------------------------
     # Rule34Video (rule34video.com)

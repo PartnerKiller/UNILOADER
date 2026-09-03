@@ -229,7 +229,9 @@ app.post('/api/extract', async (req, res) => {
     res.json(meta);
   } catch (err) {
     console.error('Extract error:', err.message);
-    res.status(500).json({ error: err.message || 'Failed to extract video information' });
+    const msg = err.message || 'Failed to extract media information';
+    const isNotFound = msg.toLowerCase().includes('not found') || msg.includes('404') || msg.toLowerCase().includes('private');
+    res.status(isNotFound ? 404 : 400).json({ error: msg });
   }
 });
 
