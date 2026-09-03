@@ -1,10 +1,19 @@
 import os
 import sys
+import io
 import json
 import re
 import base64
 import urllib.parse
 from bs4 import BeautifulSoup
+
+try:
+    if hasattr(sys.stdout, 'buffer') and (not sys.stdout.encoding or 'utf' not in sys.stdout.encoding.lower()):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'buffer') and (not sys.stderr.encoding or 'utf' not in sys.stderr.encoding.lower()):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 def load_env():
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
