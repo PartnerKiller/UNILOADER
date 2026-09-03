@@ -88,6 +88,9 @@ function runPythonFetcherAsync(pyBin, scriptPath, url, timeoutMs = 45000) {
             if (json && !json.error && json.title) {
               return resolve(json);
             }
+            if (json && json.error) {
+              return reject(new Error(json.error));
+            }
           }
         } catch (e) {}
       }
@@ -222,6 +225,9 @@ async function extractMetadata(inputUrl) {
         return meta;
       }
     } catch (e) {
+      if (e.message && (e.message.includes('404') || e.message.toLowerCase().includes('not found'))) {
+        throw e;
+      }
       // Fallback silently to yt-dlp
     }
   }

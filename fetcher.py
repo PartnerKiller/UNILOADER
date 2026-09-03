@@ -404,6 +404,7 @@ def extract_all(url):
                                 'extractor': 'Spotify',
                                 'sourceUrl': url,
                                 'mode': 'audio'
+                            }
         except Exception as e:
             pass
 
