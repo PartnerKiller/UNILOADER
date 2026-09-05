@@ -252,13 +252,26 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": term}, timeout=8)
             if r_post.status_code in [200, 201]:
                 search_id = r_post.json().get('id')
-                time.sleep(3)
-                # Wait for responses
-                for _ in range(4):
+                # Wait for responses to arrive from distributed Soulseek peers (up to 6 seconds)
+                for _ in range(6):
                     time.sleep(1)
-                    r_chk = session.get(f"{SLSKD_API_BASE}/searches/{search_id}", timeout=4)
-                    if r_chk.status_code == 200 and r_chk.json().get('fileCount', 0) > 50:
-                        break
+                    try:
+                        r_chk = session.get(f"{SLSKD_API_BASE}/searches/{search_id}", timeout=3)
+                        if r_chk.status_code == 200:
+                            chk_data = r_chk.json()
+                            if chk_data.get('fileCount', 0) >= 15 or chk_data.get('isComplete'):
+                                break
+                    except Exception:
+                        pass
+                
+                # CRITICAL: SLSKD only flushes buffered responses to /responses once search is completed or stopped!
+                # Sending PUT completes the search immediately and flushes all peer responses.
+                try:
+                    session.put(f"{SLSKD_API_BASE}/searches/{search_id}", json={}, timeout=4)
+                    time.sleep(0.4)
+                except Exception:
+                    pass
+
                 r_res = session.get(f"{SLSKD_API_BASE}/searches/{search_id}/responses", timeout=8)
                 if r_res.status_code == 200:
                     for p in r_res.json():
@@ -271,13 +284,25 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                                 for f in p.get('files', []):
                                     if f.get('filename') not in existing_files:
                                         all_peers_map[uname].setdefault('files', []).append(f)
-                    # If we found at least one valid flac file matching title, we can proceed
-                    has_flac = any('flac' in f.get('filename', '').lower() for p in all_peers_map.values() for f in p.get('files', []))
-                    if has_flac and len(all_peers_map) >= 5:
+
+                    # Check if we already have genuine FLAC matches for this track
+                    has_real_flac = False
+                    title_lowers = [w.lower() for w in tit_words if len(w) >= 2]
+                    art_lowers = [w.lower() for w in art_words if len(w) >= 2]
+                    for p in all_peers_map.values():
+                        for f in p.get('files', []):
+                            fn_lower = f.get('filename', '').lower()
+                            if 'flac' in fn_lower and all(tw in fn_lower for tw in title_lowers) and any(aw in fn_lower for aw in art_lowers):
+                                has_real_flac = True
+                                break
+                        if has_real_flac:
+                            break
+
+                    if has_real_flac and len(all_peers_map) >= 3:
                         break
         except Exception as e:
             print(f"[Soulseek HiFi] Query error: {e}", file=sys.stderr)
-            
+
     peers = list(all_peers_map.values())
     if not peers:
         print(f"[Soulseek HiFi] No peer results found for '{artist} - {title}'.", flush=True)
