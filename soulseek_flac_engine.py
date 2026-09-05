@@ -103,23 +103,6 @@ def tag_flac(flac_path, meta):
                     pic = create_flac_picture(r_cov.content, desc='Cover (front)')
                     audio.clear_pictures()
                     audio.add_picture(pic)
-                    
-                    # Save cover artwork to disk
-                    flac_dir = os.path.dirname(os.path.abspath(flac_path))
-                    base_no_ext = os.path.splitext(os.path.basename(flac_path))[0]
-                    clean_name = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', base_no_ext)
-                    
-                    track_img = os.path.join(flac_dir, f"{base_no_ext}.jpg")
-                    clean_img = os.path.join(flac_dir, f"{clean_name}.jpg")
-                    std_img = os.path.join(flac_dir, "cover.jpg")
-                    
-                    for dest_p in set([track_img, clean_img, std_img]):
-                        try:
-                            with open(dest_p, 'wb') as fc:
-                                fc.write(r_cov.content)
-                        except Exception:
-                            pass
-                    print(f"[Cover Image] 🖼️ Cover artwork saved: {clean_name}.jpg and cover.jpg", flush=True)
             except Exception:
                 pass
         audio.save()

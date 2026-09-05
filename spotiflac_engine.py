@@ -245,18 +245,6 @@ def tag_flac_file(flac_path, meta):
                     pic = create_flac_picture(img_resp.content, desc='Cover (front)')
                     audio.clear_pictures()
                     audio.add_picture(pic)
-                    
-                    # Also save cover image file to disk
-                    out_dir = os.path.dirname(os.path.abspath(flac_path))
-                    base_no_ext = os.path.splitext(os.path.basename(flac_path))[0]
-                    clean_name = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', base_no_ext)
-                    for target_p in [os.path.join(out_dir, f"{base_no_ext}.jpg"), os.path.join(out_dir, f"{clean_name}.jpg"), os.path.join(out_dir, "cover.jpg")]:
-                        try:
-                            with open(target_p, 'wb') as cf:
-                                cf.write(img_resp.content)
-                        except Exception:
-                            pass
-                    print(f"[Cover Image] 🖼️ Cover artwork saved: {clean_name}.jpg and cover.jpg", flush=True)
             except Exception as e:
                 print(f"[SpotiFLAC] Warning: Failed to embed cover: {e}", file=sys.stderr)
                 
@@ -506,18 +494,6 @@ def process_spotiflac_job(url, final_output_path):
             if has_cov and os.path.exists(cover_work):
                 zf.write(cover_work, 'cover.jpg')
                 
-        # Also copy cover.jpg and <album>.jpg to output folder
-        zip_base = os.path.splitext(os.path.basename(zip_target))[0]
-        clean_zip_base = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', zip_base)
-        if has_cov and os.path.exists(cover_work):
-            try:
-                shutil.copy2(cover_work, os.path.join(out_dir, f"{zip_base}.jpg"))
-                shutil.copy2(cover_work, os.path.join(out_dir, f"{clean_zip_base}.jpg"))
-                shutil.copy2(cover_work, os.path.join(out_dir, "cover.jpg"))
-                print(f"[Cover Image] 🖼️ Album artwork saved: {clean_zip_base}.jpg and cover.jpg", flush=True)
-            except Exception:
-                pass
-                
         shutil.rmtree(work_dir, ignore_errors=True)
         sz_mb = os.path.getsize(zip_target) / (1024 * 1024)
         print(f"[download] 100% of {sz_mb:.1f}MiB at 0.00MiB/s ETA 00:00")
@@ -530,26 +506,6 @@ def process_spotiflac_job(url, final_output_path):
         if os.path.exists(flac_target):
             os.remove(flac_target)
         shutil.move(single_flac, flac_target)
-        
-        # Save standalone cover image
-        flac_base = os.path.splitext(os.path.basename(flac_target))[0]
-        clean_flac_base = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', flac_base)
-        if cover_url:
-            try:
-                clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
-                session = requests.Session(impersonate="chrome124")
-                r_cov = session.get(clean_cov_url, timeout=12)
-                if r_cov.status_code == 200 and len(r_cov.content) > 500:
-                    for dest_p in [os.path.join(out_dir, f"{flac_base}.jpg"), os.path.join(out_dir, f"{clean_flac_base}.jpg"), os.path.join(out_dir, "cover.jpg")]:
-                        try:
-                            with open(dest_p, 'wb') as fc:
-                                fc.write(r_cov.content)
-                        except Exception:
-                            pass
-                    print(f"[Cover Image] 🖼️ Cover artwork saved: {clean_flac_base}.jpg and cover.jpg", flush=True)
-            except Exception:
-                pass
-                
         shutil.rmtree(work_dir, ignore_errors=True)
         sz_mb = os.path.getsize(flac_target) / (1024 * 1024)
         print(f"[download] 100% of {sz_mb:.1f}MiB at 0.00MiB/s ETA 00:00")

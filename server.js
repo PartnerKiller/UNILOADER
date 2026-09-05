@@ -896,44 +896,18 @@ function attachProcessListeners(job, child) {
           job.filePath = cleanFilePath;
           job.filename = cleanFilename;
 
-          // Check/Rename Cover image files
-          let coverPath = null;
-          const allDirFiles = fs.readdirSync(TEMP_DIR);
-          const covMatched = allDirFiles.find(f => (f.startsWith(`${jobId}_`) || f.startsWith(cleanBase)) && (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')));
-          if (covMatched) {
-            const rawCov = path.join(TEMP_DIR, covMatched);
-            const covExt = path.extname(covMatched);
-            const cleanCovPath = path.join(TEMP_DIR, `${cleanBase}${covExt}`);
-            const stdCovPath = path.join(TEMP_DIR, 'cover.jpg');
-            try {
-              if (fs.existsSync(cleanCovPath) && rawCov !== cleanCovPath) fs.unlinkSync(cleanCovPath);
-              if (rawCov !== cleanCovPath) fs.renameSync(rawCov, cleanCovPath);
-              try { fs.copyFileSync(cleanCovPath, stdCovPath); } catch (e) {}
-              coverPath = cleanCovPath;
-            } catch (e) {
-              coverPath = rawCov;
-            }
-          }
-
-          // Fallback: If no cover image exists, but poster URL is available, download it now
-          if (!coverPath && job.opts && job.opts.poster && job.opts.poster.startsWith('http')) {
-            try {
-              const posterUrl = job.opts.poster.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/');
-              const targetCov = path.join(TEMP_DIR, `${cleanBase}.jpg`);
-              const stdCov = path.join(TEMP_DIR, 'cover.jpg');
-              downloadImageSync(posterUrl, targetCov);
-              if (fs.existsSync(targetCov)) {
-                try { fs.copyFileSync(targetCov, stdCov); } catch (e) {}
-                coverPath = targetCov;
-                job.logs.push(`[Cover Image] 🖼️ Cover artwork saved: ${cleanBase}.jpg and cover.jpg`);
+          // Purge any stray loose images from temp directory so only the single clean media file remains
+          try {
+            const allDirFiles = fs.readdirSync(TEMP_DIR);
+            for (const f of allDirFiles) {
+              if ((f.startsWith(`${jobId}_`) || f.startsWith(cleanBase) || f === 'cover.jpg') &&
+                  (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg') || f.endsWith('.webp') || f.endsWith('.part'))) {
+                try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
               }
-            } catch (e) {}
-          }
+            }
+          } catch (e) {}
 
-          if (coverPath && fs.existsSync(coverPath)) {
-            job.coverPath = coverPath;
-            job.coverUrl = `/api/download-cover/${job.id}`;
-          }
+          job.coverUrl = `/api/download-cover/${job.id}`;
 
           const stat = fs.statSync(job.filePath);
           if (stat.size > 0) {
@@ -1310,28 +1284,47 @@ app.get('/api/download-file/:id', (req, res) => {
 app.get('/api/download-cover/:id', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
-  let coverPath = job ? job.coverPath : null;
 
-  if (!coverPath || !fs.existsSync(coverPath)) {
+  // 1. If media file exists, stream the embedded cover artwork via ffmpeg on-the-fly
+  const targetFile = job && job.filePath && fs.existsSync(job.filePath) ? job.filePath : null;
+  if (targetFile) {
     try {
-      const files = fs.readdirSync(TEMP_DIR);
-      const cleanBase = job && job.filename ? job.filename.replace(/\.[^.]+$/, '') : null;
-      const matched = files.find(f => {
-        if (!f.endsWith('.jpg') && !f.endsWith('.png') && !f.endsWith('.jpeg')) return false;
-        if (f.startsWith(`${jobId}_`)) return true;
-        if (cleanBase && f.startsWith(cleanBase)) return true;
-        return false;
+      const ffmpegBin = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+      const cleanBase = (job.filename || 'cover').replace(/\.[^.]+$/, '');
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(cleanBase)}.jpg"`);
+
+      const ff = spawn(ffmpegBin, ['-v', 'error', '-i', targetFile, '-an', '-vcodec', 'copy', '-f', 'image2', 'pipe:1']);
+      let hasData = false;
+      ff.stdout.on('data', (chunk) => {
+        hasData = true;
+        res.write(chunk);
       });
-      if (matched) coverPath = path.join(TEMP_DIR, matched);
-      if (!coverPath && fs.existsSync(path.join(TEMP_DIR, 'cover.jpg'))) {
-        coverPath = path.join(TEMP_DIR, 'cover.jpg');
-      }
+      ff.on('close', () => {
+        if (!hasData) {
+          if (job && job.opts && job.opts.poster && job.opts.poster.startsWith('http')) {
+            return res.redirect(job.opts.poster);
+          }
+          if (!res.headersSent) res.status(404).send('Cover artwork not found');
+        } else {
+          res.end();
+        }
+      });
+      ff.on('error', () => {
+        if (!res.headersSent) {
+          if (job && job.opts && job.opts.poster && job.opts.poster.startsWith('http')) {
+            return res.redirect(job.opts.poster);
+          }
+          res.status(404).send('Cover artwork extraction failed');
+        }
+      });
+      return;
     } catch (e) {}
   }
 
-  if (coverPath && fs.existsSync(coverPath)) {
-    const filename = path.basename(coverPath).replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
-    return res.download(coverPath, filename);
+  // 2. Fallback: redirect to poster URL
+  if (job && job.opts && job.opts.poster && job.opts.poster.startsWith('http')) {
+    return res.redirect(job.opts.poster);
   }
 
   res.status(404).send('Cover artwork not found');
