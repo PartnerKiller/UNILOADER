@@ -60,6 +60,43 @@ def fetch_synced_lyrics(artist, title, album=None, duration=None):
         pass
     return None
 
+def create_flac_picture(img_bytes, desc="Cover (front)"):
+    """
+    Constructs a fully-compliant FLAC METADATA_BLOCK_PICTURE with accurate
+    MIME type and dimensions (width, height, color depth) so media players
+    (VLC, Windows Media Player, Foobar2000, macOS Music) render the cover art perfectly.
+    """
+    pic = Picture()
+    pic.type = 3  # Cover (front)
+    pic.desc = desc
+    pic.data = img_bytes
+    
+    # Auto-detect real MIME type from binary magic bytes
+    if img_bytes.startswith(b'\x89PNG'):
+        pic.mime = 'image/png'
+    elif img_bytes.startswith(b'GIF8'):
+        pic.mime = 'image/gif'
+    else:
+        pic.mime = 'image/jpeg'
+        
+    try:
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(img_bytes))
+        pic.width = im.width
+        pic.height = im.height
+        pic.depth = 24
+        if im.format == 'PNG':
+            pic.mime = 'image/png'
+        elif im.format == 'JPEG':
+            pic.mime = 'image/jpeg'
+    except Exception:
+        pic.width = 640
+        pic.height = 640
+        pic.depth = 24
+        
+    return pic
+
 def tag_flac(flac_path, meta):
     """Writes rich Vorbis comments, synchronized lyrics, and album art into FLAC."""
     if not HAS_MUTAGEN or not os.path.exists(flac_path):
@@ -87,12 +124,9 @@ def tag_flac(flac_path, meta):
         if cover_url:
             try:
                 r_cov = session.get(cover_url, timeout=8)
-                if r_cov.status_code == 200:
-                    pic = Picture()
-                    pic.type = 3 # Front Cover
-                    pic.mime = 'image/jpeg' if 'jpg' in cover_url.lower() or 'jpeg' in cover_url.lower() else 'image/png'
-                    pic.desc = 'Cover'
-                    pic.data = r_cov.content
+                if r_cov.status_code == 200 and len(r_cov.content) > 500:
+                    pic = create_flac_picture(r_cov.content, desc='Cover (front)')
+                    audio.clear_pictures()
                     audio.add_picture(pic)
             except Exception:
                 pass

@@ -167,6 +167,43 @@ def fetch_synced_lyrics(artist, title, album=None, duration=None):
         print(f"[SpotiFLAC] Lyrics lookup notice: {e}", file=sys.stderr)
     return None
 
+def create_flac_picture(img_bytes, desc="Cover (front)"):
+    """
+    Constructs a fully-compliant FLAC METADATA_BLOCK_PICTURE with accurate
+    MIME type and dimensions (width, height, color depth) so media players
+    (VLC, Windows Media Player, Foobar2000, macOS Music) render the cover art perfectly.
+    """
+    pic = Picture()
+    pic.type = 3  # Cover (front)
+    pic.desc = desc
+    pic.data = img_bytes
+    
+    # Auto-detect real MIME type from binary magic bytes
+    if img_bytes.startswith(b'\x89PNG'):
+        pic.mime = 'image/png'
+    elif img_bytes.startswith(b'GIF8'):
+        pic.mime = 'image/gif'
+    else:
+        pic.mime = 'image/jpeg'
+        
+    try:
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(img_bytes))
+        pic.width = im.width
+        pic.height = im.height
+        pic.depth = 24
+        if im.format == 'PNG':
+            pic.mime = 'image/png'
+        elif im.format == 'JPEG':
+            pic.mime = 'image/jpeg'
+    except Exception:
+        pic.width = 640
+        pic.height = 640
+        pic.depth = 24
+        
+    return pic
+
 def tag_flac_file(flac_path, meta):
     """Tags a FLAC file with full Vorbis comments, synchronized lyrics, and embedded high-res cover art."""
     try:
@@ -205,10 +242,8 @@ def tag_flac_file(flac_path, meta):
                 session = requests.Session(impersonate="chrome124")
                 img_resp = session.get(clean_cov_url, timeout=12)
                 if img_resp.status_code == 200 and len(img_resp.content) > 500:
-                    pic = Picture()
-                    pic.type = 3  # Cover (front)
-                    pic.mime = 'image/png' if img_resp.content.startswith(b'\x89PNG') else 'image/jpeg'
-                    pic.data = img_resp.content
+                    pic = create_flac_picture(img_resp.content, desc='Cover (front)')
+                    audio.clear_pictures()
                     audio.add_picture(pic)
                     
                     # Also save cover image file to disk
