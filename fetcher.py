@@ -272,8 +272,16 @@ def extract_all(url):
                     data = json.loads(script.text)
                     entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
                     pl_name = entity.get('name', 'Spotify Playlist')
-                    sources = entity.get('coverArt', {}).get('sources', [])
-                    poster = sources[0].get('url') if sources else ''
+                    poster = ''
+                    v_images = entity.get('visualIdentity', {}).get('image', []) if entity.get('visualIdentity') else []
+                    if v_images and isinstance(v_images, list):
+                        sorted_imgs = sorted(v_images, key=lambda x: x.get('maxWidth', 0) or x.get('maxHeight', 0), reverse=True)
+                        poster = sorted_imgs[0].get('url', '')
+                    if not poster:
+                        sources = entity.get('coverArt', {}).get('sources', []) if entity.get('coverArt') else []
+                        poster = sources[0].get('url') if sources else ''
+                    if not poster and oembed_data:
+                        poster = oembed_data.get('thumbnail_url', '')
                     raw_tracks = entity.get('trackList', [])
                     tracks = []
                     for i, t in enumerate(raw_tracks):
@@ -313,8 +321,16 @@ def extract_all(url):
                     data = json.loads(script.text)
                     entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
                     album_name = entity.get('name', 'Spotify Album')
-                    sources = entity.get('coverArt', {}).get('sources', [])
-                    poster = sources[0].get('url') if sources else ''
+                    poster = ''
+                    v_images = entity.get('visualIdentity', {}).get('image', []) if entity.get('visualIdentity') else []
+                    if v_images and isinstance(v_images, list):
+                        sorted_imgs = sorted(v_images, key=lambda x: x.get('maxWidth', 0) or x.get('maxHeight', 0), reverse=True)
+                        poster = sorted_imgs[0].get('url', '')
+                    if not poster:
+                        sources = entity.get('coverArt', {}).get('sources', []) if entity.get('coverArt') else []
+                        poster = sources[0].get('url') if sources else ''
+                    if not poster and oembed_data:
+                        poster = oembed_data.get('thumbnail_url', '')
                     raw_tracks = entity.get('trackList', [])
                     tracks = []
                     for i, t in enumerate(raw_tracks):
@@ -356,8 +372,16 @@ def extract_all(url):
                     if entity and entity.get('name'):
                         title = entity.get('name')
                         artists = ', '.join([a.get('name') for a in entity.get('artists', []) if a.get('name')])
-                        sources = entity.get('coverArt', {}).get('sources', [])
-                        poster = sources[0].get('url') if sources else ''
+                        poster = ''
+                        v_images = entity.get('visualIdentity', {}).get('image', []) if entity.get('visualIdentity') else []
+                        if v_images and isinstance(v_images, list):
+                            sorted_imgs = sorted(v_images, key=lambda x: x.get('maxWidth', 0) or x.get('maxHeight', 0), reverse=True)
+                            poster = sorted_imgs[0].get('url', '')
+                        if not poster:
+                            sources = entity.get('coverArt', {}).get('sources', []) if entity.get('coverArt') else []
+                            poster = sources[0].get('url') if sources else ''
+                        if not poster and oembed_data:
+                            poster = oembed_data.get('thumbnail_url', '')
                         full_name = f"{artists} - {title}" if artists else title
                         return {
                             'title': full_name,

@@ -369,7 +369,7 @@ function setFetchingState(isLoading) {
 }
 
 function renderPreviewCard(data) {
-  previewPoster.src = data.poster || 'https://assets-cdn.jable.tv/contents/videos_screenshots/51000/51638/preview.jpg';
+  previewPoster.src = data.poster || '/icon.svg';
   previewCode.textContent = data.code || (data.extractor ? data.extractor.toUpperCase() : 'MEDIA');
   previewTitle.textContent = data.title;
 
