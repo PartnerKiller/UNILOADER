@@ -38,8 +38,25 @@ app.use(cors());
 app.use(express.json({ limit: '150mb' }));
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0,
-  etag: false
+  etag: false,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
 }));
+
+// Helper to synchronously download image artwork
+function downloadImageSync(url, destPath) {
+  if (!url || !destPath) return false;
+  try {
+    const curlBin = process.platform === 'win32' ? 'curl.exe' : 'curl';
+    execSync(`"${curlBin}" -sL -A "Mozilla/5.0" "${url}" -o "${destPath}"`, { timeout: 15000, stdio: 'ignore' });
+    return fs.existsSync(destPath) && fs.statSync(destPath).size > 500;
+  } catch (e) {
+    return false;
+  }
+}
 
 // Cross-platform tool detection
 function getToolPaths() {
@@ -838,14 +855,77 @@ function attachProcessListeners(job, child) {
         }
 
         if (matched) {
-          job.filePath = path.join(TEMP_DIR, matched);
-          job.filename = matched.replace(`${jobId}_`, '');
+          const originalExt = path.extname(matched);
+          const rawBase = matched.replace(`${jobId}_`, '');
+          let cleanBase = rawBase.replace(/\.[^.]+$/, '');
+          cleanBase = cleanBase.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
+          const cleanFilename = `${cleanBase}${originalExt}`;
+          
+          let cleanFilePath = path.join(TEMP_DIR, cleanFilename);
+          const rawFilePath = path.join(TEMP_DIR, matched);
+          
+          // Rename on disk to remove machine jobId prefix
+          if (rawFilePath !== cleanFilePath) {
+            try {
+              if (fs.existsSync(cleanFilePath)) {
+                try { fs.unlinkSync(cleanFilePath); } catch (e) {}
+              }
+              fs.renameSync(rawFilePath, cleanFilePath);
+              matched = cleanFilename;
+            } catch (renErr) {
+              console.warn('[Server] Notice renaming file:', renErr.message);
+              cleanFilePath = rawFilePath;
+            }
+          }
+
+          job.filePath = cleanFilePath;
+          job.filename = cleanFilename;
+
+          // Check/Rename Cover image files
+          let coverPath = null;
+          const allDirFiles = fs.readdirSync(TEMP_DIR);
+          const covMatched = allDirFiles.find(f => (f.startsWith(`${jobId}_`) || f.startsWith(cleanBase)) && (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')));
+          if (covMatched) {
+            const rawCov = path.join(TEMP_DIR, covMatched);
+            const covExt = path.extname(covMatched);
+            const cleanCovPath = path.join(TEMP_DIR, `${cleanBase}${covExt}`);
+            const stdCovPath = path.join(TEMP_DIR, 'cover.jpg');
+            try {
+              if (fs.existsSync(cleanCovPath) && rawCov !== cleanCovPath) fs.unlinkSync(cleanCovPath);
+              if (rawCov !== cleanCovPath) fs.renameSync(rawCov, cleanCovPath);
+              try { fs.copyFileSync(cleanCovPath, stdCovPath); } catch (e) {}
+              coverPath = cleanCovPath;
+            } catch (e) {
+              coverPath = rawCov;
+            }
+          }
+
+          // Fallback: If no cover image exists, but poster URL is available, download it now
+          if (!coverPath && job.opts && job.opts.poster && job.opts.poster.startsWith('http')) {
+            try {
+              const posterUrl = job.opts.poster.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/');
+              const targetCov = path.join(TEMP_DIR, `${cleanBase}.jpg`);
+              const stdCov = path.join(TEMP_DIR, 'cover.jpg');
+              downloadImageSync(posterUrl, targetCov);
+              if (fs.existsSync(targetCov)) {
+                try { fs.copyFileSync(targetCov, stdCov); } catch (e) {}
+                coverPath = targetCov;
+                job.logs.push(`[Cover Image] 🖼️ Cover artwork saved: ${cleanBase}.jpg and cover.jpg`);
+              }
+            } catch (e) {}
+          }
+
+          if (coverPath && fs.existsSync(coverPath)) {
+            job.coverPath = coverPath;
+            job.coverUrl = `/api/download-cover/${job.id}`;
+          }
+
           const stat = fs.statSync(job.filePath);
           if (stat.size > 0) {
             job.status = 'completed';
             job.progress.percent = 100;
             job.progress.eta = 'Ready';
-            job.logs.push('Processing completed! Ready to save to device.');
+            job.logs.push('Processing completed! File ready in folder.');
             job.filesize = stat.size > (1024 ** 3)
               ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
               : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
@@ -1209,6 +1289,37 @@ app.get('/api/download-file/:id', (req, res) => {
   } catch (e) {}
 
   res.status(404).send('File is still processing or has expired');
+});
+
+// 6b. Direct Browser Cover Art Download
+app.get('/api/download-cover/:id', (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+  let coverPath = job ? job.coverPath : null;
+
+  if (!coverPath || !fs.existsSync(coverPath)) {
+    try {
+      const files = fs.readdirSync(TEMP_DIR);
+      const cleanBase = job && job.filename ? job.filename.replace(/\.[^.]+$/, '') : null;
+      const matched = files.find(f => {
+        if (!f.endsWith('.jpg') && !f.endsWith('.png') && !f.endsWith('.jpeg')) return false;
+        if (f.startsWith(`${jobId}_`)) return true;
+        if (cleanBase && f.startsWith(cleanBase)) return true;
+        return false;
+      });
+      if (matched) coverPath = path.join(TEMP_DIR, matched);
+      if (!coverPath && fs.existsSync(path.join(TEMP_DIR, 'cover.jpg'))) {
+        coverPath = path.join(TEMP_DIR, 'cover.jpg');
+      }
+    } catch (e) {}
+  }
+
+  if (coverPath && fs.existsSync(coverPath)) {
+    const filename = path.basename(coverPath).replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
+    return res.download(coverPath, filename);
+  }
+
+  res.status(404).send('Cover artwork not found');
 });
 
 // 7. Media Streaming Endpoint

@@ -130,8 +130,34 @@ def fetch_synced_lyrics(artist, title, duration=None):
         
     return None
 
+def download_cover_image(cover_url, dest_path):
+    """Downloads full-resolution album artwork to dest_path."""
+    if not cover_url:
+        return False
+    # Upgrade Spotify cover URL to highest 640x640 resolution
+    clean_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
+    try:
+        req = urllib.request.Request(clean_url, headers={'User-Agent': USER_AGENT})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = resp.read()
+            if len(data) > 500:
+                with open(dest_path, 'wb') as f:
+                    f.write(data)
+                return True
+    except Exception:
+        try:
+            from curl_cffi import requests as cffi_requests
+            r = cffi_requests.get(clean_url, timeout=12)
+            if r.status_code == 200 and len(r.content) > 500:
+                with open(dest_path, 'wb') as f:
+                    f.write(r.content)
+                return True
+        except Exception:
+            pass
+    return False
+
 def tag_flac_file(flac_path, meta):
-    """Embeds full Vorbis tags, synchronized lyrics, and high-res cover art."""
+    """Embeds full Vorbis tags, synchronized lyrics, and high-res cover art, plus saves image to disk."""
     try:
         audio = FLAC(flac_path)
         audio.clear()
@@ -154,14 +180,28 @@ def tag_flac_file(flac_path, meta):
         cover_url = meta.get('cover_url')
         if cover_url and cover_url.startswith('http'):
             try:
-                req = urllib.request.Request(cover_url, headers={'User-Agent': USER_AGENT})
-                with urllib.request.urlopen(req, timeout=10) as c_resp:
+                clean_cov = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
+                req = urllib.request.Request(clean_cov, headers={'User-Agent': USER_AGENT})
+                with urllib.request.urlopen(req, timeout=12) as c_resp:
+                    pic_data = c_resp.read()
                     pic = Picture()
-                    pic.data = c_resp.read()
+                    pic.data = pic_data
                     pic.type = 3  # Cover (front)
-                    pic.mime = 'image/jpeg' if 'jpg' in cover_url or 'jpeg' in cover_url else 'image/png'
+                    pic.mime = 'image/jpeg' if 'jpg' in clean_cov or 'jpeg' in clean_cov else 'image/png'
                     pic.desc = 'Cover (front)'
                     audio.add_picture(pic)
+                    
+                    # Also save cover image file to disk
+                    out_dir = os.path.dirname(os.path.abspath(flac_path))
+                    base_no_ext = os.path.splitext(os.path.basename(flac_path))[0]
+                    clean_name = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', base_no_ext)
+                    for target_p in [os.path.join(out_dir, f"{base_no_ext}.jpg"), os.path.join(out_dir, f"{clean_name}.jpg"), os.path.join(out_dir, "cover.jpg")]:
+                        try:
+                            with open(target_p, 'wb') as cf:
+                                cf.write(pic_data)
+                        except Exception:
+                            pass
+                    print(f"[Cover Image] 🖼️ Cover artwork saved: {clean_name}.jpg and cover.jpg", flush=True)
             except Exception as e:
                 print(f"[SpotiFLAC-Next] Artwork notice: {e}", file=sys.stderr)
                 
@@ -372,15 +412,37 @@ def process_spotiflac_next_job(url, final_output_path):
     if not completed_files:
         raise RuntimeError("No tracks were successfully processed by SpotiFLAC-Next Engine.")
         
+    # Resolve cover image URL
+    cover_url = (tracks[0].get('cover_url') if tracks else '')
+    out_dir = os.path.dirname(os.path.abspath(final_output_path))
+    
     if is_playlist_or_album:
         import zipfile
         zip_target = final_output_path if final_output_path.endswith('.zip') else final_output_path + '.zip'
         print(f"[SpotiFLAC-Next] Packaging {len(completed_files)} Lossless FLAC tracks into archive: {os.path.basename(zip_target)}...")
         sys.stdout.flush()
         
+        # Download album artwork into work directory
+        cover_work = os.path.join(work_dir, 'cover.jpg')
+        has_cov = download_cover_image(cover_url, cover_work) if cover_url else False
+        
         with zipfile.ZipFile(zip_target, 'w', zipfile.ZIP_DEFLATED) as zf:
             for f in completed_files:
                 zf.write(f, os.path.basename(f))
+            if has_cov and os.path.exists(cover_work):
+                zf.write(cover_work, 'cover.jpg')
+                
+        # Also save standalone cover.jpg and <album>.jpg in output folder
+        zip_base = os.path.splitext(os.path.basename(zip_target))[0]
+        clean_zip_base = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', zip_base)
+        if has_cov and os.path.exists(cover_work):
+            try:
+                shutil.copy2(cover_work, os.path.join(out_dir, f"{zip_base}.jpg"))
+                shutil.copy2(cover_work, os.path.join(out_dir, f"{clean_zip_base}.jpg"))
+                shutil.copy2(cover_work, os.path.join(out_dir, "cover.jpg"))
+                print(f"[Cover Image] 🖼️ Album artwork saved: {clean_zip_base}.jpg and cover.jpg", flush=True)
+            except Exception:
+                pass
                 
         shutil.rmtree(work_dir, ignore_errors=True)
         sz_mb = os.path.getsize(zip_target) / (1024 * 1024)
@@ -393,6 +455,25 @@ def process_spotiflac_next_job(url, final_output_path):
         if os.path.exists(flac_target):
             os.remove(flac_target)
         shutil.move(single_flac, flac_target)
+        
+        # Save standalone cover image alongside the FLAC audio file
+        flac_base = os.path.splitext(os.path.basename(flac_target))[0]
+        clean_flac_base = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', flac_base)
+        
+        if cover_url:
+            raw_cov_path = os.path.join(out_dir, f"{flac_base}.jpg")
+            clean_cov_path = os.path.join(out_dir, f"{clean_flac_base}.jpg")
+            std_cov_path = os.path.join(out_dir, "cover.jpg")
+            
+            ok = download_cover_image(cover_url, raw_cov_path)
+            if ok:
+                try:
+                    shutil.copy2(raw_cov_path, clean_cov_path)
+                    shutil.copy2(raw_cov_path, std_cov_path)
+                    print(f"[Cover Image] 🖼️ Cover artwork saved: {clean_flac_base}.jpg and cover.jpg", flush=True)
+                except Exception:
+                    pass
+                    
         shutil.rmtree(work_dir, ignore_errors=True)
         sz_mb = os.path.getsize(flac_target) / (1024 * 1024)
         print(f"[download] 100% of {sz_mb:.1f}MiB at 0.00MiB/s ETA 00:00")

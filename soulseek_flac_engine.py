@@ -59,15 +59,34 @@ def tag_flac(flac_path, meta):
         cover_url = meta.get('cover_url')
         if cover_url:
             try:
-                r_cov = session.get(cover_url, timeout=8)
-                if r_cov.status_code == 200:
+                # Upgrade Spotify cover URL to 640x640 resolution
+                clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
+                r_cov = session.get(clean_cov_url, timeout=10)
+                if r_cov.status_code == 200 and len(r_cov.content) > 500:
                     pic = Picture()
                     pic.type = 3
-                    pic.mime = 'image/jpeg' if 'jpg' in cover_url.lower() else 'image/png'
+                    pic.mime = 'image/jpeg' if 'jpg' in clean_cov_url.lower() or 'jpeg' in clean_cov_url.lower() else 'image/png'
                     pic.desc = 'Cover'
                     pic.data = r_cov.content
                     audio.clear_pictures()
                     audio.add_picture(pic)
+                    
+                    # Save cover artwork to disk
+                    flac_dir = os.path.dirname(os.path.abspath(flac_path))
+                    base_no_ext = os.path.splitext(os.path.basename(flac_path))[0]
+                    clean_name = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', base_no_ext)
+                    
+                    track_img = os.path.join(flac_dir, f"{base_no_ext}.jpg")
+                    clean_img = os.path.join(flac_dir, f"{clean_name}.jpg")
+                    std_img = os.path.join(flac_dir, "cover.jpg")
+                    
+                    for dest_p in set([track_img, clean_img, std_img]):
+                        try:
+                            with open(dest_p, 'wb') as fc:
+                                fc.write(r_cov.content)
+                        except Exception:
+                            pass
+                    print(f"[Cover Image] 🖼️ Cover artwork saved: {clean_name}.jpg and cover.jpg", flush=True)
             except Exception:
                 pass
         audio.save()

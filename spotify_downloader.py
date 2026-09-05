@@ -329,6 +329,27 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
 
         # Create zip
         print(f"[download] 97.0% Packing {total_tracks} tracks into ZIP archive...", flush=True)
+        cover_url = info.get('cover') or (tracks[0].get('cover_url') if tracks else '')
+        if cover_url:
+            try:
+                clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
+                r_cov = session.get(clean_cov_url, timeout=12)
+                if r_cov.status_code == 200 and len(r_cov.content) > 500:
+                    with open(os.path.join(folder_dir, 'cover.jpg'), 'wb') as fc:
+                        fc.write(r_cov.content)
+                    out_dir = os.path.dirname(os.path.abspath(final_zip))
+                    zip_base = os.path.splitext(os.path.basename(final_zip))[0]
+                    clean_zip_base = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', zip_base)
+                    for dp in [os.path.join(out_dir, f"{zip_base}.jpg"), os.path.join(out_dir, f"{clean_zip_base}.jpg"), os.path.join(out_dir, "cover.jpg")]:
+                        try:
+                            with open(dp, 'wb') as fc:
+                                fc.write(r_cov.content)
+                        except Exception:
+                            pass
+                    print(f"[Cover Image] 🖼️ Album artwork saved: {clean_zip_base}.jpg and cover.jpg", flush=True)
+            except Exception:
+                pass
+
         with zipfile.ZipFile(final_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
             for root, _, files in os.walk(folder_dir):
                 for f in files:
@@ -411,6 +432,27 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                 if '[download]' in line_clean:
                     print(line_clean, flush=True)
             proc.wait()
+        
+        # Save standalone cover image alongside track
+        cover_url = info.get('cover') or (t.get('cover_url') if t else '')
+        if cover_url:
+            try:
+                clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
+                r_cov = session.get(clean_cov_url, timeout=12)
+                if r_cov.status_code == 200 and len(r_cov.content) > 500:
+                    out_dir = os.path.dirname(os.path.abspath(final_file))
+                    base_no_ext = os.path.splitext(os.path.basename(final_file))[0]
+                    clean_base = re.sub(r'^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_', '', base_no_ext)
+                    for dp in [os.path.join(out_dir, f"{base_no_ext}.jpg"), os.path.join(out_dir, f"{clean_base}.jpg"), os.path.join(out_dir, "cover.jpg")]:
+                        try:
+                            with open(dp, 'wb') as fc:
+                                fc.write(r_cov.content)
+                        except Exception:
+                            pass
+                    print(f"[Cover Image] 🖼️ Cover artwork saved: {clean_base}.jpg and cover.jpg", flush=True)
+            except Exception:
+                pass
+
         print(f"[download] 100% Processing completed! Ready to save to device.", flush=True)
 
 if __name__ == '__main__':
