@@ -21,4 +21,8 @@ if not exist node_modules\electron (
 )
 
 echo [INFO] Launching Desktop Application...
-call npx electron .
+if exist "%~dp0node_modules\.bin\electron.cmd" (
+    call "%~dp0node_modules\.bin\electron.cmd" .
+) else (
+    call npx.cmd electron .
+)

@@ -52,9 +52,14 @@ async function startBackendServer() {
   currentDownloadDir = getDefaultDownloadDir();
 
   // Test if server is already running
-  const isRunning = await checkServerHealth(serverPort);
+  let isRunning = await checkServerHealth(serverPort);
   if (isRunning) {
     console.log(`[Electron] Backend server already running on port ${serverPort}`);
+    return;
+  }
+  if (serverPort !== 3000 && await checkServerHealth(3000)) {
+    serverPort = 3000;
+    console.log(`[Electron] Attached to existing backend server on port 3000`);
     return;
   }
 
@@ -211,6 +216,15 @@ function setupAppMenu() {
     {
       label: '&Tools',
       submenu: [
+        {
+          label: 'Inbuilt &FLAC Checker...',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.executeJavaScript("switchView('flac-checker');");
+            }
+          }
+        },
         {
           label: 'Toggle &Developer Tools',
           accelerator: 'CmdOrCtrl+Shift+I',
