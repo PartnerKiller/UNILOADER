@@ -1,0 +1,70 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="#12151c">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Server Endpoint"
+        android:textColor="#ffffff"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <RadioGroup
+        android:id="@+id/rgServerOptions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp">
+
+        <RadioButton
+            android:id="@+id/rbCloud"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Production Cloud (https://jav.nazuna.dpdns.org)"
+            android:textColor="#e2e8f0"
+            android:buttonTint="#6366f1"
+            android:padding="4dp" />
+
+        <RadioButton
+            android:id="@+id/rbLan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Home Local LAN (http://192.168.0.10:3050)"
+            android:textColor="#e2e8f0"
+            android:buttonTint="#6366f1"
+            android:padding="4dp" />
+
+        <RadioButton
+            android:id="@+id/rbCustom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Custom Server URL"
+            android:textColor="#e2e8f0"
+            android:buttonTint="#6366f1"
+            android:padding="4dp" />
+    </RadioGroup>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/tilCustomUrl"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Custom Server Address"
+        android:textColorHint="#94a3b8"
+        android:visibility="gone">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etCustomUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textUri"
+            android:textColor="#ffffff" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+</LinearLayout>

@@ -15,3 +15,8 @@ Thumbs.db
 dist/
 build/
 bin/
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
