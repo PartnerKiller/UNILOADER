@@ -139,7 +139,7 @@ def ensure_slskd_running():
         ]
         flags = 0
         if sys.platform == 'win32':
-            flags = subprocess.CREATE_NO_WINDOW
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008  # DETACHED_PROCESS
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
         
         # Wait up to 10 seconds for API to be ready
@@ -235,30 +235,41 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     if len(clean_art) > 2 and clean_art not in search_terms:
         search_terms.append(clean_art)
         
-    peers = []
-    search_id = None
+    all_peers_map = {}
 
-    
     for term in search_terms:
         print(f"[Soulseek HiFi] Searching decentralized network for studio FLAC: '{term}'...", flush=True)
         try:
             r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": term}, timeout=8)
             if r_post.status_code in [200, 201]:
                 search_id = r_post.json().get('id')
-                time.sleep(4)
+                time.sleep(3)
                 # Wait for responses
-                for _ in range(3):
+                for _ in range(4):
                     time.sleep(1)
                     r_chk = session.get(f"{SLSKD_API_BASE}/searches/{search_id}", timeout=4)
-                    if r_chk.status_code == 200 and r_chk.json().get('fileCount', 0) > 60:
+                    if r_chk.status_code == 200 and r_chk.json().get('fileCount', 0) > 50:
                         break
                 r_res = session.get(f"{SLSKD_API_BASE}/searches/{search_id}/responses", timeout=8)
-                if r_res.status_code == 200 and len(r_res.json()) > 0:
-                    peers = r_res.json()
-                    break
+                if r_res.status_code == 200:
+                    for p in r_res.json():
+                        uname = p.get('username')
+                        if uname:
+                            if uname not in all_peers_map:
+                                all_peers_map[uname] = p
+                            else:
+                                existing_files = {f.get('filename') for f in all_peers_map[uname].get('files', [])}
+                                for f in p.get('files', []):
+                                    if f.get('filename') not in existing_files:
+                                        all_peers_map[uname].setdefault('files', []).append(f)
+                    # If we found at least one valid flac file matching title, we can proceed
+                    has_flac = any('flac' in f.get('filename', '').lower() for p in all_peers_map.values() for f in p.get('files', []))
+                    if has_flac and len(all_peers_map) >= 5:
+                        break
         except Exception as e:
             print(f"[Soulseek HiFi] Query error: {e}", file=sys.stderr)
             
+    peers = list(all_peers_map.values())
     if not peers:
         print(f"[Soulseek HiFi] No peer results found for '{artist} - {title}'.", flush=True)
         return False
@@ -286,7 +297,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                     if title_lower_words and all(tw in fn_lower for tw in title_lower_words):
                         # Bonus if artist name also matches
                         has_art = any(aw in fn_lower for aw in art_lower_words) if art_lower_words else True
-                        score = (1500 if free_slot else 0) + (500 if has_art else 0) - (queue_len * 10) + min(speed / 100000, 500)
+                        score = (5000 if free_slot else -5000) + (1000 if has_art else 0) - (queue_len * 50) + min(speed / 100000, 500)
                         candidates.append({
                             'username': uname,
                             'filename': fname,
@@ -301,12 +312,22 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             print(f"[Soulseek HiFi] No matching FLAC files found in peer catalog", flush=True)
             return False
             
-        # Sort best candidates first
+        # Sort best candidates first (peers with free upload slots & zero queues come first)
         candidates.sort(key=lambda x: x['score'], reverse=True)
         
-        # Try top candidates sequentially until one completes
-        for idx, best in enumerate(candidates[:8]):
-            print(f"[Soulseek HiFi] Trying candidate {idx+1}/{min(len(candidates), 8)}: '{os.path.basename(best['filename'])}' ({best['size']/(1024*1024):.1f}MB from '{best['username']}')", flush=True)
+        # Deduplicate candidates so we try different peers, never hammering the same queued user
+        unique_peer_candidates = []
+        seen_users = set()
+        for c in candidates:
+            if c['username'] not in seen_users:
+                seen_users.add(c['username'])
+                unique_peer_candidates.append(c)
+                if len(unique_peer_candidates) >= 12:
+                    break
+        
+        # Try top distinct peer candidates sequentially until one completes
+        for idx, best in enumerate(unique_peer_candidates):
+            print(f"[Soulseek HiFi] Trying candidate {idx+1}/{len(unique_peer_candidates)}: '{os.path.basename(best['filename'])}' ({best['size']/(1024*1024):.1f}MB from '{best['username']}')", flush=True)
             
             # Enqueue download
             dl_payload = [{'filename': best['filename'], 'size': best['size']}]
@@ -318,6 +339,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             start_time = time.time()
             completed = False
             aborted = False
+            stall_count = 0
+            last_bytes_tx = -1
             
             while time.time() - start_time < max_wait_sec:
                 time.sleep(1.5)
@@ -336,13 +359,31 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                                 if any(c in state for c in ['Completed', 'Succeeded']):
                                     completed = True
                                     break
-                                elif any(err in state for err in ['Aborted', 'Cancelled', 'Errored', 'Rejected']):
+                                elif any(err in state for err in ['Aborted', 'Cancelled', 'Errored', 'Rejected', 'TimedOut']):
                                     aborted = True
                                     break
+                                
+                                # Check if transfer progress is stalled
+                                if bytes_tx == last_bytes_tx:
+                                    stall_count += 1
+                                    # If stalled for 5s (3 intervals) or remotely queued, skip to next candidate immediately
+                                    if stall_count >= 3 or 'queued' in state.lower():
+                                        print(f"[Soulseek HiFi] Peer '{best['username']}' stalled at {pct:.1f}% ({state}). Fast-failing to next candidate...", flush=True)
+                                        aborted = True
+                                        break
+                                else:
+                                    stall_count = 0
+                                    # Actively receiving data! Reset timeout watchdog so download finishes completely
+                                    start_time = time.time()
+                                last_bytes_tx = bytes_tx
                     if completed or aborted:
                         break
                         
             if not completed:
+                try:
+                    session.delete(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", timeout=3)
+                except Exception:
+                    pass
                 print(f"[Soulseek HiFi] Transfer from '{best['username']}' did not complete, trying next peer...", flush=True)
                 continue
                         

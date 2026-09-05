@@ -367,6 +367,18 @@ app.whenReady().then(async () => {
   await startBackendServer();
   createMainWindow();
 
+  // Backend liveness heartbeat: auto-restart backend if unexpectedly dropped
+  setInterval(async () => {
+    const alive = await checkServerHealth(serverPort);
+    if (!alive) {
+      console.log(`[Electron] Backend server dropped on port ${serverPort}. Auto-recovering backend...`);
+      await startBackendServer();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(`http://127.0.0.1:${serverPort}`);
+      }
+    }
+  }, 6000);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow();

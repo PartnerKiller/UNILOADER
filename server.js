@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 
 // Load environment variables from .env file if present
 const envPath = path.join(__dirname, '.env');
@@ -1028,7 +1029,8 @@ app.get('/api/jobs', (req, res) => {
       downloadUrl: `/api/download-file/${job.id}`,
       streamUrl: `/api/stream/${job.id}`,
       filePath: job.filePath || '',
-      lastLog: job.logs.length > 0 ? job.logs[job.logs.length - 1] : ''
+      lastLog: job.logs.length > 0 ? job.logs[job.logs.length - 1] : '',
+      logs: job.logs.slice(-20)
     });
   }
   res.json(list);
@@ -1250,6 +1252,35 @@ setInterval(() => {
   } catch (e) {}
 }, 15 * 60 * 1000);
 
+let slskdProcess = null;
+
+function startEmbeddedSlskd() {
+  const req = http.get('http://127.0.0.1:5030/api/v0/application', { timeout: 1500 }, (res) => {
+    // Already active
+  });
+  req.on('error', () => {
+    const slskdBin = path.join(__dirname, 'bin', 'slskd', process.platform === 'win32' ? 'slskd.exe' : 'slskd');
+    if (fs.existsSync(slskdBin)) {
+      const username = 'audiophile_' + Math.floor(10000 + Math.random() * 90000);
+      const password = 'pass_' + Math.floor(10000 + Math.random() * 90000);
+      try {
+        slskdProcess = spawn(slskdBin, [
+          '--no-auth',
+          '--http-port', '5030',
+          '--slsk-username', username,
+          '--slsk-password', password
+        ], {
+          windowsHide: true,
+          stdio: 'ignore',
+          detached: true
+        });
+        slskdProcess.unref();
+        console.log('[Server] Embedded Soulseek HiFi daemon initiated.');
+      } catch (e) {}
+    }
+  });
+}
+
 // Graceful Shutdown
 function gracefulShutdown() {
   console.log('Shutting down server, terminating active download processes...');
@@ -1265,6 +1296,15 @@ function gracefulShutdown() {
       } catch (e) {}
     }
   }
+  if (slskdProcess) {
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /F /T /PID ${slskdProcess.pid}`, { stdio: 'ignore' });
+      } else {
+        slskdProcess.kill('SIGTERM');
+      }
+    } catch (e) {}
+  }
   process.exit(0);
 }
 
@@ -1276,4 +1316,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Universal Downloader Web Service is running!`);
   console.log(`🌐 Server listening on http://0.0.0.0:${PORT}`);
   console.log(`====================================================`);
+  startEmbeddedSlskd();
 });
