@@ -202,6 +202,31 @@ def get_slskd_downloads_dir():
 
     return '/home/sakura/slskd_downloads'
 
+def normalize_slsk_path(p):
+    """Normalizes Soulseek transfer path across Windows/Linux slashes and encodings."""
+    if not p:
+        return ''
+    return p.replace('\\\\', '/').replace('\\', '/').strip('/').lower()
+
+def is_matching_transfer(tf, best):
+    """Checks whether an active/historical transfer record matches the candidate."""
+    tf_fn = normalize_slsk_path(tf.get('filename'))
+    best_fn = normalize_slsk_path(best.get('filename'))
+    if tf_fn == best_fn:
+        return True
+    tf_base = os.path.basename(tf_fn)
+    best_base = os.path.basename(best_fn)
+    if tf_base == best_base and abs(tf.get('size', 0) - best.get('size', 0)) <= 2048:
+        return True
+    if tf_base == best_base:
+        return True
+    if tf_fn.endswith('.flac') and best_fn.endswith('.flac'):
+        if tf.get('size', 0) == best.get('size', 0) and tf.get('size', 0) > 0:
+            return True
+        if tf_base and best_base and (tf_base in best_base or best_base in tf_base):
+            return True
+    return False
+
 def verify_flac_integrity(file_path):
     """Verifies that the file is an authentic uncorrupted lossless FLAC stream."""
     if not os.path.exists(file_path) or os.path.getsize(file_path) < 100000:
@@ -253,6 +278,40 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     
     # Ensure destination directory exists
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    slskd_dl_dir = get_slskd_downloads_dir()
+
+    # 0. Check if this track is already downloaded in local Soulseek downloads repository
+    title_lower_words = [w.lower() for w in tit_words if len(w) >= 2]
+    art_lower_words = [w.lower() for w in art_words if len(w) >= 2]
+    if os.path.exists(slskd_dl_dir):
+        for root, _, files in os.walk(slskd_dl_dir):
+            for f in files:
+                if f.lower().endswith('.flac'):
+                    f_lower = f.lower()
+                    root_lower = root.lower()
+                    if title_lower_words and all(tw in f_lower or tw in root_lower for tw in title_lower_words):
+                        if not art_lower_words or any(aw in f_lower or aw in root_lower for aw in art_lower_words):
+                            local_flac = os.path.join(root, f)
+                            if os.path.getsize(local_flac) >= 5 * 1024 * 1024:
+                                is_v, qual = verify_flac_integrity(local_flac)
+                                if is_v:
+                                    f_sz_mb = os.path.getsize(local_flac) / (1024 * 1024)
+                                    print(f"[Soulseek HiFi] ⚡ Found existing authentic {qual} Lossless FLAC in local archive: '{f}'", flush=True)
+                                    print(f"[download] 100.0% of {f_sz_mb:.1f}MiB at 30.00MiB/s ETA 00:00 (Soulseek HiFi)", flush=True)
+                                    if os.path.exists(output_path):
+                                        try: os.remove(output_path)
+                                        except Exception: pass
+                                    shutil.copy2(local_flac, output_path)
+                                    lyrics = fetch_synced_lyrics(artist, title, duration=duration)
+                                    tag_flac(output_path, {
+                                        'title': title,
+                                        'artist': artist,
+                                        'isrc': isrc,
+                                        'cover_url': cover_url,
+                                        'lyrics': lyrics
+                                    })
+                                    print(f"[Soulseek HiFi] 🎉 Authentic {qual} Lossless FLAC saved: {output_path} ({f_sz_mb:.1f}MB)", flush=True)
+                                    return True
     
     # Search terms in priority order
     search_terms = []
@@ -306,12 +365,10 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
 
                     # Check if we already have genuine FLAC matches for this track
                     has_real_flac = False
-                    title_lowers = [w.lower() for w in tit_words if len(w) >= 2]
-                    art_lowers = [w.lower() for w in art_words if len(w) >= 2]
                     for p in all_peers_map.values():
                         for f in p.get('files', []):
                             fn_lower = f.get('filename', '').lower()
-                            if 'flac' in fn_lower and all(tw in fn_lower for tw in title_lowers) and any(aw in fn_lower for aw in art_lowers):
+                            if 'flac' in fn_lower and all(tw in fn_lower for tw in title_lower_words) and any(aw in fn_lower for aw in art_lower_words):
                                 has_real_flac = True
                                 break
                         if has_real_flac:
@@ -329,9 +386,6 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         
     try:
         candidates = []
-        title_lower_words = [w.lower() for w in tit_words if len(w) >= 2]
-        art_lower_words = [w.lower() for w in art_words if len(w) >= 2]
-        
         for p in peers:
             uname = p.get('username')
             speed = p.get('uploadSpeed', 0)
@@ -387,12 +441,47 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         
         # Try top distinct peer candidates sequentially until one completes
         for idx, best in enumerate(unique_peer_candidates):
-            print(f"[Soulseek HiFi] Trying candidate {idx+1}/{len(unique_peer_candidates)}: '{os.path.basename(best['filename'])}' ({best['size']/(1024*1024):.1f}MB from '{best['username']}')", flush=True)
+            cand_base = os.path.basename(best['filename'].replace('\\', '/'))
+            total_mb = best['size'] / (1024 * 1024)
+            print(f"[Soulseek HiFi] Trying candidate {idx+1}/{len(unique_peer_candidates)}: '{cand_base}' ({total_mb:.1f}MB from '{best['username']}')", flush=True)
             
+            # Check if this exact file was already completed in SLSKD directory
+            cached_candidate = None
+            if os.path.exists(slskd_dl_dir):
+                for root, _, files in os.walk(slskd_dl_dir):
+                    for f in files:
+                        if f.endswith('.flac'):
+                            f_path = os.path.join(root, f)
+                            if (f == cand_base or (cand_base in f)) and abs(os.path.getsize(f_path) - best['size']) <= 2048:
+                                is_v, qual = verify_flac_integrity(f_path)
+                                if is_v:
+                                    cached_candidate = f_path
+                                    break
+                    if cached_candidate:
+                        break
+                        
+            if cached_candidate:
+                print(f"[Soulseek HiFi] Candidate '{cand_base}' already downloaded and verified on disk!", flush=True)
+                print(f"[download] 100.0% of {total_mb:.1f}MiB at 25.00MiB/s ETA 00:00 (Soulseek HiFi)", flush=True)
+                if os.path.exists(output_path):
+                    try: os.remove(output_path)
+                    except Exception: pass
+                shutil.copy2(cached_candidate, output_path)
+                lyrics = fetch_synced_lyrics(artist, title, duration=duration)
+                tag_flac(output_path, {'title': title, 'artist': artist, 'isrc': isrc, 'cover_url': cover_url, 'lyrics': lyrics})
+                is_valid, qual_info = verify_flac_integrity(output_path)
+                print(f"[Soulseek HiFi] 🎉 Authentic {qual_info} Lossless FLAC saved: {output_path} ({os.path.getsize(output_path)/(1024*1024):.1f}MB)", flush=True)
+                return True
+
             # Enqueue download
             dl_payload = [{'filename': best['filename'], 'size': best['size']}]
-            r_queue = session.post(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", json=dl_payload, timeout=8)
-            if r_queue.status_code not in [200, 201]:
+            try:
+                r_queue = session.post(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", json=dl_payload, timeout=8)
+                if r_queue.status_code not in [200, 201]:
+                    print(f"[Soulseek HiFi] Peer '{best['username']}' rejected enqueue (HTTP {r_queue.status_code}). Trying next peer...", flush=True)
+                    continue
+            except Exception as e:
+                print(f"[Soulseek HiFi] Failed to contact peer '{best['username']}': {e}. Trying next peer...", flush=True)
                 continue
                 
             # Monitor transfer
@@ -401,58 +490,101 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             aborted = False
             stall_count = 0
             last_bytes_tx = -1
-            total_mb = best['size'] / (1024 * 1024)
             print(f"[download] 0.0% of {total_mb:.1f}MiB at 0.00MiB/s ETA --:-- (Soulseek HiFi)", flush=True)
             
             while time.time() - start_time < max_wait_sec:
-                time.sleep(1.5)
-                r_stat = session.get(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", timeout=6)
-                if r_stat.status_code == 200:
-                    d_info = r_stat.json()
-                    for d in d_info.get('directories', []):
-                        for tf in d.get('files', []):
-                            if tf.get('filename') == best['filename']:
-                                state = tf.get('state', '')
-                                bytes_tx = tf.get('bytesTransferred', 0)
-                                total_bytes = best['size']
-                                pct = (bytes_tx / total_bytes) * 100 if total_bytes > 0 else 0
-                                speed_bytes = tf.get('averageSpeed', 0)
-                                speed_mb = speed_bytes / (1024 * 1024)
-                                
-                                rem_bytes = max(0, total_bytes - bytes_tx)
-                                if speed_bytes > 0:
-                                    eta_sec = int(rem_bytes / speed_bytes)
-                                    eta_m = eta_sec // 60
-                                    eta_s = eta_sec % 60
-                                    eta_str = f"{eta_m:02d}:{eta_s:02d}"
-                                else:
-                                    eta_str = "--:--"
+                time.sleep(1.0)
+                try:
+                    r_stat = session.get(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", timeout=6)
+                except Exception:
+                    continue
 
-                                print(f"[download] {pct:.1f}% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA {eta_str} (Soulseek HiFi)", flush=True)
-                                
-                                if any(c in state for c in ['Completed', 'Succeeded']):
-                                    completed = True
-                                    break
-                                elif any(err in state for err in ['Aborted', 'Cancelled', 'Errored', 'Rejected', 'TimedOut']):
-                                    aborted = True
-                                    break
-                                
-                                # Check if transfer progress is stalled
-                                if bytes_tx == last_bytes_tx:
-                                    stall_count += 1
-                                    # If stalled for 5s (3 intervals) or remotely queued, skip to next candidate immediately
-                                    if stall_count >= 3 or 'queued' in state.lower():
-                                        print(f"[Soulseek HiFi] Peer '{best['username']}' stalled at {pct:.1f}% ({state}). Fast-failing to next candidate...", flush=True)
-                                        aborted = True
-                                        break
-                                else:
-                                    stall_count = 0
-                                    # Actively receiving data! Reset timeout watchdog so download finishes completely
-                                    start_time = time.time()
-                                last_bytes_tx = bytes_tx
-                    if completed or aborted:
+                if r_stat.status_code != 200:
+                    continue
+
+                d_info = r_stat.json()
+                matching_files = []
+                for d in d_info.get('directories', []):
+                    for tf in d.get('files', []):
+                        if is_matching_transfer(tf, best):
+                            matching_files.append(tf)
+
+                if not matching_files:
+                    stall_count += 1
+                    if stall_count >= 5:
+                        print(f"[Soulseek HiFi] Peer '{best['username']}' transfer not initiated after 5s. Fast-failing...", flush=True)
+                        aborted = True
                         break
-                        
+                    continue
+
+                # Prioritize active or completed record over stale rejected ones
+                best_tf = None
+                for tf in matching_files:
+                    st = tf.get('state', '')
+                    if 'Succeeded' in st:
+                        best_tf = tf
+                        break
+                    elif 'InProgress' in st or tf.get('bytesTransferred', 0) > 0:
+                        best_tf = tf
+
+                if not best_tf:
+                    best_tf = matching_files[-1]
+
+                state = best_tf.get('state', '')
+                bytes_tx = best_tf.get('bytesTransferred', 0)
+                total_bytes = best.get('size', 0) or best_tf.get('size', 0)
+                pct = (bytes_tx / total_bytes) * 100 if total_bytes > 0 else 0
+                speed_bytes = best_tf.get('averageSpeed', 0)
+                speed_mb = speed_bytes / (1024 * 1024)
+
+                rem_bytes = max(0, total_bytes - bytes_tx)
+                if speed_bytes > 0:
+                    eta_sec = int(rem_bytes / speed_bytes)
+                    eta_m = eta_sec // 60
+                    eta_s = eta_sec % 60
+                    eta_str = f"{eta_m:02d}:{eta_s:02d}"
+                else:
+                    eta_str = "--:--"
+
+                is_aborted = any(err in state for err in ['Rejected', 'Cancelled', 'Errored', 'TimedOut', 'Aborted'])
+                is_succeeded = not is_aborted and (
+                    'Succeeded' in state or
+                    (state.startswith('Completed') and (bytes_tx >= total_bytes or (total_bytes > 0 and bytes_tx > 0.99 * total_bytes)))
+                )
+
+                if is_succeeded:
+                    print(f"[download] 100.0% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA 00:00 (Soulseek HiFi)", flush=True)
+                    completed = True
+                    break
+
+                if is_aborted:
+                    reason = best_tf.get('exception') or state
+                    print(f"[Soulseek HiFi] Peer '{best['username']}' transfer aborted ({reason}). Fast-failing to next candidate...", flush=True)
+                    aborted = True
+                    break
+
+                # Emit download progress for UI parsing
+                print(f"[download] {pct:.1f}% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA {eta_str} (Soulseek HiFi)", flush=True)
+
+                # Stall / queue watchdog
+                if bytes_tx == last_bytes_tx:
+                    stall_count += 1
+                    # Fast-fail after 4 seconds of 0 bytes or queued
+                    if bytes_tx == 0 and (stall_count >= 4 or 'queued' in state.lower()):
+                        print(f"[Soulseek HiFi] Peer '{best['username']}' queued or unresponsive ({state}). Fast-failing to next candidate...", flush=True)
+                        aborted = True
+                        break
+                    # Fast-fail after 6 seconds of stalled data mid-stream
+                    if bytes_tx > 0 and stall_count >= 6:
+                        print(f"[Soulseek HiFi] Peer '{best['username']}' stalled mid-transfer at {pct:.1f}%. Fast-failing to next candidate...", flush=True)
+                        aborted = True
+                        break
+                else:
+                    stall_count = 0
+                    start_time = time.time()
+
+                last_bytes_tx = bytes_tx
+
             if not completed:
                 try:
                     session.delete(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", timeout=3)
@@ -463,14 +595,21 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                         
             # Find downloaded file in SLSKD downloads folder
             target_basename = os.path.basename(best['filename'].replace('\\', '/'))
-            slskd_dl_dir = get_slskd_downloads_dir()
+            base_stem, _ = os.path.splitext(target_basename)
             found_path = None
             
             for root, _, files in os.walk(slskd_dl_dir):
                 for f in files:
-                    if f == target_basename or (f.endswith('.flac') and os.path.getsize(os.path.join(root, f)) == best['size']):
-                        found_path = os.path.join(root, f)
-                        break
+                    if f.endswith('.flac'):
+                        chk_f = os.path.join(root, f)
+                        f_sz = os.path.getsize(chk_f)
+                        if f == target_basename or f.startswith(base_stem):
+                            if abs(f_sz - best['size']) <= 2048 or f_sz > 5000000:
+                                found_path = chk_f
+                                break
+                        elif f_sz == best['size']:
+                            found_path = chk_f
+                            break
                 if found_path:
                     break
                     

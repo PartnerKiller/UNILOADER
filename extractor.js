@@ -66,7 +66,10 @@ function getPythonBin() {
 
 function runPythonFetcherAsync(pyBin, scriptPath, url, timeoutMs = 45000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(pyBin, [scriptPath, url], { windowsHide: true });
+    const child = spawn(pyBin, [scriptPath, url], {
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
     let stdout = '';
     let stderr = '';
 

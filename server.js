@@ -457,7 +457,10 @@ function startJobProcess(job) {
       mode || 'video',
       audioFormat || 'mp3',
       audioBitrate || '320k'
-    ], { windowsHide: true });
+    ], { 
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
     job.process = child;
     attachProcessListeners(job, child);
   } else if (isInstagram) {
@@ -476,7 +479,10 @@ function startJobProcess(job) {
       mode || 'video',
       audioFormat || 'mp3',
       audioBitrate || '320k'
-    ], { windowsHide: true });
+    ], { 
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
     job.process = child;
     attachProcessListeners(job, child);
   } else if (isSpotify) {
@@ -498,7 +504,10 @@ function startJobProcess(job) {
       finalOutPath,
       isFlac ? 'flac' : (audioFormat || 'mp3'),
       audioBitrate || '320k'
-    ], { windowsHide: true });
+    ], { 
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
     job.process = child;
     attachProcessListeners(job, child);
   } else if (isYouTubeFlac) {
@@ -525,7 +534,10 @@ function startJobProcess(job) {
       artist,
       trackTitle,
       finalOutPath
-    ], { windowsHide: true });
+    ], { 
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
     job.process = child;
     attachProcessListeners(job, child);
   } else if (isAppleOrDeezer && tools.freyrPath && !opts.fallbackMode) {
@@ -557,7 +569,10 @@ function startJobProcess(job) {
     job.logs.push(`Starting JavGuru High-Speed Stream Engine...`);
     job.logs.push(`Target: ${url || rawTarget}`);
 
-    const child = spawn(pythonBin, [hlsScript, url || rawTarget, finalOutPath], { windowsHide: true });
+    const child = spawn(pythonBin, [hlsScript, url || rawTarget, finalOutPath], { 
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
     job.process = child;
     attachProcessListeners(job, child);
   } else {
@@ -700,8 +715,8 @@ function attachProcessListeners(job, child) {
     if (pMatch) {
       job.progress.percent = parseFloat(pMatch[1]) || 0;
       if (pMatch[2]) job.progress.totalSize = pMatch[2].trim();
-      if (pMatch[3]) job.progress.speed = pMatch[3].trim();
-      if (pMatch[4]) job.progress.eta = pMatch[4].trim();
+      if (pMatch[3]) job.progress.speed = (job.progress.percent >= 100) ? '0 MB/s' : pMatch[3].trim();
+      if (pMatch[4]) job.progress.eta = (job.progress.percent >= 100) ? 'Ready' : pMatch[4].trim();
       return;
     }
 
