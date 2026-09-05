@@ -369,23 +369,37 @@ def process_spotiflac_job(url, final_output_path):
                 'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
             })
         except Exception as e:
-            # Songlink fallback
+            from spotify_downloader import get_spotify_playlist_info
+            sp_info = get_spotify_playlist_info(url)
             info = get_spotify_track_isrc_and_platforms(url)
+            
+            real_title = ''
+            real_artist = ''
+            cover_url = ''
+            if sp_info and sp_info.get('tracks'):
+                t0 = sp_info['tracks'][0]
+                real_title = t0.get('title') or ''
+                real_artist = t0.get('artist') or ''
+                cover_url = sp_info.get('cover') or ''
+                
+            if not real_title or not real_artist:
+                raise RuntimeError(f"Could not resolve track metadata for: {url}")
+                
             tracks.append({
                 'index': 1,
-                'title': 'Track',
-                'artist': '',
+                'title': real_title,
+                'artist': real_artist,
                 'album_name': '',
-                'album_artist': '',
+                'album_artist': real_artist,
                 'year': '',
                 'track_number': 1,
                 'tracks_count': 1,
                 'disc_number': 1,
-                'isrc': info.get('isrc'),
+                'isrc': info.get('isrc') if info else None,
                 'duration': None,
                 'url': url,
-                'cover_url': '',
-                'fullName': 'Spotify Track'
+                'cover_url': cover_url,
+                'fullName': f"{real_artist} - {real_title}"
             })
         
     total_tracks = len(tracks)

@@ -219,9 +219,18 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     clean_tit = re.sub(r'[\(\)\[\],&/\-_]', ' ', tit_primary).strip()
     clean_tit = re.sub(r'\s+', ' ', clean_tit).strip()
     
-    STOP_WORDS = {'the', 'a', 'an', 'of', 'to', 'in', 'for', 'on', 'with', 'and', 'mv', 'hd', 'audio', 'video'}
+    STOP_WORDS = {'the', 'a', 'an', 'of', 'to', 'in', 'for', 'on', 'with', 'and', 'mv', 'hd', 'audio', 'video', 'track', 'song', 'spotify'}
     art_words = [w for w in clean_art.split() if len(w) > 1 and w.lower() not in STOP_WORDS]
     tit_words = [w for w in clean_tit.split() if len(w) > 1 and w.lower() not in STOP_WORDS]
+    
+    # Guard against empty, generic, or dummy metadata
+    if not clean_art or len(clean_art) < 2 or clean_tit.lower() in ['track', 'spotify track', 'unknown', 'audio', 'song', 'spotify', '']:
+        print(f"[Soulseek HiFi] ❌ Refusing search with invalid/generic metadata: artist='{artist}', title='{title}'", file=sys.stderr, flush=True)
+        return False
+        
+    if not tit_words:
+        print(f"[Soulseek HiFi] ❌ No valid title words after filtering: title='{title}'", file=sys.stderr, flush=True)
+        return False
     
     # Ensure destination directory exists
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -293,20 +302,27 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 # Must be a FLAC file of realistic size (8MB - 250MB)
                 if ('flac' in ext or fname.lower().endswith('.flac')) and (8 * 1024 * 1024 <= size <= 250 * 1024 * 1024):
                     fn_lower = fname.lower()
-                    # Check that ALL meaningful title words exist in the path/filename
-                    if title_lower_words and all(tw in fn_lower for tw in title_lower_words):
-                        # Bonus if artist name also matches
-                        has_art = any(aw in fn_lower for aw in art_lower_words) if art_lower_words else True
-                        score = (5000 if free_slot else -5000) + (1000 if has_art else 0) - (queue_len * 50) + min(speed / 100000, 500)
-                        candidates.append({
-                            'username': uname,
-                            'filename': fname,
-                            'size': size,
-                            'free_slot': free_slot,
-                            'queue_len': queue_len,
-                            'speed': speed,
-                            'score': score
-                        })
+                    
+                    # 1. MANDATORY TITLE CHECK: All title words must appear in file/path
+                    if title_lower_words and not all(tw in fn_lower for tw in title_lower_words):
+                        continue
+                        
+                    # 2. MANDATORY ARTIST CHECK: Must match the requested artist
+                    if art_lower_words:
+                        has_art = any(aw in fn_lower for aw in art_lower_words)
+                        if not has_art:
+                            continue  # REJECT: Wrong artist!
+                            
+                    score = (5000 if free_slot else -5000) + 1000 - (queue_len * 50) + min(speed / 100000, 500)
+                    candidates.append({
+                        'username': uname,
+                        'filename': fname,
+                        'size': size,
+                        'free_slot': free_slot,
+                        'queue_len': queue_len,
+                        'speed': speed,
+                        'score': score
+                    })
                         
         if not candidates:
             print(f"[Soulseek HiFi] No matching FLAC files found in peer catalog", flush=True)

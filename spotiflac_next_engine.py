@@ -326,29 +326,27 @@ def process_spotiflac_next_job(url, final_output_path):
                 'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
             })
         except Exception:
+            from spotify_downloader import get_spotify_playlist_info
+            sp_info = get_spotify_playlist_info(url)
             songlink_info = scrape_songlink_metadata(url)
-            if songlink_info:
-                tracks.append({
-                    'index': 1,
-                    'title': songlink_info.get('title') or 'Track',
-                    'artist': songlink_info.get('artist') or '',
-                    'isrc': songlink_info.get('isrc'),
-                    'duration': None,
-                    'url': url,
-                    'cover_url': songlink_info.get('thumbnail') or '',
-                    'fullName': f"{songlink_info.get('artist', '')} - {songlink_info.get('title', '')}".strip(' -')
-                })
-            else:
-                tracks.append({
-                    'index': 1,
-                    'title': 'Track',
-                    'artist': '',
-                    'isrc': None,
-                    'duration': None,
-                    'url': url,
-                    'cover_url': '',
-                    'fullName': 'Spotify Track'
-                })
+            
+            real_title = (songlink_info.get('title') if songlink_info else None) or (sp_info['tracks'][0]['title'] if sp_info and sp_info.get('tracks') else None)
+            real_artist = (songlink_info.get('artist') if songlink_info else None) or (sp_info['tracks'][0]['artist'] if sp_info and sp_info.get('tracks') else None)
+            cover_url = (songlink_info.get('thumbnail') if songlink_info else None) or (sp_info.get('cover') if sp_info else '')
+            
+            if not real_title or not real_artist:
+                raise RuntimeError(f"Could not resolve track metadata for: {url}")
+                
+            tracks.append({
+                'index': 1,
+                'title': real_title,
+                'artist': real_artist,
+                'isrc': songlink_info.get('isrc') if songlink_info else None,
+                'duration': None,
+                'url': url,
+                'cover_url': cover_url,
+                'fullName': f"{real_artist} - {real_title}"
+            })
                 
     total_tracks = len(tracks)
     print(f"[SpotiFLAC-Next] Starting SpotiFLAC-Next True Lossless Pipeline &bull; Total Tracks: {total_tracks}")
