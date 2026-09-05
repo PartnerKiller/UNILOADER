@@ -304,8 +304,10 @@ function startJobProcess(job) {
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
+  const isSpotify = url && url.includes('spotify.com');
   const isSpotifyPlaylistOrAlbum = url && (url.includes('spotify.com/playlist') || url.includes('spotify.com/album'));
-  const isSpotifyTrackFlac = url && url.includes('spotify.com') && mode === 'audio' && audioFormat === 'flac';
+  const isYouTube = url && (url.includes('youtube.com') || url.includes('youtu.be'));
+  const isYouTubeFlac = isYouTube && mode === 'audio' && audioFormat === 'flac';
   const isAppleOrDeezer = url && (url.includes('music.apple.com') || url.includes('deezer.com'));
   const isInstagram = url && url.includes('instagram.com');
   const isTikTok = url && url.includes('tiktok.com');
@@ -348,23 +350,52 @@ function startJobProcess(job) {
     ], { windowsHide: true });
     job.process = child;
     attachProcessListeners(job, child);
-  } else if (isSpotifyPlaylistOrAlbum || isSpotifyTrackFlac) {
+  } else if (isSpotify) {
     const pythonBin = getPythonBin();
     const spotifyScript = path.join(__dirname, 'spotify_downloader.py');
+    const isFlac = (mode === 'audio' && audioFormat === 'flac');
+    const ext = isFlac ? 'flac' : (audioFormat || 'mp3');
     const safeTitle = (job.title || 'spotify_media').replace(/[\\/:*?"<>|]/g, '_').trim();
     const finalOutPath = isSpotifyPlaylistOrAlbum
       ? path.join(TEMP_DIR, `${job.id}_${safeTitle}.zip`)
-      : path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
+      : path.join(TEMP_DIR, `${job.id}_${safeTitle}.${ext}`);
 
-    job.logs.push(`Starting SpotiFLAC-Next True Lossless Audio Engine...`);
+    job.logs.push(`Starting SpotiFLAC-Next ${isFlac ? 'True Lossless FLAC' : (audioFormat || 'mp3').toUpperCase()} Engine...`);
     job.logs.push(`Target: ${url}`);
 
     const child = spawn(pythonBin, [
       spotifyScript,
       url,
       finalOutPath,
-      audioFormat || 'flac',
+      isFlac ? 'flac' : (audioFormat || 'mp3'),
       audioBitrate || '320k'
+    ], { windowsHide: true });
+    job.process = child;
+    attachProcessListeners(job, child);
+  } else if (isYouTubeFlac) {
+    const pythonBin = getPythonBin();
+    const slskScript = path.join(__dirname, 'soulseek_flac_engine.py');
+    const safeTitle = (job.title || 'youtube_audio').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
+
+    let artist = '';
+    let trackTitle = job.title || '';
+    if (job.title && job.title.includes(' - ')) {
+      const parts = job.title.split(' - ');
+      artist = parts[0].trim();
+      trackTitle = parts.slice(1).join(' - ').trim();
+    } else {
+      artist = job.uploader || '';
+    }
+
+    job.logs.push(`Lossless FLAC requested for YouTube music: "${job.title}"`);
+    job.logs.push(`Notice: YouTube audio is lossy (128-160kbps Opus). Querying decentralized Soulseek HiFi network for authentic CD/Vinyl Master FLAC...`);
+
+    const child = spawn(pythonBin, [
+      slskScript,
+      artist,
+      trackTitle,
+      finalOutPath
     ], { windowsHide: true });
     job.process = child;
     attachProcessListeners(job, child);

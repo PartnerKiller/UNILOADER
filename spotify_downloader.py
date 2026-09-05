@@ -1,6 +1,13 @@
 import os
 import sys
 
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
@@ -193,7 +200,8 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                 process_spotiflac_job(url, output_target)
                 return
             except Exception as e2:
-                print(f"[WARN] SpotiFLAC fallback to standard pipeline: {e2}", flush=True)
+                print(f"[ERR] Authentic Lossless Engine failed: {e2}", flush=True)
+                raise RuntimeError("Genuine FLAC stream could not be found across lossless networks (Tidal, Soulseek, Deezer). YouTube transcoding is disabled to prevent fake FLAC.")
 
     info = get_spotify_playlist_info(url)
     if not info or not info.get('tracks'):
@@ -262,6 +270,10 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                         pass
 
             if not flac_direct_ok:
+                if audio_format == 'flac':
+                    print(f"[ERR] ({idx:02d}) Authentic FLAC not available on Tidal, Soulseek, or Deezer for '{t['fullName']}'. YouTube fallback skipped to preserve true lossless integrity.", flush=True)
+                    continue
+
                 # Stage 1: Resolve official album audio stream (Topic channel / no MV outskits)
                 target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
                 try:
@@ -365,6 +377,9 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                     pass
 
         if not single_hifi_ok:
+            if audio_format == 'flac':
+                raise RuntimeError(f"Authentic FLAC not available on Tidal, Soulseek, or Deezer for '{t['fullName']}'. YouTube fallback skipped to preserve true lossless integrity.")
+
             # Resolve official album audio stream (Topic channel / no MV outskits)
             target_query = t.get('query') or f"ytsearch1:{t['fullName']} audio"
             try:

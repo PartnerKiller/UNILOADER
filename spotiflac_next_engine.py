@@ -10,6 +10,14 @@ from bs4 import BeautifulSoup
 import mutagen
 from mutagen.flac import FLAC, Picture
 
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
@@ -170,7 +178,7 @@ def download_lossless_track_next(track, output_dir, track_idx=0, total_tracks=1)
     2. Tier 1: Tidal Hi-Res (Monochrome API) 24-bit / 16-bit FLAC.
     3. Tier 2: Soulseek P2P CD & Vinyl Master FLAC Rips with 8-peer failover.
     4. Tier 3: Deezer HiFi 1411kbps bitstream.
-    5. Tier 4: Universal Studio Extractor (yt-dlp fallback).
+    (YouTube fallback strictly eliminated to guarantee 100% genuine lossless FLAC)
     """
     title = track.get('title', 'Track')
     artist = track.get('artist', '')
@@ -227,51 +235,10 @@ def download_lossless_track_next(track, output_dir, track_idx=0, total_tracks=1)
     except Exception:
         pass
         
-    # 5. Tier 4: Universal Studio Extractor Fallback
-    print(f"[SpotiFLAC-Next] Falling back to Universal Audio Extractor...", flush=True)
-    try:
-        import subprocess
-        ytdlp_path = '/usr/local/bin/yt-dlp' if os.path.exists('/usr/local/bin/yt-dlp') else 'yt-dlp'
-        search_query = f"ytsearch1:{artist} - {title} audio"
-        temp_out = os.path.join(output_dir, f"temp_{track_idx}_%(title)s.%(ext)s")
-        cmd = [
-            ytdlp_path,
-            '--no-warnings',
-            '--newline',
-            '--ignore-errors',
-            '--no-abort-on-error',
-            '--extractor-args', 'youtube:player_client=android',
-            '--js-runtimes', 'node' if sys.platform == 'win32' else 'node:/usr/bin/node',
-            '-x',
-            '--audio-format', 'flac',
-            '--audio-quality', '0',
-            '-o', temp_out,
-            search_query
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        
-        # Find created temp file
-        for f in os.listdir(output_dir):
-            if f.startswith(f"temp_{track_idx}_") and f.endswith('.flac'):
-                src = os.path.join(output_dir, f)
-                shutil.move(src, flac_path)
-                break
-                
-        if os.path.exists(flac_path):
-            lyrics = fetch_synced_lyrics(artist, title, duration=duration)
-            meta = {
-                'title': title,
-                'artist': artist,
-                'isrc': isrc,
-                'cover_url': cover_url,
-                'lyrics': lyrics
-            }
-            tag_flac_file(flac_path, meta)
-            return flac_path
-    except Exception as e:
-        print(f"[SpotiFLAC-Next] Fallback extractor notice: {e}", file=sys.stderr)
-        
+    # Tier 4: No fake YouTube FLAC transcoding.
+    print(f"[SpotiFLAC-Next] ❌ Authentic Lossless FLAC not found across Tidal, Soulseek, or Deezer for '{full_name}'. YouTube transcoding disabled to preserve true lossless integrity.", file=sys.stderr, flush=True)
     return None
+
 
 def process_spotiflac_next_job(url, final_output_path):
     """

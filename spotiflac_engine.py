@@ -275,79 +275,10 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     except Exception as e:
         pass
         
-    # 2.4 Locate exact studio album audio stream as fallback
-    target_stream_url, match_dur, match_title, match_chan = find_best_audio_stream_url(
-        artist, title, target_duration=duration, ytdlp_path=ytdlp_path
-    )
-    
-    # 3. Download audio stream in authentic FLAC
-    cmd = [
-        ytdlp_path,
-        '--no-warnings',
-        '--newline',
-        '--ignore-errors',
-        '--no-abort-on-error',
-        '--extractor-args', 'youtube:player_client=android',
-        '--js-runtimes', 'node' if sys.platform == 'win32' else 'node:/usr/bin/node',
-        '-x',
-        '--audio-format', 'flac',
-        '--audio-quality', '0',
-        '-o', os.path.join(output_dir, f"temp_{idx}_%(title)s.%(ext)s"),
-        target_stream_url
-    ]
-    
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-    for line in proc.stdout:
-        line_clean = line.strip()
-        if '[download]' in line_clean and '%' in line_clean:
-            m_sub = re.search(r'([\d.]+)%\s+of\s+~?\s*([\d.]+\s*[a-zA-Z]+)?\s+at\s+([\d.]+\s*[a-zA-Z/]+)', line_clean)
-            if m_sub and job_start_time:
-                sub_pct = float(m_sub.group(1))
-                speed_str = m_sub.group(3)
-                overall_pct = ((track_idx + (sub_pct / 100.0)) / total_tracks) * 100.0
-                
-                cur_elapsed = time.time() - job_start_time
-                if overall_pct > 0.5:
-                    est_total = cur_elapsed / (overall_pct / 100.0)
-                    cur_rem_sec = max(1, int(est_total - cur_elapsed))
-                    cur_eta = f"{cur_rem_sec // 60:02d}:{cur_rem_sec % 60:02d}"
-                else:
-                    cur_eta = "00:30"
-                    
-                print(f"[download] {overall_pct:4.1f}% of ~{total_tracks} tracks at {speed_str} ETA {cur_eta}", flush=True)
-            else:
-                print(f"[download] {line_clean}", flush=True)
-    proc.wait()
-    
-    # Locate the output temp FLAC file
-    temp_files = [f for f in os.listdir(output_dir) if f.startswith(f"temp_{idx}_")]
-    if temp_files:
-        flac_candidates = [f for f in temp_files if f.endswith('.flac')]
-        temp_flac = os.path.join(output_dir, flac_candidates[0] if flac_candidates else temp_files[0])
-        if os.path.exists(flac_path):
-            try: os.remove(flac_path)
-            except Exception: pass
-        os.rename(temp_flac, flac_path)
-        
-        # 4. Inject rich Vorbis FLAC tags, synchronized lyrics, & cover art
-        lyrics = fetch_synced_lyrics(artist, title, album=track.get('album_name'), duration=duration)
-        meta = {
-            'title': title,
-            'artist': artist,
-            'album': track.get('album_name', ''),
-            'album_artist': track.get('album_artist', artist),
-            'year': track.get('year', ''),
-            'track_number': track.get('track_number', idx),
-            'tracks_count': track.get('tracks_count', 0),
-            'disc_number': track.get('disc_number', 1),
-            'isrc': isrc,
-            'cover_url': cover_url,
-            'lyrics': lyrics
-        }
-        tag_flac_file(flac_path, meta)
-        return flac_path
-    
+    # 2.4 No fake YouTube FLAC transcoding
+    print(f"[SpotiFLAC] ❌ Authentic Lossless FLAC stream not available for '{full_name}'. YouTube fallback rejected to preserve 100% genuine lossless FLAC.", file=sys.stderr, flush=True)
     return None
+
 
 def process_spotiflac_job(url, final_output_path):
     """
