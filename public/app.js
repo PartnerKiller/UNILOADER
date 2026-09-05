@@ -1066,6 +1066,18 @@ async function openFileInFolder(targetPath) {
 }
 
 async function initDownloadFolderUI() {
+  const sidebarFolderCard = document.getElementById('sidebarFolderCard');
+  const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+
+  if (!isElectron) {
+    if (sidebarFolderCard) sidebarFolderCard.style.display = 'none';
+    return;
+  }
+
+  if (sidebarFolderCard) {
+    sidebarFolderCard.style.display = 'flex';
+  }
+
   const folderPathText = document.getElementById('folderPathText');
   const btnChangeFolder = document.getElementById('btnChangeFolder');
   const folderPathDisplay = document.getElementById('folderPathDisplay');
