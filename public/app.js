@@ -546,17 +546,33 @@ function triggerDeviceDownload(job) {
     readyModalSaveBtn.setAttribute('download', job.filename || 'download');
   }
 
+  const readyModalFolderBtn = document.getElementById('readyModalFolderBtn');
+  if (readyModalFolderBtn) {
+    readyModalFolderBtn.style.display = 'inline-flex';
+    readyModalFolderBtn.onclick = () => openFileInFolder(job.filePath);
+  }
+
   if (readyModal) readyModal.style.display = 'flex';
 
-  // Automatically trigger native browser file save
-  try {
-    const autoAnchor = document.createElement('a');
-    autoAnchor.href = job.downloadUrl;
-    autoAnchor.setAttribute('download', job.filename || 'download');
-    document.body.appendChild(autoAnchor);
-    autoAnchor.click();
-    document.body.removeChild(autoAnchor);
-  } catch (e) {}
+  // Native Windows Desktop Notification
+  if (window.electronAPI && window.electronAPI.notify) {
+    window.electronAPI.notify({
+      title: 'Download Complete! 🎉',
+      body: `${job.title || job.filename || 'Media'} has completed downloading.`
+    });
+  }
+
+  // Automatically trigger native browser file save if running in web browser
+  if (!window.electronAPI) {
+    try {
+      const autoAnchor = document.createElement('a');
+      autoAnchor.href = job.downloadUrl;
+      autoAnchor.setAttribute('download', job.filename || 'download');
+      document.body.appendChild(autoAnchor);
+      autoAnchor.click();
+      document.body.removeChild(autoAnchor);
+    } catch (e) {}
+  }
 }
 
 // 4. SSE Stream Connection for Live Progress with Auto-Reconnect Backoff
@@ -721,6 +737,10 @@ function createJobCardElement(job) {
           </a>
           <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')">
             <span>Watch</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="openFileInFolder('${job.filePath ? job.filePath.replace(/\\/g, '\\\\') : ''}')" title="Open in File Explorer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span>Folder</span>
           </button>
         ` : ''}
         ${job.status === 'cancelled' || job.status === 'failed' ? `
@@ -1014,6 +1034,95 @@ function initGlobalSSEStream() {
 
 // Initialize SSE Stream on startup
 initGlobalSSEStream();
+
+// ==========================================================================
+// 9. Windows Desktop & Downloads Folder Management
+// ==========================================================================
+
+async function openFileInFolder(targetPath) {
+  try {
+    if (window.electronAPI && window.electronAPI.openFolder) {
+      window.electronAPI.openFolder(targetPath);
+    } else {
+      const res = await fetch('/api/config/open-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: targetPath })
+      });
+      const data = await res.json();
+      if (!data.success && data.error) {
+        showToast(data.error, 'error');
+      }
+    }
+  } catch (err) {
+    showToast(`Cannot open folder: ${err.message}`, 'error');
+  }
+}
+
+async function initDownloadFolderUI() {
+  const folderPathText = document.getElementById('folderPathText');
+  const btnChangeFolder = document.getElementById('btnChangeFolder');
+  const folderPathDisplay = document.getElementById('folderPathDisplay');
+
+  function updateFolderDisplay(dir) {
+    if (folderPathText) {
+      // Shorten path for display
+      folderPathText.textContent = dir || 'Downloads\\JAV-Downloader';
+      folderPathText.title = dir || '';
+    }
+  }
+
+  // Load current download folder from server
+  try {
+    const res = await fetch('/api/config/download-dir');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.downloadDir) updateFolderDisplay(data.downloadDir);
+    }
+  } catch (e) {}
+
+  if (btnChangeFolder) {
+    btnChangeFolder.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (window.electronAPI && window.electronAPI.selectDownloadDir) {
+        const chosen = await window.electronAPI.selectDownloadDir();
+        if (chosen) {
+          updateFolderDisplay(chosen);
+          showToast(`Downloads destination updated!`, 'success');
+        }
+      } else {
+        const current = folderPathText ? folderPathText.textContent : '';
+        const input = prompt('Enter new destination folder path on server:', current);
+        if (input && input.trim()) {
+          try {
+            const res = await fetch('/api/config/download-dir', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ downloadDir: input.trim() })
+            });
+            const data = await res.json();
+            if (data.success) {
+              updateFolderDisplay(data.downloadDir);
+              showToast('Downloads folder updated!', 'success');
+            } else {
+              showToast(data.error || 'Failed to update folder', 'error');
+            }
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        }
+      }
+    });
+  }
+
+  if (folderPathDisplay) {
+    folderPathDisplay.addEventListener('click', () => {
+      openFileInFolder();
+    });
+  }
+}
+
+initDownloadFolderUI();
 
 
 

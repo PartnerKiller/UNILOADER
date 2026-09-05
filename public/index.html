@@ -54,6 +54,18 @@
 
       <!-- Sidebar Bottom Info -->
       <div class="sidebar-footer">
+        <!-- Download Destination Location -->
+        <div class="sidebar-folder-card" id="sidebarFolderCard">
+          <div class="folder-header">
+            <span class="folder-label">DOWNLOADS LOCATION</span>
+            <button type="button" class="btn-change-folder" id="btnChangeFolder" title="Change Destination Folder">Change</button>
+          </div>
+          <div class="folder-path-display" id="folderPathDisplay" title="Click to open folder in File Explorer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span class="path-text" id="folderPathText">Loading folder...</span>
+          </div>
+        </div>
+
         <button type="button" class="btn-install-app" id="btnInstallApp" style="display: none;">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Install Web App</span>
@@ -685,6 +697,12 @@
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
               <span>Stream / Preview Online</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-ready-action" id="readyModalFolderBtn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span>Open in Windows Folder</span>
             </button>
           </div>
         </div>

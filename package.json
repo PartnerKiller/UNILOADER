@@ -4,8 +4,9 @@
   "private": true,
   "license": "UNLICENSED",
   "description": "Modern Web UI for video downloading and local streaming",
-  "main": "server.js",
+  "main": "electron-main.js",
   "scripts": {
+    "app": "electron .",
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
@@ -13,5 +14,8 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0"
   }
 }

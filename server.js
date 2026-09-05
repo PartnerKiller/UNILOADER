@@ -26,7 +26,7 @@ const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TEMP_DIR = path.join(__dirname, 'temp_media');
+let TEMP_DIR = process.env.TEMP_DIR || path.join(__dirname, 'temp_media');
 const MAX_CONCURRENT_DOWNLOADS = 4;
 
 if (!fs.existsSync(TEMP_DIR)) {
@@ -124,7 +124,8 @@ function broadcastJobUpdate(jobId) {
       filename: job.filename,
       filesize: job.filesize || '',
       downloadUrl: `/api/download-file/${job.id}`,
-      streamUrl: `/api/stream/${job.id}`
+      streamUrl: `/api/stream/${job.id}`,
+      filePath: job.filePath || ''
     });
     for (const res of clients) {
       try {
@@ -159,7 +160,8 @@ app.get('/api/jobs/stream', (req, res) => {
     error: j.error,
     createdAt: j.createdAt,
     downloadUrl: `/api/download-file/${j.id}`,
-    streamUrl: `/api/stream/${j.id}`
+    streamUrl: `/api/stream/${j.id}`,
+    filePath: j.filePath || ''
   }));
   res.write(`data: ${JSON.stringify(initial)}\n\n`);
 
@@ -216,8 +218,56 @@ app.get('/api/health', (req, res) => {
       tiktokHD: true,
       instagramHD: true,
       universalYtdlp: true
-    }
+    },
+    downloadDir: TEMP_DIR
   });
+});
+
+// Download Directory Configuration
+app.get('/api/config/download-dir', (req, res) => {
+  res.json({
+    downloadDir: TEMP_DIR,
+    isDefault: TEMP_DIR === path.join(__dirname, 'temp_media')
+  });
+});
+
+app.post('/api/config/download-dir', (req, res) => {
+  const { downloadDir } = req.body || {};
+  if (!downloadDir || typeof downloadDir !== 'string') {
+    return res.status(400).json({ error: 'Valid directory path is required' });
+  }
+  try {
+    if (!fs.existsSync(downloadDir)) {
+      fs.mkdirSync(downloadDir, { recursive: true });
+    }
+    TEMP_DIR = downloadDir;
+    console.log(`[Config] Download directory updated to: ${TEMP_DIR}`);
+    res.json({ success: true, downloadDir: TEMP_DIR });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to set download directory: ${err.message}` });
+  }
+});
+
+// Reveal in System File Explorer (Windows / Linux / macOS)
+app.post('/api/config/open-folder', (req, res) => {
+  const { filePath } = req.body || {};
+  const target = filePath || TEMP_DIR;
+  try {
+    if (process.platform === 'win32') {
+      if (filePath && fs.existsSync(filePath)) {
+        spawn('explorer.exe', [`/select,${path.normalize(filePath)}`], { detached: true, stdio: 'ignore' });
+      } else {
+        spawn('explorer.exe', [path.normalize(target)], { detached: true, stdio: 'ignore' });
+      }
+    } else if (process.platform === 'darwin') {
+      spawn('open', [target], { detached: true, stdio: 'ignore' });
+    } else {
+      spawn('xdg-open', [target], { detached: true, stdio: 'ignore' });
+    }
+    res.json({ success: true, opened: target });
+  } catch (err) {
+    res.status(500).json({ error: `Cannot open folder: ${err.message}` });
+  }
 });
 
 // 1. Metadata Extraction Endpoint
@@ -835,6 +885,7 @@ app.get('/api/jobs', (req, res) => {
       completedTime: job.completedTime,
       downloadUrl: `/api/download-file/${job.id}`,
       streamUrl: `/api/stream/${job.id}`,
+      filePath: job.filePath || '',
       lastLog: job.logs.length > 0 ? job.logs[job.logs.length - 1] : ''
     });
   }
