@@ -283,6 +283,24 @@ function setupIpcHandlers() {
     return currentDownloadDir;
   });
 
+  ipcMain.handle('select-flac-file', async () => {
+    if (!mainWindow) return null;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: 'Select Audio / FLAC File for Authenticity Check',
+      defaultPath: currentDownloadDir,
+      filters: [
+        { name: 'Audio Files', extensions: ['flac', 'wav', 'm4a', 'mp3', 'ogg', 'opus'] },
+        { name: 'FLAC Audio', extensions: ['flac'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (!res.canceled && res.filePaths.length > 0) {
+      return res.filePaths[0];
+    }
+    return null;
+  });
+
   ipcMain.handle('open-folder', (event, targetPath) => {
     const target = targetPath || currentDownloadDir;
     if (target && fs.existsSync(target)) {

@@ -34,7 +34,7 @@ if (!fs.existsSync(TEMP_DIR)) {
 }
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '150mb' }));
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0,
   etag: false
@@ -269,6 +269,117 @@ app.post('/api/config/open-folder', (req, res) => {
     res.status(500).json({ error: `Cannot open folder: ${err.message}` });
   }
 });
+
+// ==========================================
+// Inbuilt FLAC Checker & Lossless Endpoints
+// ==========================================
+
+// List recent FLAC files for quick inspection
+app.get('/api/flac-check/recent', (req, res) => {
+  try {
+    const searchDirs = [
+      TEMP_DIR,
+      path.join(__dirname, 'temp_media'),
+      path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'Downloads', 'JAV-Downloader')
+    ];
+
+    const results = [];
+    const seen = new Set();
+
+    for (const dir of searchDirs) {
+      if (!dir || !fs.existsSync(dir)) continue;
+      try {
+        const files = fs.readdirSync(dir);
+        for (const f of files) {
+          if (f.toLowerCase().endsWith('.flac')) {
+            const fullPath = path.join(dir, f);
+            if (!seen.has(fullPath)) {
+              seen.add(fullPath);
+              try {
+                const stat = fs.statSync(fullPath);
+                results.push({
+                  filename: f,
+                  filePath: fullPath,
+                  sizeBytes: stat.size,
+                  sizeMB: (stat.size / (1024 * 1024)).toFixed(2),
+                  mtime: stat.mtimeMs
+                });
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    results.sort((a, b) => b.mtime - a.mtime);
+    res.json(results.slice(0, 25));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Run FLAC Authenticity Analysis
+app.post('/api/flac-check', async (req, res) => {
+  let targetPath = null;
+  let isTempFile = false;
+
+  try {
+    const { filePath, fileBase64, fileName, jobId } = req.body || {};
+
+    if (filePath && fs.existsSync(filePath)) {
+      targetPath = filePath;
+    } else if (jobId && jobs.has(jobId)) {
+      const job = jobs.get(jobId);
+      if (job.filePath && fs.existsSync(job.filePath)) {
+        targetPath = job.filePath;
+      }
+    } else if (fileBase64) {
+      const safeName = (fileName || 'inspect_upload.flac').replace(/[\\/:*?"<>|]/g, '_');
+      targetPath = path.join(TEMP_DIR, `flac_check_${Date.now()}_${safeName}`);
+      isTempFile = true;
+      const base64Data = fileBase64.replace(/^data:.*?;base64,/, '');
+      fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'));
+    }
+
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      return res.status(400).json({ error: 'Valid audio file or filePath is required' });
+    }
+
+    const pythonBin = getPythonBin();
+    const checkerScript = path.join(__dirname, 'flac_checker.py');
+
+    const pyProcess = spawn(pythonBin, [checkerScript, targetPath], { windowsHide: true });
+    let stdoutData = '';
+    let stderrData = '';
+
+    pyProcess.stdout.on('data', d => stdoutData += d.toString());
+    pyProcess.stderr.on('data', d => stderrData += d.toString());
+
+    pyProcess.on('close', code => {
+      if (isTempFile) {
+        try { fs.unlinkSync(targetPath); } catch (e) {}
+      }
+
+      try {
+        const jsonRes = JSON.parse(stdoutData.trim());
+        res.json(jsonRes);
+      } catch (parseErr) {
+        res.status(500).json({
+          error: 'Failed to parse checker output',
+          rawStdout: stdoutData,
+          rawStderr: stderrData
+        });
+      }
+    });
+
+  } catch (err) {
+    if (isTempFile && targetPath && fs.existsSync(targetPath)) {
+      try { fs.unlinkSync(targetPath); } catch (e) {}
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // 1. Metadata Extraction Endpoint
 app.post('/api/extract', async (req, res) => {

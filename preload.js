@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File & Folder Operations
   selectDownloadDir: () => ipcRenderer.invoke('select-download-dir'),
   getDownloadDir: () => ipcRenderer.invoke('get-download-dir'),
+  selectFlacFile: () => ipcRenderer.invoke('select-flac-file'),
   openFolder: (targetPath) => ipcRenderer.invoke('open-folder', targetPath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 

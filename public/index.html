@@ -42,6 +42,10 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Downloader</span>
         </button>
+        <button type="button" class="nav-item" data-view="flac-checker" id="navFlacChecker">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          <span>FLAC Checker</span>
+        </button>
         <button type="button" class="nav-item" data-view="supported" id="navSupported">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           <span>Supported Sites</span>
@@ -387,6 +391,147 @@
       </div>
 
       <!-- ==========================================
+           VIEW PANEL: FLAC CHECKER & LOSSLESS ANALYZER
+           ========================================== -->
+      <div class="view-panel" id="viewFlacChecker" style="display: none;">
+        <section class="section-card flac-checker-card">
+          <div class="section-header-flex">
+            <div>
+              <div class="badge-tag">🔬 Audiophile Lossless Inspector</div>
+              <h2 class="section-title">Inbuilt FLAC Checker</h2>
+              <p class="section-description">
+                Analyze and verify genuine CD & Studio Master lossless PCM versus fake or upscaled YouTube/MP3 transcodes via multi-band spectral cutoff analysis.
+              </p>
+            </div>
+            <div class="flac-header-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshRecentFlac" title="Scan Recent Downloads">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                <span>Recent Downloads</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dropzone Area -->
+          <div class="flac-dropzone" id="flacDropZone">
+            <input type="file" id="flacFileInput" accept=".flac,.wav,.mp3,.m4a" style="display: none;" />
+            <div class="dropzone-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <path d="M9 18V5l12-2v13"></path>
+                <circle cx="6" cy="18" r="3"></circle>
+                <circle cx="18" cy="16" r="3"></circle>
+                <path d="M12 11l3-3 3 3"></path>
+              </svg>
+            </div>
+            <h3 class="dropzone-title">Drag & Drop any FLAC file here</h3>
+            <p class="dropzone-subtitle">or select an audio file from your computer to inspect authenticity</p>
+            <div class="dropzone-actions">
+              <button type="button" class="btn btn-primary btn-browse-flac" id="btnBrowseFlac">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                <span>Browse File...</span>
+              </button>
+              <select id="selectRecentFlac" class="select-recent-flac">
+                <option value="">-- Inspect Recent Downloaded FLAC --</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Loading Indicator -->
+          <div class="flac-loading-state" id="flacLoadingState" style="display: none;">
+            <div class="flac-spinner"></div>
+            <h4 class="loading-title">Analyzing Audio Frequency Spectrum & Dynamic Range...</h4>
+            <p class="loading-subtitle">Running highpass FFT filters at 16kHz, 18.5kHz, 20kHz, and 24kHz</p>
+          </div>
+
+          <!-- Analysis Results Container -->
+          <div class="flac-results-container" id="flacResultsContainer" style="display: none;">
+            <!-- Verdict Banner -->
+            <div class="flac-verdict-banner" id="flacVerdictBanner">
+              <div class="verdict-icon-wrap" id="verdictIconWrap">
+                <span class="verdict-symbol">✓</span>
+              </div>
+              <div class="verdict-info-wrap">
+                <div class="verdict-badge-row">
+                  <span class="verdict-badge" id="verdictBadge">100% GENUINE</span>
+                  <span class="verdict-score" id="verdictScore">Score: 100/100</span>
+                  <span class="verdict-file-badge" id="verdictFileName">file.flac</span>
+                </div>
+                <h3 class="verdict-title" id="verdictTitle">100% Genuine Studio Master FLAC</h3>
+                <p class="verdict-desc" id="verdictDesc">Natural acoustic harmonics spanning full dynamic range without lossy brickwall filtering.</p>
+              </div>
+            </div>
+
+            <!-- Technical Audio Specs Grid -->
+            <div class="flac-specs-grid">
+              <div class="flac-spec-card">
+                <span class="spec-label">Sample Rate</span>
+                <span class="spec-value highlight" id="specSampleRate">96.0 kHz</span>
+                <span class="spec-hint" id="specNyquist">Nyquist: 48.0 kHz</span>
+              </div>
+              <div class="flac-spec-card">
+                <span class="spec-label">Bit Depth</span>
+                <span class="spec-value highlight" id="specBitDepth">24-bit True PCM</span>
+                <span class="spec-hint">Studio Master Depth</span>
+              </div>
+              <div class="flac-spec-card">
+                <span class="spec-label">Bitrate</span>
+                <span class="spec-value" id="specBitrate">3,095 kbps</span>
+                <span class="spec-hint" id="specChannels">Stereo (2 Channels)</span>
+              </div>
+              <div class="flac-spec-card">
+                <span class="spec-label">High-Freq Cutoff</span>
+                <span class="spec-value" id="specCutoff">None (Full Bandwidth)</span>
+                <span class="spec-hint" id="specCutoffHint">No low-pass filtering</span>
+              </div>
+              <div class="flac-spec-card">
+                <span class="spec-label">File Size / Duration</span>
+                <span class="spec-value" id="specSize">88.9 MB</span>
+                <span class="spec-hint" id="specDuration">03:33</span>
+              </div>
+              <div class="flac-spec-card">
+                <span class="spec-label">Stream Integrity</span>
+                <span class="spec-value text-emerald" id="specMd5">Verified ✓</span>
+                <span class="spec-hint" id="specMd5Hint">Valid FLAC MD5</span>
+              </div>
+            </div>
+
+            <!-- Frequency Energy Meter Table -->
+            <div class="flac-energy-box">
+              <h4 class="energy-box-title">Multi-Band Spectral Energy Analysis</h4>
+              <div class="energy-bars-list" id="energyBarsList"></div>
+            </div>
+
+            <!-- Visual Audio Spectrogram -->
+            <div class="flac-spectrogram-box" id="flacSpectrogramBox">
+              <div class="spectrogram-header">
+                <div>
+                  <h4 class="spectrogram-title">High-Definition Audio Frequency Spectrogram</h4>
+                  <p class="spectrogram-subtitle">Logarithmic Frequency Scale (0 Hz &ndash; Nyquist Limit) &bull; Heat-Mapped Decibels</p>
+                </div>
+                <span class="spectrogram-tag">Visual Spectral Proof</span>
+              </div>
+              <div class="spectrogram-img-wrap" id="spectrogramImgWrap">
+                <img id="spectrogramImg" class="spectrogram-img" alt="Audio Spectrogram" />
+              </div>
+              <div class="spectrogram-caption">
+                <strong>Analysis Guide:</strong> Real uncompressed FLAC files show continuous musical harmonics up to 22kHz (CD) or 48kHz (Hi-Res). Fake/transcoded FLACs display a sharp horizontal shelf/cutoff with total darkness above 16kHz or 20kHz.
+              </div>
+            </div>
+
+            <!-- Vorbis Metadata & Lyrics Accordion -->
+            <div class="flac-meta-box" id="flacMetaBox">
+              <button type="button" class="btn-meta-toggle" id="btnToggleMetaAccordion">
+                <span>View Embedded Vorbis Tags & Synced Lyrics</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <div class="meta-content" id="metaAccordionContent" style="display: none;">
+                <pre id="flacMetaRaw" class="flac-meta-pre"></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ==========================================
            VIEW PANEL 2: SUPPORTED SITES
            ========================================== -->
       <div class="view-panel" id="viewSupported" style="display: none;">
@@ -648,6 +793,10 @@
       <button type="button" class="bottom-nav-item active" data-view="downloader">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         <span>Downloader</span>
+      </button>
+      <button type="button" class="bottom-nav-item" data-view="flac-checker">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        <span>FLAC Check</span>
       </button>
       <button type="button" class="bottom-nav-item" data-view="supported">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>

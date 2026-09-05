@@ -237,6 +237,7 @@ function switchView(viewName) {
   // 1. Hide all view panels and show target panel
   const panels = {
     downloader: document.getElementById('viewDownloader'),
+    'flac-checker': document.getElementById('viewFlacChecker'),
     supported: document.getElementById('viewSupported'),
     about: document.getElementById('viewAbout')
   };
@@ -246,6 +247,9 @@ function switchView(viewName) {
       if (key === viewName) {
         panels[key].style.display = 'block';
         panels[key].classList.add('active');
+        if (key === 'flac-checker') {
+          loadRecentFlacFiles();
+        }
       } else {
         panels[key].style.display = 'none';
         panels[key].classList.remove('active');
@@ -731,6 +735,12 @@ function createJobCardElement(job) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
             <span>Folder</span>
           </button>
+          ${(job.filename && job.filename.toLowerCase().endsWith('.flac')) || (job.opts && job.opts.audioFormat === 'flac') ? `
+            <button class="btn btn-flac-verify btn-sm" onclick="inspectFlacFile('${job.id}', '${job.filePath ? job.filePath.replace(/\\/g, '\\\\') : ''}')" title="Inspect Lossless FLAC Authenticity">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+              <span>Check FLAC</span>
+            </button>
+          ` : ''}
         ` : ''}
         ${job.status === 'cancelled' || job.status === 'failed' ? `
           <button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>
@@ -1113,5 +1123,325 @@ async function initDownloadFolderUI() {
 
 initDownloadFolderUI();
 
+// ==========================================================================
+// Inbuilt FLAC Checker Controller
+// ==========================================================================
 
+function initFlacChecker() {
+  const dropZone = document.getElementById('flacDropZone');
+  const fileInput = document.getElementById('flacFileInput');
+  const btnBrowse = document.getElementById('btnBrowseFlac');
+  const selectRecent = document.getElementById('selectRecentFlac');
+  const btnRefreshRecent = document.getElementById('btnRefreshRecentFlac');
+  const btnToggleMeta = document.getElementById('btnToggleMetaAccordion');
+  const metaContent = document.getElementById('metaAccordionContent');
 
+  if (!dropZone) return;
+
+  // Browse File (Electron native dialog or standard HTML input)
+  if (btnBrowse) {
+    btnBrowse.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (window.electronAPI && window.electronAPI.selectFlacFile) {
+        try {
+          const pickedPath = await window.electronAPI.selectFlacFile();
+          if (pickedPath) {
+            runFlacCheck({ filePath: pickedPath });
+          }
+        } catch (err) {
+          if (fileInput) fileInput.click();
+        }
+      } else if (fileInput) {
+        fileInput.click();
+      }
+    });
+  }
+
+  // Click on dropzone to browse
+  dropZone.addEventListener('click', (e) => {
+    if (e.target !== selectRecent && !e.target.closest('.select-recent-flac')) {
+      if (btnBrowse) btnBrowse.click();
+    }
+  });
+
+  // Drag & drop handlers
+  ['dragenter', 'dragover'].forEach(name => {
+    dropZone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('drag-over');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(name => {
+    dropZone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('drag-over');
+    });
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      handleFileSelected(files[0]);
+    }
+  });
+
+  // HTML file input change
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        handleFileSelected(fileInput.files[0]);
+      }
+    });
+  }
+
+  function handleFileSelected(file) {
+    // If running in Electron with local file path available
+    if (file.path) {
+      runFlacCheck({ filePath: file.path });
+      return;
+    }
+
+    // Read as Base64 for web browser usage
+    const reader = new FileReader();
+    reader.onload = () => {
+      runFlacCheck({
+        fileBase64: reader.result,
+        fileName: file.name
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Select Recent Downloads dropdown
+  if (selectRecent) {
+    selectRecent.addEventListener('change', () => {
+      const val = selectRecent.value;
+      if (val) {
+        runFlacCheck({ filePath: val });
+      }
+    });
+  }
+
+  // Refresh recent downloads button
+  if (btnRefreshRecent) {
+    btnRefreshRecent.addEventListener('click', () => {
+      loadRecentFlacFiles();
+      showToast('Scanned recent FLAC downloads', 'info');
+    });
+  }
+
+  // Vorbis Metadata accordion toggle
+  if (btnToggleMeta && metaContent) {
+    btnToggleMeta.addEventListener('click', () => {
+      const isHidden = metaContent.style.display === 'none';
+      metaContent.style.display = isHidden ? 'block' : 'none';
+    });
+  }
+
+  loadRecentFlacFiles();
+}
+
+async function loadRecentFlacFiles() {
+  const selectRecent = document.getElementById('selectRecentFlac');
+  if (!selectRecent) return;
+
+  try {
+    const res = await fetch('/api/flac-check/recent');
+    if (!res.ok) return;
+    const list = await res.json();
+    selectRecent.innerHTML = '<option value="">-- Inspect Recent Downloaded FLAC --</option>';
+    list.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item.filePath;
+      opt.textContent = `${item.filename} (${item.sizeMB} MB)`;
+      selectRecent.appendChild(opt);
+    });
+  } catch (e) {}
+}
+
+async function inspectFlacFile(jobId, directPath) {
+  switchView('flac-checker');
+  if (directPath) {
+    runFlacCheck({ filePath: directPath });
+  } else if (jobId) {
+    runFlacCheck({ jobId: jobId });
+  }
+}
+
+async function runFlacCheck(payload) {
+  const loading = document.getElementById('flacLoadingState');
+  const results = document.getElementById('flacResultsContainer');
+  if (loading) loading.style.display = 'flex';
+  if (results) results.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/flac-check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to analyze FLAC audio');
+    }
+
+    const report = await res.json();
+    renderFlacReport(report);
+  } catch (err) {
+    showToast(`FLAC Check: ${err.message}`, 'error');
+  } finally {
+    if (loading) loading.style.display = 'none';
+  }
+}
+
+function renderFlacReport(report) {
+  const results = document.getElementById('flacResultsContainer');
+  if (!results) return;
+
+  // 1. Verdict Banner
+  const banner = document.getElementById('flacVerdictBanner');
+  const badge = document.getElementById('verdictBadge');
+  const score = document.getElementById('verdictScore');
+  const title = document.getElementById('verdictTitle');
+  const desc = document.getElementById('verdictDesc');
+  const fileName = document.getElementById('verdictFileName');
+  const iconWrap = document.getElementById('verdictIconWrap');
+
+  banner.className = `flac-verdict-banner verdict-${report.verdictBadge || 'success'}`;
+  badge.textContent = report.verdictBadge === 'success' ? '100% GENUINE' : (report.verdictBadge === 'warning' ? 'SUSPICIOUS' : 'FAKE FLAC');
+  score.textContent = `Score: ${report.authenticityScore || 0}/100`;
+  title.textContent = report.verdictTitle || 'Analysis Complete';
+  fileName.textContent = report.filename || 'Audio File';
+
+  if (iconWrap) {
+    iconWrap.innerHTML = report.verdictBadge === 'success'
+      ? '<span class="verdict-symbol">✓</span>'
+      : (report.verdictBadge === 'warning' ? '<span class="verdict-symbol">!</span>' : '<span class="verdict-symbol">✕</span>');
+  }
+
+  if (desc) {
+    if (report.warnings && report.warnings.length > 0) {
+      desc.textContent = report.warnings.join(' • ');
+    } else if (report.details && report.details.length > 0) {
+      desc.textContent = report.details.join(' • ');
+    } else {
+      desc.textContent = 'Audio frequency spectrum matches true uncompressed studio PCM standards.';
+    }
+  }
+
+  // 2. Specs
+  const srEl = document.getElementById('specSampleRate');
+  const nyqEl = document.getElementById('specNyquist');
+  const bitsEl = document.getElementById('specBitDepth');
+  const bitrEl = document.getElementById('specBitrate');
+  const chanEl = document.getElementById('specChannels');
+  const cutEl = document.getElementById('specCutoff');
+  const cutHint = document.getElementById('specCutoffHint');
+  const sizeEl = document.getElementById('specSize');
+  const durEl = document.getElementById('specDuration');
+  const md5El = document.getElementById('specMd5');
+
+  if (srEl) srEl.textContent = `${(report.sampleRate / 1000).toFixed(1)} kHz`;
+  if (nyqEl) nyqEl.textContent = `Nyquist Limit: ${(report.nyquistLimitHz / 1000).toFixed(1)} kHz`;
+  if (bitsEl) bitsEl.textContent = `${report.bitsPerSample}-bit ${report.bitsPerSample >= 24 ? 'Studio PCM' : 'CDDA PCM'}`;
+  if (bitrEl) bitrEl.textContent = `${report.bitrateKbps || 0} kbps`;
+  if (chanEl) chanEl.textContent = report.channelLayout || 'Stereo';
+
+  if (cutEl) {
+    if (report.cutoffFrequencyHz) {
+      cutEl.textContent = `Cutoff at ${(report.cutoffFrequencyHz / 1000).toFixed(1)} kHz`;
+      cutEl.style.color = 'hsl(0, 85%, 65%)';
+      if (cutHint) cutHint.textContent = 'Lossy compression cutoff detected';
+    } else {
+      cutEl.textContent = 'None (Full Bandwidth)';
+      cutEl.style.color = 'var(--text-primary)';
+      if (cutHint) cutHint.textContent = 'Natural acoustic harmonics intact';
+    }
+  }
+
+  if (sizeEl) sizeEl.textContent = `${report.fileSizeMB || 0} MB`;
+  if (durEl) {
+    const s = Math.floor(report.durationSec || 0);
+    const m = Math.floor(s / 60);
+    durEl.textContent = `Duration: ${m}:${(s % 60).toString().padStart(2, '0')}`;
+  }
+  if (md5El) {
+    md5El.textContent = report.md5Signature ? 'Verified ✓' : 'OK';
+  }
+
+  // 3. Multi-Band Energy Bars
+  const barsList = document.getElementById('energyBarsList');
+  if (barsList && report.energyAnalysis) {
+    barsList.innerHTML = '';
+    const bands = [
+      { key: 'above_16000hz', label: '16.0 kHz (128k MP3 Cutoff)', threshold: -80 },
+      { key: 'above_18500hz', label: '18.5 kHz (192k MP3 Cutoff)', threshold: -80 },
+      { key: 'above_20000hz', label: '20.0 kHz (Opus & 320k Cutoff)', threshold: -75 },
+      { key: 'above_22000hz', label: '22.0 kHz (CDDA Nyquist Edge)', threshold: -75 },
+      { key: 'above_24000hz', label: '24.0 kHz (Hi-Res Studio Master)', threshold: -75 }
+    ];
+
+    bands.forEach(b => {
+      const data = report.energyAnalysis[b.key];
+      if (!data) return;
+
+      const mean = data.mean_db !== null ? data.mean_db : -91.0;
+      const isActive = data.active && mean > b.threshold;
+      
+      const pct = Math.max(5, Math.min(100, ((mean + 90) / 80) * 100));
+
+      const row = document.createElement('div');
+      row.className = 'energy-bar-row';
+      row.innerHTML = `
+        <div class="energy-bar-header">
+          <span class="energy-band-label">${b.label}</span>
+          <span class="energy-band-val" style="color: ${isActive ? 'hsl(158, 85%, 48%)' : 'hsl(0, 85%, 65%)'}">
+            ${mean > -90 ? `${mean.toFixed(1)} dB (Active)` : 'Silence (Cutoff)'}
+          </span>
+        </div>
+        <div class="energy-track">
+          <div class="energy-fill ${isActive ? 'active' : 'dead'}" style="width: ${pct}%"></div>
+        </div>
+      `;
+      barsList.appendChild(row);
+    });
+  }
+
+  // 4. Spectrogram Image
+  const specBox = document.getElementById('flacSpectrogramBox');
+  const specImg = document.getElementById('spectrogramImg');
+  if (report.spectrogram && specImg) {
+    specImg.src = report.spectrogram;
+    specBox.style.display = 'block';
+  } else if (specBox) {
+    specBox.style.display = 'none';
+  }
+
+  // 5. Metadata Accordion
+  const metaRaw = document.getElementById('flacMetaRaw');
+  if (metaRaw) {
+    const rawObj = {
+      stream: {
+        sampleRate: `${report.sampleRate} Hz`,
+        bitDepth: `${report.bitsPerSample}-bit`,
+        bitrate: `${report.bitrateKbps} kbps`,
+        channels: report.channels,
+        md5: report.md5Signature
+      },
+      tags: report.tags || {}
+    };
+    metaRaw.textContent = JSON.stringify(rawObj, null, 2);
+  }
+
+  results.style.display = 'flex';
+  results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+  initFlacChecker();
+});
