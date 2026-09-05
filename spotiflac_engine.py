@@ -439,7 +439,8 @@ def process_spotiflac_job(url, final_output_path):
                 zf.write(f, os.path.basename(f))
                 
         shutil.rmtree(work_dir, ignore_errors=True)
-        print(f"[download] 100% of {os.path.getsize(zip_target)} bytes")
+        sz_mb = os.path.getsize(zip_target) / (1024 * 1024)
+        print(f"[download] 100% of {sz_mb:.1f}MiB at 0.00MiB/s ETA 00:00")
         print(f"[SpotiFLAC] Lossless Album/Playlist Archive Ready: {zip_target}")
         sys.stdout.flush()
     else:
@@ -450,7 +451,8 @@ def process_spotiflac_job(url, final_output_path):
             os.remove(flac_target)
         shutil.move(single_flac, flac_target)
         shutil.rmtree(work_dir, ignore_errors=True)
-        print(f"[download] 100% of {os.path.getsize(flac_target)} bytes")
+        sz_mb = os.path.getsize(flac_target) / (1024 * 1024)
+        print(f"[download] 100% of {sz_mb:.1f}MiB at 0.00MiB/s ETA 00:00")
         print(f"[SpotiFLAC] Lossless FLAC Track Ready: {flac_target}")
         sys.stdout.flush()
 

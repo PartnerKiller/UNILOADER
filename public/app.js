@@ -709,7 +709,7 @@ function createJobCardElement(job) {
       </div>
       <div class="metric-item">
         <span class="metric-label">Size / Streams</span>
-        <span class="metric-value" id="job-metric-frag-${job.id}">${job.filesize || job.progress.totalSize || 'Processing'}</span>
+        <span class="metric-value" id="job-metric-frag-${job.id}">${job.filesize || (job.progress.totalSize && job.progress.totalSize !== '0 MB' ? job.progress.totalSize : 'Calculating...')}</span>
       </div>
     </div>
 
@@ -758,7 +758,8 @@ function createJobCardElement(job) {
 }
 
 function formatEtaDisplay(eta, status) {
-  if (!eta || eta === '--' || eta === '0') return status === 'completed' ? 'Ready' : '--:--';
+  if (status === 'completed') return 'Ready';
+  if (!eta || eta === '--' || eta === '0' || eta === '--:--') return '--:--';
   if (typeof eta === 'string' && /^\d+$/.test(eta.trim())) {
     const sec = parseInt(eta.trim(), 10);
     const m = Math.floor(sec / 60);
@@ -797,7 +798,8 @@ function updateJobCard(job) {
 
   const frag = document.getElementById(`job-metric-frag-${job.id}`);
   if (frag) {
-    frag.textContent = job.filesize || job.progress.totalSize || 'Ready';
+    const sz = job.filesize || (job.progress.totalSize && job.progress.totalSize !== '0 MB' ? job.progress.totalSize : null);
+    frag.textContent = sz || (job.status === 'completed' ? 'Ready' : 'Calculating...');
   }
 
   // Update controls

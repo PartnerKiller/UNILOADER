@@ -702,6 +702,43 @@ function attachProcessListeners(job, child) {
     const sizeMatch = line.match(/of\s+~?\s*([\d.]+\s*(?:KiB|MiB|GiB|B|KB|MB|GB))/i);
     if (sizeMatch) job.progress.totalSize = sizeMatch[1];
 
+    // Detect candidate size from Soulseek logs: '...' (56.8MB from '...')
+    const candMatch = line.match(/\(([\d.]+\s*(?:KiB|MiB|GiB|KB|MB|GB))\s+from/i);
+    if (candMatch && (!job.progress.totalSize || job.progress.totalSize === '0 MB')) {
+      job.progress.totalSize = candMatch[1].trim();
+    }
+
+    // Detect saved file size from Soulseek / SpotiFLAC logs: saved: ... (56.9MB)
+    const savedMatch = line.match(/saved:.*?\(([\d.]+\s*(?:KiB|MiB|GiB|KB|MB|GB))\)/i);
+    if (savedMatch) {
+      job.progress.totalSize = savedMatch[1].trim();
+      job.filesize = savedMatch[1].trim();
+    }
+
+    // Detect raw byte completion: 100% of 59671493 bytes
+    const bytesMatch = line.match(/100%\s+of\s+(\d+)\s+bytes/i);
+    if (bytesMatch) {
+      const szMb = (parseInt(bytesMatch[1], 10) / (1024 * 1024)).toFixed(1) + ' MB';
+      job.progress.totalSize = szMb;
+      job.filesize = szMb;
+      job.progress.percent = 100;
+      job.progress.eta = 'Ready';
+    }
+
+    // Dynamic ETA fallback if ETA is stuck on Starting... while actively downloading
+    if (job.progress.percent > 2 && job.progress.percent < 100) {
+      if (!job.progress.eta || job.progress.eta === 'Starting...' || job.progress.eta === '--:--') {
+        const elapsed = (Date.now() - job.startTime) / 1000;
+        if (elapsed > 2) {
+          const totalEstimated = elapsed / (job.progress.percent / 100);
+          const remaining = Math.max(0, Math.round(totalEstimated - elapsed));
+          const m = Math.floor(remaining / 60);
+          const s = remaining % 60;
+          job.progress.eta = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+      }
+    }
+
     // Freyr-JS progress parsing
     if (line.includes('Identifying service') || line.includes('Checking authentication')) {
       job.progress.eta = 'Resolving...';
@@ -812,6 +849,7 @@ function attachProcessListeners(job, child) {
             job.filesize = stat.size > (1024 ** 3)
               ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
               : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+            job.progress.totalSize = job.filesize;
           } else {
             job.status = 'failed';
             job.error = 'Downloaded file was 0 bytes.';
@@ -867,9 +905,9 @@ function createAndStartJob(opts) {
     progress: {
       percent: 0,
       speed: '0 MB/s',
-      eta: 'Queued',
-      downloadedSize: '0 MB',
-      totalSize: '0 MB',
+      eta: 'Starting...',
+      downloadedSize: '',
+      totalSize: '',
       currentFrag: 0,
       totalFrag: 0
     },

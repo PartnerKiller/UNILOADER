@@ -382,6 +382,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             aborted = False
             stall_count = 0
             last_bytes_tx = -1
+            total_mb = best['size'] / (1024 * 1024)
+            print(f"[download] 0.0% of {total_mb:.1f}MiB at 0.00MiB/s ETA --:-- (Soulseek HiFi)", flush=True)
             
             while time.time() - start_time < max_wait_sec:
                 time.sleep(1.5)
@@ -393,9 +395,21 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                             if tf.get('filename') == best['filename']:
                                 state = tf.get('state', '')
                                 bytes_tx = tf.get('bytesTransferred', 0)
-                                pct = (bytes_tx / best['size']) * 100 if best['size'] > 0 else 0
-                                speed_mb = (tf.get('averageSpeed', 0) / (1024 * 1024))
-                                print(f"[download] {pct:.1f}% of ~1 tracks at {speed_mb:.2f}MiB/s (Soulseek HiFi)", flush=True)
+                                total_bytes = best['size']
+                                pct = (bytes_tx / total_bytes) * 100 if total_bytes > 0 else 0
+                                speed_bytes = tf.get('averageSpeed', 0)
+                                speed_mb = speed_bytes / (1024 * 1024)
+                                
+                                rem_bytes = max(0, total_bytes - bytes_tx)
+                                if speed_bytes > 0:
+                                    eta_sec = int(rem_bytes / speed_bytes)
+                                    eta_m = eta_sec // 60
+                                    eta_s = eta_sec % 60
+                                    eta_str = f"{eta_m:02d}:{eta_s:02d}"
+                                else:
+                                    eta_str = "--:--"
+
+                                print(f"[download] {pct:.1f}% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA {eta_str} (Soulseek HiFi)", flush=True)
                                 
                                 if any(c in state for c in ['Completed', 'Succeeded']):
                                     completed = True
