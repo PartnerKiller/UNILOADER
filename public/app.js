@@ -534,7 +534,7 @@ async function startBatchDownload() {
   }
 }
 
-// 3. Trigger Browser Download & Show Ready Popup
+// 3. Handle Download Completion (Non-Intrusive, No Auto-Download)
 function triggerDeviceDownload(job) {
   activeReadyJob = job;
 
@@ -552,26 +552,15 @@ function triggerDeviceDownload(job) {
     readyModalFolderBtn.onclick = () => openFileInFolder(job.filePath);
   }
 
-  if (readyModal) readyModal.style.display = 'flex';
+  // Show non-intrusive success notification toast
+  showToast(`✓ Download completed: ${job.title || job.filename || 'Media'}`, 'success');
 
   // Native Windows Desktop Notification
   if (window.electronAPI && window.electronAPI.notify) {
     window.electronAPI.notify({
       title: 'Download Complete! 🎉',
-      body: `${job.title || job.filename || 'Media'} has completed downloading.`
+      body: `${job.title || job.filename || 'Media'} is ready in your Downloads folder.`
     });
-  }
-
-  // Automatically trigger native browser file save if running in web browser
-  if (!window.electronAPI) {
-    try {
-      const autoAnchor = document.createElement('a');
-      autoAnchor.href = job.downloadUrl;
-      autoAnchor.setAttribute('download', job.filename || 'download');
-      document.body.appendChild(autoAnchor);
-      autoAnchor.click();
-      document.body.removeChild(autoAnchor);
-    } catch (e) {}
   }
 }
 
