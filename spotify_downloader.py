@@ -291,13 +291,11 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                     '--newline',
                     '--no-warnings',
                     '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
-                    '--extractor-args', 'youtube:player_client=android',
                     '-x',
                     '--audio-format', audio_format,
                     '--audio-quality', '0' if audio_format == 'flac' else audio_quality,
                     '--no-playlist',
                     '--ignore-errors',
-                    '--no-abort-on-error',
                     '-o', out_tmpl,
                     target_query
                 ]
@@ -407,7 +405,6 @@ def download_spotify(url, output_target, audio_format='mp3', audio_quality='320k
                 '--newline',
                 '--no-warnings',
                 '--js-runtimes', 'node:/usr/bin/node' if sys.platform != 'win32' else 'node',
-                '--extractor-args', 'youtube:player_client=android',
                 '-x',
                 '--audio-format', audio_format,
                 '--audio-quality', '0' if audio_format == 'flac' else audio_quality,

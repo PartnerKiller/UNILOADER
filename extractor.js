@@ -117,10 +117,6 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
       '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node'
     ];
 
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      args.push('--extractor-args', 'youtube:player_client=android,web');
-    }
-
     if (process.platform === 'win32') {
       args.push('--impersonate', 'chrome');
     }

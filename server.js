@@ -587,8 +587,6 @@ function startJobProcess(job) {
       '--fragment-retries', '10',
       '--newline',
       '--ignore-errors',
-      '--no-abort-on-error',
-      '--extractor-args', 'youtube:player_client=android',
       '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
       '-o', outputTemplate
     ];
@@ -652,14 +650,17 @@ function startJobProcess(job) {
     // Subtitles (only for video)
     if (embedSubtitles && mode !== 'audio') {
       args.push('--embed-subs');
-      if (subLangs && subLangs.trim()) {
-        args.push('--sub-langs', subLangs.trim());
-      } else {
-        args.push('--sub-langs', 'all,-live_chat');
-      }
+      let requestedLangs = (subLangs && subLangs.trim()) ? subLangs.trim() : 'en.*,hi.*,ja.*';
+      // When auto-subs is enabled, querying all 140+ language tracks triggers YouTube's HTTP 429 rate limit.
+      // Scope to common languages if broad wildcard was provided.
       if (autoSubs) {
+        if (requestedLangs === 'all' || requestedLangs === 'all,-live_chat') {
+          requestedLangs = 'en.*,hi.*,ja.*,zh.*,es.*';
+        }
         args.push('--write-auto-subs');
+        args.push('--sleep-subtitles', '1');
       }
+      args.push('--sub-langs', requestedLangs);
     }
 
     // Metadata & Thumbnails

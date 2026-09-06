@@ -107,7 +107,6 @@ def download_hifi_flac(source_url, output_path, ytdlp_path='yt-dlp', progress_ca
         '--newline',
         '--no-warnings',
         '--ignore-errors',
-        '--no-abort-on-error',
         '--extractor-args', 'youtube:player_client=web,ios',
         '-f', 'ba[format_id=251]/ba[ext=webm]/ba[ext=m4a]/ba/best',
         '-x',

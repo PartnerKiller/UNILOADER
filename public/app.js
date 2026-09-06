@@ -319,6 +319,9 @@ function applyPreset(presetKey) {
     setMode('video');
     chkEmbedSubtitles.checked = true;
     chkAutoSubs.checked = true;
+    if (!subLangsInput.value || subLangsInput.value === 'all,-live_chat') {
+      subLangsInput.value = 'en.*,hi.*,ja.*';
+    }
     highlightPreset(presetSubtitles);
   } else if (presetKey === 'sponsorBlock') {
     chkSponsorBlock.checked = !chkSponsorBlock.checked;
