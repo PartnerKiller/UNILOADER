@@ -98,6 +98,159 @@ const jobs = new Map();
 const sseClients = new Map(); // jobId -> Set(res)
 const globalSseClients = new Set();
 
+const HISTORY_FILE = path.join(TEMP_DIR, '.jobs_history.json');
+
+function saveJobsHistory() {
+  try {
+    const records = [];
+    for (const j of jobs.values()) {
+      if (j.status === 'completed' && j.filePath && fs.existsSync(j.filePath)) {
+        records.push({
+          id: j.id,
+          url: j.url || '',
+          title: j.title || '',
+          code: j.code || 'MEDIA',
+          poster: j.poster || '',
+          mode: j.mode || 'video',
+          filename: j.filename || path.basename(j.filePath),
+          filesize: j.filesize || '',
+          filePath: j.filePath,
+          status: 'completed',
+          progress: { percent: 100, eta: 'Ready' },
+          createdAt: j.createdAt || Date.now(),
+          completedTime: j.completedTime || Date.now()
+        });
+      }
+    }
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(records, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[Server] Failed to save jobs history:', e.message);
+  }
+}
+
+function loadJobsHistory() {
+  try {
+    if (fs.existsSync(HISTORY_FILE)) {
+      const content = fs.readFileSync(HISTORY_FILE, 'utf8');
+      const records = JSON.parse(content);
+      if (Array.isArray(records)) {
+        for (const r of records) {
+          if (r && r.id && r.filePath && fs.existsSync(r.filePath)) {
+            jobs.set(r.id, {
+              ...r,
+              logs: ['Processing completed! File ready in folder.'],
+              downloadUrl: `/api/download-file/${r.id}`,
+              streamUrl: `/api/stream/${r.id}`,
+              process: null
+            });
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Server] Failed to load jobs history:', e.message);
+  }
+
+  // Scan TEMP_DIR for any media files from previous runs
+  try {
+    const files = fs.readdirSync(TEMP_DIR);
+    const mediaExtensions = new Set(['.mp4', '.mkv', '.webm', '.mp3', '.flac', '.m4a', '.wav', '.opus']);
+    const knownPaths = new Set(Array.from(jobs.values()).map(j => path.normalize(j.filePath || '')));
+
+    for (const f of files) {
+      if (f.startsWith('.') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl')) continue;
+      const fullPath = path.join(TEMP_DIR, f);
+      const ext = path.extname(f).toLowerCase();
+      if (!mediaExtensions.has(ext)) continue;
+
+      if (!knownPaths.has(path.normalize(fullPath))) {
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.isFile() && stat.size > 0) {
+            const match = f.match(/^(job_\d+_[a-z0-9]+)_(.*)$/i);
+            const id = match ? match[1] : `job_${Math.floor(stat.mtimeMs)}_${Math.random().toString(36).substring(2, 7)}`;
+            const cleanName = match ? match[2] : f;
+            const title = cleanName.replace(/\.[^.]+$/, '');
+            const isAudio = ['.mp3', '.flac', '.m4a', '.wav', '.opus'].includes(ext);
+            const sizeStr = stat.size > (1024 ** 3)
+              ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
+              : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+
+            jobs.set(id, {
+              id,
+              url: '',
+              title,
+              code: title.substring(0, 15).toUpperCase(),
+              poster: '',
+              mode: isAudio ? 'audio' : 'video',
+              filename: cleanName,
+              filesize: sizeStr,
+              filePath: fullPath,
+              status: 'completed',
+              progress: { percent: 100, eta: 'Ready' },
+              logs: ['Processing completed! File ready in folder.'],
+              createdAt: stat.mtimeMs,
+              completedTime: stat.mtimeMs,
+              downloadUrl: `/api/download-file/${id}`,
+              streamUrl: `/api/stream/${id}`,
+              process: null
+            });
+            knownPaths.add(path.normalize(fullPath));
+          }
+        } catch (e) {}
+      }
+    }
+    saveJobsHistory();
+  } catch (e) {}
+}
+
+function findMediaFileByJobId(jobId) {
+  // 1. Check in-memory jobs Map
+  const job = jobs.get(jobId);
+  if (job && job.filePath && fs.existsSync(job.filePath)) {
+    return { filePath: job.filePath, filename: job.filename || path.basename(job.filePath), job };
+  }
+
+  // 2. Scan TEMP_DIR
+  try {
+    const files = fs.readdirSync(TEMP_DIR).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl'));
+
+    let matched = files.find(f => f.startsWith(`${jobId}_`));
+    if (matched) {
+      const fullPath = path.join(TEMP_DIR, matched);
+      return { filePath: fullPath, filename: matched.replace(`${jobId}_`, ''), job };
+    }
+
+    matched = files.find(f => f.includes(jobId));
+    if (matched) {
+      const fullPath = path.join(TEMP_DIR, matched);
+      return { filePath: fullPath, filename: matched, job };
+    }
+
+    for (const j of jobs.values()) {
+      if (j.filePath && fs.existsSync(j.filePath)) {
+        if (j.id === jobId || (j.title && jobId.toLowerCase().includes(j.title.toLowerCase().substring(0, 10)))) {
+          return { filePath: j.filePath, filename: j.filename || path.basename(j.filePath), job: j };
+        }
+      }
+    }
+
+    const mediaFiles = files
+      .filter(f => ['.mp4', '.mkv', '.webm', '.mp3', '.flac', '.m4a', '.opus', '.wav'].includes(path.extname(f).toLowerCase()))
+      .map(f => ({ name: f, time: fs.statSync(path.join(TEMP_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.time - a.time);
+
+    if (mediaFiles.length > 0) {
+      const best = path.join(TEMP_DIR, mediaFiles[0].name);
+      return { filePath: best, filename: mediaFiles[0].name, job };
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+loadJobsHistory();
+
 function broadcastGlobalJobUpdate() {
   if (globalSseClients.size === 0) return;
   const jobList = Array.from(jobs.values()).map(j => ({
@@ -272,15 +425,20 @@ app.post('/api/config/open-folder', (req, res) => {
   const target = filePath || TEMP_DIR;
   try {
     if (process.platform === 'win32') {
-      if (filePath && fs.existsSync(filePath)) {
-        spawn('explorer.exe', [`/select,${path.normalize(filePath)}`], { detached: true, stdio: 'ignore' });
-      } else {
-        spawn('explorer.exe', [path.normalize(target)], { detached: true, stdio: 'ignore' });
-      }
+      const child = (filePath && fs.existsSync(filePath))
+        ? spawn('explorer.exe', [`/select,${path.normalize(filePath)}`], { detached: true, stdio: 'ignore' })
+        : spawn('explorer.exe', [path.normalize(target)], { detached: true, stdio: 'ignore' });
+      child.on('error', (err) => console.warn('[Server] Explorer error:', err.message));
     } else if (process.platform === 'darwin') {
-      spawn('open', [target], { detached: true, stdio: 'ignore' });
+      const child = spawn('open', [target], { detached: true, stdio: 'ignore' });
+      child.on('error', (err) => console.warn('[Server] Open error:', err.message));
     } else {
-      spawn('xdg-open', [target], { detached: true, stdio: 'ignore' });
+      if (process.env.DISPLAY || process.env.WAYLAND_DISPLAY) {
+        const child = spawn('xdg-open', [target], { detached: true, stdio: 'ignore' });
+        child.on('error', (err) => console.warn('[Server] xdg-open error:', err.message));
+      } else {
+        return res.json({ success: false, message: 'Headless server: cannot open GUI folder' });
+      }
     }
     res.json({ success: true, opened: target });
   } catch (err) {
@@ -635,15 +793,24 @@ function startJobProcess(job) {
       const aBit = audioBitrate || '320k';
       args.push('--audio-quality', aBit === 'best' ? '0' : aBit);
     } else {
-      if (videoQuality && videoQuality !== 'best') {
-        const maxHeight = parseInt(videoQuality, 10);
-        args.push('-f', `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
+      const targetFmt = (videoFormat && videoFormat !== 'auto') ? videoFormat : 'mp4';
+      if (targetFmt === 'mp4') {
+        if (videoQuality && videoQuality !== 'best') {
+          const maxHeight = parseInt(videoQuality, 10);
+          args.push('-f', `bestvideo[height<=${maxHeight}][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
+        } else {
+          args.push('-f', 'bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best');
+        }
+        args.push('--merge-output-format', 'mp4');
+        args.push('--postprocessor-args', 'Merger:-movflags +faststart');
       } else {
-        args.push('-f', 'bestvideo+bestaudio/best');
-      }
-
-      if (videoFormat && videoFormat !== 'auto') {
-        args.push('--merge-output-format', videoFormat);
+        if (videoQuality && videoQuality !== 'best') {
+          const maxHeight = parseInt(videoQuality, 10);
+          args.push('-f', `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
+        } else {
+          args.push('-f', 'bestvideo+bestaudio/best');
+        }
+        args.push('--merge-output-format', targetFmt);
       }
     }
 
@@ -920,6 +1087,7 @@ function attachProcessListeners(job, child) {
               ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
               : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
             job.progress.totalSize = job.filesize;
+            saveJobsHistory();
           } else {
             job.status = 'failed';
             job.error = 'Downloaded file was 0 bytes.';
@@ -1220,6 +1388,7 @@ app.delete('/api/jobs/:id', (req, res) => {
   } catch (e) {}
 
   jobs.delete(jobId);
+  saveJobsHistory();
   processDownloadQueue();
   res.json({ success: true, message: 'Job deleted' });
 });
@@ -1244,41 +1413,25 @@ app.delete('/api/jobs', (req, res) => {
       jobs.delete(id);
     }
   }
+  saveJobsHistory();
   res.json({ success: true, message: 'Cleared completed jobs' });
 });
 
 // 6. Direct Browser File Download
 app.get('/api/download-file/:id', (req, res) => {
   const jobId = req.params.id;
-  const job = jobs.get(jobId);
+  const match = findMediaFileByJobId(jobId);
 
-  if (!job) {
-    try {
-      const files = fs.readdirSync(TEMP_DIR);
-      const matched = files.find(f => f.startsWith(`${jobId}_`) && !f.endsWith('_parts'));
-      if (matched) {
-        const fullPath = path.join(TEMP_DIR, matched);
-        const clientFilename = matched.replace(`${jobId}_`, '');
-        return res.download(fullPath, clientFilename);
-      }
-    } catch (e) {}
+  if (!match || !fs.existsSync(match.filePath)) {
     return res.status(404).send('File not found or expired');
   }
 
-  if (job.filePath && fs.existsSync(job.filePath)) {
-    return res.download(job.filePath, job.filename);
-  }
-
-  try {
-    const files = fs.readdirSync(TEMP_DIR);
-    const matched = files.find(f => f.startsWith(`${jobId}_`) && !f.endsWith('_parts'));
-    if (matched) {
-      const fullPath = path.join(TEMP_DIR, matched);
-      return res.download(fullPath, job.filename || matched.replace(`${jobId}_`, ''));
+  const clientFilename = match.filename || path.basename(match.filePath);
+  res.download(match.filePath, clientFilename, (err) => {
+    if (err && !res.headersSent) {
+      console.warn('[Server] Download error:', err.message);
     }
-  } catch (e) {}
-
-  res.status(404).send('File is still processing or has expired');
+  });
 });
 
 // 6b. Direct Browser Cover Art Download
@@ -1334,20 +1487,13 @@ app.get('/api/download-cover/:id', (req, res) => {
 // 7. Media Streaming Endpoint
 app.get('/api/stream/:id', (req, res) => {
   const jobId = req.params.id;
-  const job = jobs.get(jobId);
-  let filePath = job ? job.filePath : null;
+  const match = findMediaFileByJobId(jobId);
 
-  if (!filePath || !fs.existsSync(filePath)) {
-    try {
-      const files = fs.readdirSync(TEMP_DIR);
-      const matched = files.find(f => f.startsWith(`${jobId}_`) && !f.endsWith('_parts'));
-      if (matched) filePath = path.join(TEMP_DIR, matched);
-    } catch (e) {}
-  }
-
-  if (!filePath || !fs.existsSync(filePath)) {
+  if (!match || !fs.existsSync(match.filePath)) {
     return res.status(404).send('File not found');
   }
+
+  const filePath = match.filePath;
 
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
