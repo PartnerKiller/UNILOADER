@@ -12,6 +12,16 @@ function saveSessionJobs() {
   sessionStorage.setItem('vortex_session_jobs', JSON.stringify(Array.from(sessionJobIds)));
 }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // Toast Notifications
 function showToast(message, type = 'error') {
   let container = document.getElementById('toastContainer');
@@ -742,38 +752,51 @@ function createJobCardElement(job) {
 }
 
 function renderJobControls(job) {
-  if (job.status === 'completed') {
-    const isFlac = (job.filename && job.filename.toLowerCase().endsWith('.flac')) || (job.opts && job.opts.audioFormat === 'flac');
-    const directPath = job.filePath ? job.filePath.replace(/\\/g, '\\\\') : '';
-    const isElectron = window.electronAPI && window.electronAPI.isElectron;
+  try {
+    if (job.status === 'completed') {
+      const isFlac = (job.filename && job.filename.toLowerCase().endsWith('.flac')) || (job.opts && job.opts.audioFormat === 'flac');
+      const directPath = job.filePath ? job.filePath.replace(/\\/g, '\\\\') : '';
+      const isElectron = window.electronAPI && window.electronAPI.isElectron;
+      const downloadName = escapeHtml(job.filename || 'download');
 
-    return `
-      ${isElectron ? `
-        <button class="btn btn-primary btn-sm" onclick="openFileInFolder('${directPath}')" title="Open in File Explorer">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-          <span>Folder</span>
+      return `
+        ${isElectron ? `
+          <button class="btn btn-primary btn-sm" onclick="openFileInFolder('${directPath}')" title="Open in File Explorer">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span>Folder</span>
+          </button>
+        ` : `
+          <a href="${job.downloadUrl}" class="btn btn-primary btn-sm" download="${downloadName}" title="Save to Device">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Save to Device</span>
+          </a>
+        `}
+        <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')" title="Watch Media">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <span>Watch</span>
         </button>
-      ` : `
-        <a href="${job.downloadUrl}" class="btn btn-primary btn-sm" download="${escapeHtml(job.filename || 'download')}" title="Save to Device">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          <span>Save to Device</span>
-        </a>
-      `}
+        ${isFlac ? `
+          <button class="btn btn-flac-verify btn-sm" onclick="inspectFlacFile('${job.id}', '${directPath}')" title="Inspect Lossless FLAC Authenticity">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            <span>Check FLAC</span>
+          </button>
+        ` : ''}
+      `;
+    } else if (job.status === 'cancelled' || job.status === 'failed') {
+      return `<button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>`;
+    } else if (job.status === 'downloading') {
+      return `<button class="btn btn-danger" onclick="cancelJob('${job.id}')">Cancel</button>`;
+    }
+  } catch (err) {
+    console.error('Error rendering job controls:', err);
+    return `
+      <a href="${job.downloadUrl}" class="btn btn-primary btn-sm" download title="Save to Device">
+        <span>Save to Device</span>
+      </a>
       <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')" title="Watch Media">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
         <span>Watch</span>
       </button>
-      ${isFlac ? `
-        <button class="btn btn-flac-verify btn-sm" onclick="inspectFlacFile('${job.id}', '${directPath}')" title="Inspect Lossless FLAC Authenticity">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-          <span>Check FLAC</span>
-        </button>
-      ` : ''}
     `;
-  } else if (job.status === 'cancelled' || job.status === 'failed') {
-    return `<button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>`;
-  } else if (job.status === 'downloading') {
-    return `<button class="btn btn-danger" onclick="cancelJob('${job.id}')">Cancel</button>`;
   }
   return '';
 }
