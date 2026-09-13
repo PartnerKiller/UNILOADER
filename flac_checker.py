@@ -181,7 +181,7 @@ def analyze_flac(file_path, generate_spectrogram=True):
         energy_results[f"above_{band}hz"] = {
             "mean_db": mean_v,
             "max_db": max_v,
-            "active": (mean_v is not None and mean_v > -80.0)
+            "active": (mean_v is not None and mean_v > -70.0)
         }
 
     # 3. Cutoff & Transcode Detection Logic
@@ -189,6 +189,15 @@ def analyze_flac(file_path, generate_spectrogram=True):
     e18 = energy_results.get("above_18500hz", {})
     e20 = energy_results.get("above_20000hz", {})
     e22 = energy_results.get("above_22000hz", {})
+
+    m16 = e16.get("mean_db")
+    x16 = e16.get("max_db")
+    m18 = e18.get("mean_db")
+    x18 = e18.get("max_db")
+    m20 = e20.get("mean_db")
+    x20 = e20.get("max_db")
+    m22 = e22.get("mean_db") if e22 else None
+    x22 = e22.get("max_db") if e22 else None
 
     cutoff_frequency = None
     verdict = "GENUINE_LOSSLESS"
@@ -198,32 +207,41 @@ def analyze_flac(file_path, generate_spectrogram=True):
     warnings = []
     details = []
 
-    # Check 16kHz cutoff (128k MP3 transcode)
-    if e16.get("mean_db") is not None and e16.get("mean_db") < -80.0:
+    # Check 16kHz cutoff (128k MP3 transcode or low-bitrate lossy)
+    if m16 is not None and (m16 < -68.0 or (m16 < -60.0 and x16 is not None and x16 < -35.0)):
         cutoff_frequency = 16000
         score = 20
         verdict = "FAKE_FLAC"
         verdict_title = "Fake FLAC (Low-Bitrate 128k Transcode)"
         verdict_badge = "danger"
-        warnings.append("Severe frequency cutoff detected at 16.0 kHz (standard 128kbps MP3 artifact).")
-    
-    # Check 18.5kHz cutoff (192k MP3 transcode)
-    elif e18.get("mean_db") is not None and e18.get("mean_db") < -80.0:
-        cutoff_frequency = 18500
-        score = 45
-        verdict = "FAKE_FLAC"
-        verdict_title = "Fake FLAC (192k Lossy Transcode)"
-        verdict_badge = "danger"
-        warnings.append("Hard frequency cutoff detected at 18.5 kHz (typical 192kbps MP3 artifact).")
+        warnings.append("Severe frequency cutoff detected at 16.0 kHz (standard 128kbps MP3 / low-bitrate artifact).")
 
-    # Check 20kHz cutoff (320k MP3 / YouTube Opus transcode)
-    elif e20.get("mean_db") is not None and e20.get("mean_db") < -75.0:
+    # Check 18.5kHz cutoff (192k MP3 / lossy transcode)
+    elif m18 is not None and (m18 < -68.0 or (m18 < -62.0 and x18 is not None and x18 < -35.0)):
+        cutoff_frequency = 18500
+        score = 40
+        verdict = "FAKE_FLAC"
+        verdict_title = "Fake FLAC (Lossy 192k Transcode)"
+        verdict_badge = "danger"
+        warnings.append("Hard frequency cutoff detected at 18.5 kHz (typical 192kbps MP3 / lossy encoder artifact).")
+
+    # Check 20kHz cutoff (320k MP3 / YouTube Opus 160k transcode)
+    elif m20 is not None and (m20 < -72.0 or (m20 < -64.0 and x20 is not None and x20 < -40.0)):
         cutoff_frequency = 20000
         score = 65
         verdict = "SUSPICIOUS"
-        verdict_title = "Suspicious (Capped at 20 kHz / Possible 320k Transcode)"
+        verdict_title = "Suspicious (Capped at 20 kHz / Likely 320k Transcode)"
         verdict_badge = "warning"
-        warnings.append("High-frequency cutoff detected at 20.0 kHz. May be an upscaled 320kbps MP3 or YouTube Opus stream.")
+        warnings.append("High-frequency brickwall cutoff detected at 20.0 kHz. Likely an upscaled 320kbps MP3 or YouTube Opus stream.")
+
+    # Check fake Hi-Res (upscaled CDDA into 24-bit / 48kHz+ container)
+    elif nyquist_freq > 22050 and m22 is not None and (m22 < -72.0 or (m22 < -65.0 and x22 is not None and x22 < -42.0)):
+        cutoff_frequency = 22050
+        score = 75
+        verdict = "UPSCALED_HIRES"
+        verdict_title = f"Upscaled Hi-Res ({bits_per_sample}-bit / {sample_rate/1000:.1f} kHz container, 44.1 kHz CD audio)"
+        verdict_badge = "warning"
+        warnings.append("Container is labeled Hi-Res (48 kHz+), but frequency content terminates sharply at 22.05 kHz (standard CD limit).")
 
     else:
         # Genuine lossless acoustic characteristics

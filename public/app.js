@@ -1356,7 +1356,7 @@ function renderFlacReport(report) {
   const iconWrap = document.getElementById('verdictIconWrap');
 
   banner.className = `flac-verdict-banner verdict-${report.verdictBadge || 'success'}`;
-  badge.textContent = report.verdictBadge === 'success' ? '100% GENUINE' : (report.verdictBadge === 'warning' ? 'SUSPICIOUS' : 'FAKE FLAC');
+  badge.textContent = report.verdict === 'UPSCALED_HIRES' ? 'UPSCALED HI-RES' : (report.verdictBadge === 'success' ? '100% GENUINE' : (report.verdictBadge === 'warning' ? 'SUSPICIOUS' : 'FAKE FLAC'));
   score.textContent = `Score: ${report.authenticityScore || 0}/100`;
   title.textContent = report.verdictTitle || 'Analysis Complete';
   fileName.textContent = report.filename || 'Audio File';

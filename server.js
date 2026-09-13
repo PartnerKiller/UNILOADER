@@ -453,28 +453,34 @@ app.post('/api/config/open-folder', (req, res) => {
 // List recent FLAC files for quick inspection
 app.get('/api/flac-check/recent', (req, res) => {
   try {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
     const searchDirs = [
       TEMP_DIR,
       path.join(__dirname, 'temp_media'),
+      path.join(homeDir, 'slskd_downloads'),
+      path.join(homeDir, 'OrpheusDL', 'downloads'),
+      path.join(homeDir, 'Downloads', 'JAV-Downloader'),
+      path.join(homeDir, 'Downloads'),
+      path.join(homeDir, 'music'),
       path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'Downloads', 'JAV-Downloader')
-    ];
+    ].filter(Boolean);
 
     const results = [];
     const seen = new Set();
 
-    for (const dir of searchDirs) {
-      if (!dir || !fs.existsSync(dir)) continue;
+    function scanDir(dir, maxDepth = 2, currentDepth = 0) {
+      if (!dir || !fs.existsSync(dir) || currentDepth > maxDepth) return;
       try {
-        const files = fs.readdirSync(dir);
-        for (const f of files) {
-          if (f.toLowerCase().endsWith('.flac')) {
-            const fullPath = path.join(dir, f);
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isFile() && entry.name.toLowerCase().endsWith('.flac')) {
             if (!seen.has(fullPath)) {
               seen.add(fullPath);
               try {
                 const stat = fs.statSync(fullPath);
                 results.push({
-                  filename: f,
+                  filename: entry.name,
                   filePath: fullPath,
                   sizeBytes: stat.size,
                   sizeMB: (stat.size / (1024 * 1024)).toFixed(2),
@@ -482,13 +488,19 @@ app.get('/api/flac-check/recent', (req, res) => {
                 });
               } catch (e) {}
             }
+          } else if (entry.isDirectory() && !entry.name.startsWith('.') && currentDepth < maxDepth) {
+            scanDir(fullPath, maxDepth, currentDepth + 1);
           }
         }
       } catch (e) {}
     }
 
+    for (const dir of searchDirs) {
+      scanDir(dir, 2, 0);
+    }
+
     results.sort((a, b) => b.mtime - a.mtime);
-    res.json(results.slice(0, 25));
+    res.json(results.slice(0, 35));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
