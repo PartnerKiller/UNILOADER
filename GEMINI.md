@@ -17,3 +17,10 @@
 - **Always update to git**: After making fixes or modifications, commit and push changes to the repository (`PartnerKiller/JAV-Downloader` on branch `main`).
 - **Remote Sync**: Synchronize updated files to the production host/service and restart `jav-downloader.service`.
 - **Confidentiality**: Never commit secrets, tokens, API keys, passwords, credentials, or private network IPs to Git.
+
+## 4. UI Versioning Policy
+- **Always update the version tag in `public/index.html` (`<span class="version-tag">...</span>`)**:
+  - **Major updates**: `X.X.0` (bump major or minor release value and reset patch to `0`, e.g., `v3.8.0` → `v3.9.0` or `v4.0.0`).
+  - **Minor updates**: `0.0.X` (bump patch value for bug fixes, tweaks, and maintenance, e.g., `v3.9.0` → `v3.9.1`).
+  - *(where `X` is the main incremented value)*.
+
