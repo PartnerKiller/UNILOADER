@@ -203,6 +203,16 @@ function setupEventListeners() {
     clearAllCompletedBtn.addEventListener('click', clearAllCompletedJobs);
   }
 
+  // Global Pause All and Resume All buttons
+  const pauseAllBtn = document.getElementById('pauseAllBtn');
+  const resumeAllBtn = document.getElementById('resumeAllBtn');
+  if (pauseAllBtn) {
+    pauseAllBtn.addEventListener('click', pauseAllJobs);
+  }
+  if (resumeAllBtn) {
+    resumeAllBtn.addEventListener('click', resumeAllJobs);
+  }
+
   // Close modals
   if (closeModalBtn) closeModalBtn.addEventListener('click', closePlayerModal);
   if (playerModal) {
@@ -630,9 +640,9 @@ async function loadJobs() {
     const allJobs = await res.json();
 
     // Auto-remove completed/inactive jobs on refresh:
-    // Only display jobs that are actively downloading OR belong to the current session
+    // Only display jobs that are actively downloading, paused, queued, OR belong to the current session
     const visibleJobs = allJobs.filter(j => {
-      if (j.status === 'downloading') return true;
+      if (j.status === 'downloading' || j.status === 'paused' || j.status === 'queued') return true;
       return sessionJobIds.has(j.id);
     });
 
@@ -648,18 +658,38 @@ function renderJobsList(jobs) {
     activeCountLabel.textContent = '0 Active';
     queueStatusIndicator.querySelector('.status-dot').classList.remove('active');
     if (clearAllCompletedBtn) clearAllCompletedBtn.style.display = 'none';
+    const pauseAllBtn = document.getElementById('pauseAllBtn');
+    const resumeAllBtn = document.getElementById('resumeAllBtn');
+    if (pauseAllBtn) pauseAllBtn.style.display = 'none';
+    if (resumeAllBtn) resumeAllBtn.style.display = 'none';
     return;
   }
 
   emptyJobsState.style.display = 'none';
 
   const activeJobs = jobs.filter(j => j.status === 'downloading');
-  activeCountLabel.textContent = `${activeJobs.length} Active`;
+  const pausedJobs = jobs.filter(j => j.status === 'paused');
+  const queuedJobs = jobs.filter(j => j.status === 'queued');
+
+  let activeText = `${activeJobs.length} Active`;
+  if (pausedJobs.length > 0) {
+    activeText += ` • ${pausedJobs.length} Paused`;
+  }
+  activeCountLabel.textContent = activeText;
   
   if (activeJobs.length > 0) {
     queueStatusIndicator.querySelector('.status-dot').classList.add('active');
   } else {
     queueStatusIndicator.querySelector('.status-dot').classList.remove('active');
+  }
+
+  const pauseAllBtn = document.getElementById('pauseAllBtn');
+  const resumeAllBtn = document.getElementById('resumeAllBtn');
+  if (pauseAllBtn) {
+    pauseAllBtn.style.display = (activeJobs.length > 0 || queuedJobs.length > 0) ? 'inline-flex' : 'none';
+  }
+  if (resumeAllBtn) {
+    resumeAllBtn.style.display = (pausedJobs.length > 0) ? 'inline-flex' : 'none';
   }
 
   const hasCompleted = jobs.some(j => j.status === 'completed' || j.status === 'cancelled' || j.status === 'failed');
@@ -675,7 +705,7 @@ function renderJobsList(jobs) {
     }
     updateJobCard(job);
 
-    if (job.status === 'downloading' && !activeEventSources.has(job.id)) {
+    if ((job.status === 'downloading' || job.status === 'queued') && !activeEventSources.has(job.id)) {
       subscribeToJob(job.id);
     }
   });
@@ -784,8 +814,22 @@ function renderJobControls(job) {
       `;
     } else if (job.status === 'cancelled' || job.status === 'failed') {
       return `<button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>`;
-    } else if (job.status === 'downloading') {
-      return `<button class="btn btn-danger" onclick="cancelJob('${job.id}')">Cancel</button>`;
+    } else if (job.status === 'paused') {
+      return `
+        <button class="btn btn-success btn-sm" onclick="resumeJob('${job.id}')" title="Resume download">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <span>Resume</span>
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
+      `;
+    } else if (job.status === 'downloading' || job.status === 'queued') {
+      return `
+        <button class="btn btn-warning btn-sm" onclick="pauseJob('${job.id}')" title="Pause download">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+          <span>Pause</span>
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
+      `;
     }
   } catch (err) {
     console.error('Error rendering job controls:', err);
@@ -803,6 +847,7 @@ function renderJobControls(job) {
 
 function formatEtaDisplay(eta, status) {
   if (status === 'completed') return 'Ready';
+  if (status === 'paused') return 'Paused';
   if (!eta || eta === '--' || eta === '0' || eta === '--:--') return '--:--';
   if (typeof eta === 'string' && /^\d+$/.test(eta.trim())) {
     const sec = parseInt(eta.trim(), 10);
@@ -869,6 +914,86 @@ window.toggleJobLogs = function(jobId) {
     if (drawer.style.display === 'block') {
       drawer.scrollTop = drawer.scrollHeight;
     }
+  }
+};
+
+window.pauseJob = async function(jobId) {
+  try {
+    const card = document.getElementById(`job-card-${jobId}`);
+    if (card) {
+      card.className = 'job-card paused';
+      const badge = document.getElementById(`job-badge-${jobId}`);
+      if (badge) {
+        badge.className = 'job-status-badge status-paused';
+        badge.textContent = 'PAUSED';
+      }
+      const eta = document.getElementById(`job-metric-eta-${jobId}`);
+      if (eta) eta.textContent = 'Paused';
+      const spd = document.getElementById(`job-metric-spd-${jobId}`);
+      if (spd) spd.textContent = '0 MB/s';
+    }
+
+    const res = await fetch(`/api/jobs/${jobId}/pause`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to pause download', 'error');
+    }
+    loadJobs();
+  } catch (err) {
+    console.warn('Pause error:', err);
+    showToast('Error pausing download', 'error');
+  }
+};
+
+window.resumeJob = async function(jobId) {
+  try {
+    const card = document.getElementById(`job-card-${jobId}`);
+    if (card) {
+      card.className = 'job-card downloading';
+      const badge = document.getElementById(`job-badge-${jobId}`);
+      if (badge) {
+        badge.className = 'job-status-badge status-downloading';
+        badge.textContent = 'RESUMING...';
+      }
+    }
+
+    const res = await fetch(`/api/jobs/${jobId}/resume`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to resume download', 'error');
+    } else {
+      subscribeToJob(jobId);
+    }
+    loadJobs();
+  } catch (err) {
+    console.warn('Resume error:', err);
+    showToast('Error resuming download', 'error');
+  }
+};
+
+window.pauseAllJobs = async function() {
+  try {
+    const res = await fetch('/api/jobs/pause-all', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Paused ${data.pausedCount || 0} active download(s)`, 'info');
+    }
+    loadJobs();
+  } catch (err) {
+    console.warn('Pause all error:', err);
+  }
+};
+
+window.resumeAllJobs = async function() {
+  try {
+    const res = await fetch('/api/jobs/resume-all', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Resumed ${data.resumedCount || 0} download(s)`, 'success');
+    }
+    loadJobs();
+  } catch (err) {
+    console.warn('Resume all error:', err);
   }
 };
 

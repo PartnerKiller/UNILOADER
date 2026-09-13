@@ -1007,6 +1007,14 @@ function attachProcessListeners(job, child) {
     job.completedTime = Date.now();
     job.process = null;
 
+    if (job.status === 'paused') {
+      job.isSuspended = false;
+      job.logs.push('Download paused. State preserved for resumption.');
+      broadcastJobUpdate(jobId);
+      processDownloadQueue();
+      return;
+    }
+
     if (job.isFreyr && code !== 0) {
       job.logs.push(`[FALLBACK] Freyr exited with code ${code}. Engaging Universal High-Speed Spotify Engine...`);
       job.isFreyr = false;
@@ -1125,7 +1133,7 @@ function attachProcessListeners(job, child) {
         job.logs.push(`[ERR] File verification error: ${e.message}`);
       }
     } else {
-      if (job.status !== 'cancelled') {
+      if (job.status !== 'cancelled' && job.status !== 'paused') {
         job.status = 'failed';
         job.error = `Engine exited with code ${code}`;
         job.logs.push(`Process failed with exit code ${code}`);
@@ -1333,7 +1341,141 @@ app.get('/api/jobs', (req, res) => {
   res.json(list);
 });
 
-// 5. Cancel Job (Tree termination & partial cleanup)
+// Helper to pause a job
+function pauseJob(job) {
+  if (!job) return false;
+  if (job.status === 'queued') {
+    job.status = 'paused';
+    job.progress.eta = 'Paused';
+    job.logs.push('Task paused in queue.');
+    broadcastJobUpdate(job.id);
+    return true;
+  }
+  if (job.status === 'downloading') {
+    job.status = 'paused';
+    job.progress.speed = '0 MB/s';
+    job.progress.eta = 'Paused';
+    job.logs.push('Download paused by user.');
+
+    if (job.process && job.process.pid) {
+      const pid = job.process.pid;
+      if (process.platform !== 'win32') {
+        try {
+          execSync(`pkill -STOP -P ${pid} 2>/dev/null; kill -STOP ${pid} 2>/dev/null`, { stdio: 'ignore' });
+          job.isSuspended = true;
+        } catch (e) {
+          try { job.process.kill('SIGSTOP'); job.isSuspended = true; } catch (err) {}
+        }
+      } else {
+        try {
+          execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+        } catch (e) {}
+        job.isSuspended = false;
+        job.process = null;
+      }
+    }
+    broadcastJobUpdate(job.id);
+    processDownloadQueue();
+    return true;
+  }
+  return false;
+}
+
+// Helper to resume a job
+function resumeJob(job) {
+  if (!job || job.status !== 'paused') return false;
+
+  job.logs.push('Resuming download...');
+  if (job.isSuspended && job.process && job.process.pid) {
+    const pid = job.process.pid;
+    if (process.platform !== 'win32') {
+      let isAlive = false;
+      try {
+        execSync(`kill -0 ${pid} 2>/dev/null`);
+        isAlive = true;
+      } catch (e) {
+        isAlive = false;
+      }
+
+      if (isAlive) {
+        try {
+          execSync(`kill -CONT ${pid} 2>/dev/null; pkill -CONT -P ${pid} 2>/dev/null`, { stdio: 'ignore' });
+        } catch (e) {
+          try { job.process.kill('SIGCONT'); } catch (err) {}
+        }
+        job.isSuspended = false;
+        job.status = 'downloading';
+        job.progress.eta = 'Resuming...';
+        job.logs.push('Download stream resumed.');
+        broadcastJobUpdate(job.id);
+        return true;
+      }
+    }
+  }
+
+  // If process was terminated, socket closed, or on Windows
+  job.isSuspended = false;
+  if (getActiveDownloadCount() < MAX_CONCURRENT_DOWNLOADS) {
+    startJobProcess(job);
+  } else {
+    job.status = 'queued';
+    job.logs.push('Download queued for resumption...');
+    broadcastJobUpdate(job.id);
+  }
+  return true;
+}
+
+// 5. Pause Job Endpoint
+app.post('/api/jobs/:id/pause', (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const ok = pauseJob(job);
+  if (ok) {
+    res.json({ success: true, status: 'paused' });
+  } else {
+    res.status(400).json({ error: `Cannot pause job with status: ${job.status}` });
+  }
+});
+
+// 6. Resume Job Endpoint
+app.post('/api/jobs/:id/resume', (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const ok = resumeJob(job);
+  if (ok) {
+    res.json({ success: true, status: job.status });
+  } else {
+    res.status(400).json({ error: `Cannot resume job with status: ${job.status}` });
+  }
+});
+
+// 7. Pause All Jobs Endpoint
+app.post('/api/jobs/pause-all', (req, res) => {
+  let count = 0;
+  for (const job of jobs.values()) {
+    if (job.status === 'downloading' || job.status === 'queued') {
+      if (pauseJob(job)) count++;
+    }
+  }
+  res.json({ success: true, pausedCount: count });
+});
+
+// 8. Resume All Jobs Endpoint
+app.post('/api/jobs/resume-all', (req, res) => {
+  let count = 0;
+  for (const job of jobs.values()) {
+    if (job.status === 'paused') {
+      if (resumeJob(job)) count++;
+    }
+  }
+  res.json({ success: true, resumedCount: count });
+});
+
+// 9. Cancel Job (Tree termination & partial cleanup)
 app.post('/api/jobs/:id/cancel', (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
@@ -1417,7 +1559,7 @@ app.delete('/api/jobs/:id', (req, res) => {
 // Clear All Inactive Jobs
 app.delete('/api/jobs', (req, res) => {
   for (const [id, job] of jobs.entries()) {
-    if (job.status !== 'downloading' && job.status !== 'queued') {
+    if (job.status !== 'downloading' && job.status !== 'queued' && job.status !== 'paused') {
       try {
         const files = fs.readdirSync(TEMP_DIR);
         for (const f of files) {

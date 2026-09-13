@@ -637,6 +637,32 @@ body {
   background-color: hsla(350, 85%, 60%, 0.25);
 }
 
+.btn-warning {
+  background-color: hsla(38, 92%, 50%, 0.15);
+  color: hsl(38, 95%, 60%);
+  border: 1px solid hsla(38, 92%, 50%, 0.35);
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.btn-warning:hover {
+  background-color: hsla(38, 92%, 50%, 0.28);
+  color: #fff;
+}
+
+.btn-success {
+  background-color: hsla(158, 75%, 42%, 0.15);
+  color: var(--accent-emerald);
+  border: 1px solid hsla(158, 75%, 42%, 0.35);
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.btn-success:hover {
+  background-color: hsla(158, 75%, 42%, 0.28);
+  color: #fff;
+}
+
 .btn-sm {
   padding: 6px 12px;
   font-size: 0.8rem;
@@ -1079,6 +1105,10 @@ body {
   border-color: hsla(350, 85%, 60%, 0.35);
 }
 
+.job-card.paused {
+  border-color: hsla(38, 92%, 50%, 0.35);
+}
+
 .job-header {
   display: flex;
   flex-direction: column;
@@ -1190,6 +1220,12 @@ body {
   background-color: hsla(215, 12%, 50%, 0.15);
   color: var(--text-muted);
   border: 1px solid hsla(215, 12%, 50%, 0.3);
+}
+
+.status-paused {
+  background-color: hsla(38, 92%, 50%, 0.15);
+  color: hsl(38, 95%, 60%);
+  border: 1px solid hsla(38, 92%, 50%, 0.35);
 }
 
 /* Progress Bar */

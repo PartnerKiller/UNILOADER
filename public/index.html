@@ -365,6 +365,14 @@
               <p class="section-description">Real-time status and live stream processing.</p>
             </div>
             <div class="queue-header-actions">
+              <button class="btn btn-warning btn-sm" id="pauseAllBtn" style="display: none;" title="Pause all active downloads">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                <span>Pause All</span>
+              </button>
+              <button class="btn btn-success btn-sm" id="resumeAllBtn" style="display: none;" title="Resume all paused downloads">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>Resume All</span>
+              </button>
               <button class="btn btn-secondary btn-sm" id="clearAllCompletedBtn" style="display: none;" title="Clear completed tasks">
                 <span>Clear Completed</span>
               </button>
