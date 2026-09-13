@@ -120,12 +120,15 @@ def get_spotify_playlist_info(url):
             for i, t in enumerate(raw_tracks):
                 title = t.get('title', '')
                 subtitle = t.get('subtitle', '')
+                uri = t.get('uri', '')
+                track_id = uri.split(':')[-1] if uri else ''
                 full_name = f"{subtitle} - {title}" if subtitle else title
                 tracks.append({
                     'index': i + 1,
                     'title': title,
                     'artist': subtitle,
                     'fullName': full_name,
+                    'url': f"https://open.spotify.com/track/{track_id}" if track_id else '',
                     'query': f"ytsearch1:{full_name} audio"
                 })
             return {'type': 'playlist', 'name': pl_name, 'cover': cover_url, 'tracks': tracks}
@@ -147,12 +150,15 @@ def get_spotify_playlist_info(url):
             for i, t in enumerate(raw_tracks):
                 title = t.get('title', '')
                 subtitle = t.get('subtitle', '')
+                uri = t.get('uri', '')
+                track_id = uri.split(':')[-1] if uri else ''
                 full_name = f"{subtitle} - {title}" if subtitle else title
                 tracks.append({
                     'index': i + 1,
                     'title': title,
                     'artist': subtitle,
                     'fullName': full_name,
+                    'url': f"https://open.spotify.com/track/{track_id}" if track_id else '',
                     'query': f"ytsearch1:{full_name} audio"
                 })
             return {'type': 'album', 'name': album_name, 'cover': cover_url, 'tracks': tracks}

@@ -179,25 +179,36 @@ def download_deezer_flac_track(track_info, output_path, dz=None):
             return False
             
         track_token = gw_track.get('TRACK_TOKEN') or gw_track.get('track_token')
-        if not track_token:
-            return False
+        active_id = str(track_id)
 
-        flac_url = None
-        try:
-            urls = dz.get_tracks_url([track_token], 'FLAC')
-            if urls and len(urls) > 0:
-                flac_url = urls[0]
-        except Exception:
-            pass
-
-        if not flac_url:
+        def _extract_valid_url(token, fmt):
             try:
-                urls = dz.get_tracks_url([track_token], 'MP3_320')
-                if urls and len(urls) > 0:
-                    flac_url = urls[0]
+                urls = dz.get_tracks_url([token], fmt)
+                valid = [u for u in urls if isinstance(u, str) and u.startswith('http')]
+                if valid:
+                    return valid[0]
             except Exception:
                 pass
-            
+            return None
+
+        flac_url = None
+        # 1. Try primary track token
+        if track_token:
+            flac_url = _extract_valid_url(track_token, 'FLAC')
+            if not flac_url:
+                flac_url = _extract_valid_url(track_token, 'MP3_320')
+
+        # 2. If primary token geo-restricted or failed, check Deezer GW FALLBACK object
+        if not flac_url and gw_track.get('FALLBACK'):
+            fb = gw_track['FALLBACK']
+            fb_token = fb.get('TRACK_TOKEN')
+            if fb_token:
+                flac_url = _extract_valid_url(fb_token, 'FLAC')
+                if not flac_url:
+                    flac_url = _extract_valid_url(fb_token, 'MP3_320')
+                if flac_url:
+                    active_id = str(fb.get('SNG_ID') or active_id)
+
         if not flac_url:
             return False
             
@@ -207,7 +218,7 @@ def download_deezer_flac_track(track_info, output_path, dz=None):
             return False
 
         BF_SECRET = b"g4el58wc0zvf9na1"
-        md5_id = md5(str(track_id).encode('ascii')).hexdigest().encode('ascii')
+        md5_id = md5(str(active_id).encode('ascii')).hexdigest().encode('ascii')
         bf_key = bytes([md5_id[i] ^ md5_id[i + 16] ^ BF_SECRET[i] for i in range(16)])
             
         with open(output_path, 'wb') as f:
@@ -232,48 +243,51 @@ def resolve_and_download_flac(artist, title, isrc=None, output_path=None, durati
     if not dz:
         return False
         
-    matched_track = None
+    candidates = []
     
     # 1. Search by ISRC if available
     if isrc:
         try:
             r = session.get(f"https://api.deezer.com/track/isrc:{isrc}", timeout=6)
             if r.status_code == 200 and 'id' in r.json():
-                matched_track = r.json()
+                candidates.append(r.json())
         except Exception:
             pass
             
     # 2. Search by Artist + Title on Deezer GW
-    if not matched_track:
-        clean_artist = re.sub(r'[\(\)\[\]]', '', artist).strip()
-        clean_title = re.sub(r'[\(\)\[\]]', '', title).strip()
-        query = f"{clean_artist} {clean_title}"
-        try:
-            gw_res = dz.gw.search_music(query, 'TRACK')
-            tracks = gw_res.get('data', [])
-            if tracks:
-                matched_track = tracks[0]
-        except Exception:
-            pass
-            
-    if not matched_track:
+    clean_artist = re.sub(r'[\(\)\[\]]', '', artist).strip()
+    clean_title = re.sub(r'[\(\)\[\]]', '', title).strip()
+    query = f"{clean_artist} {clean_title}"
+    try:
+        gw_res = dz.gw.search_music(query, 'TRACK')
+        tracks = gw_res.get('data', [])
+        for t in tracks:
+            if not any(str(c.get('id') or c.get('SNG_ID')) == str(t.get('id') or t.get('SNG_ID')) for c in candidates):
+                candidates.append(t)
+    except Exception:
+        pass
+        
+    if not candidates:
         return False
         
-    print(f"[Deezer HiFi] Match found: {matched_track.get('title') or matched_track.get('SNG_TITLE')} (ID: {matched_track.get('id') or matched_track.get('SNG_ID')})", flush=True)
-    
-    success = download_deezer_flac_track(matched_track, output_path, dz=dz)
-    if success:
-        lyrics = fetch_synced_lyrics(artist, title, duration=duration)
-        meta = {
-            'title': title,
-            'artist': artist,
-            'album': matched_track.get('album', {}).get('title') if isinstance(matched_track.get('album'), dict) else matched_track.get('ALB_TITLE', ''),
-            'isrc': isrc or matched_track.get('isrc') or matched_track.get('ISRC', ''),
-            'cover_url': cover_url or matched_track.get('album', {}).get('cover_xl') or matched_track.get('ALB_PICTURE', ''),
-            'lyrics': lyrics
-        }
-        tag_flac(output_path, meta)
-        return True
+    for matched_track in candidates:
+        m_id = matched_track.get('id') or matched_track.get('SNG_ID')
+        m_title = matched_track.get('title') or matched_track.get('SNG_TITLE')
+        print(f"[Deezer HiFi] Match found: {m_title} (ID: {m_id})", flush=True)
+        
+        success = download_deezer_flac_track(matched_track, output_path, dz=dz)
+        if success:
+            lyrics = fetch_synced_lyrics(artist, title, duration=duration)
+            meta = {
+                'title': title,
+                'artist': artist,
+                'album': matched_track.get('album', {}).get('title') if isinstance(matched_track.get('album'), dict) else matched_track.get('ALB_TITLE', ''),
+                'isrc': isrc or matched_track.get('isrc') or matched_track.get('ISRC', ''),
+                'cover_url': cover_url or matched_track.get('album', {}).get('cover_xl') or matched_track.get('ALB_PICTURE', ''),
+                'lyrics': lyrics
+            }
+            tag_flac(output_path, meta)
+            return True
         
     return False
 

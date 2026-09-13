@@ -316,6 +316,132 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     return None
 
 
+def scrape_spotify_embed_tracks(url):
+    """
+    Extracts complete playlist, album, or track info from Spotify's public embed page.
+    Bypasses Spotify Web API 401 client-credentials authentication restrictions.
+    """
+    pl_m = re.search(r'playlist/([a-zA-Z0-9]+)', url)
+    album_m = re.search(r'album/([a-zA-Z0-9]+)', url)
+    track_m = re.search(r'track/([a-zA-Z0-9]+)', url)
+    
+    embed_url = None
+    entity_type = 'playlist' if pl_m else ('album' if album_m else 'track')
+    
+    if pl_m:
+        embed_url = f"https://open.spotify.com/embed/playlist/{pl_m.group(1)}"
+    elif album_m:
+        embed_url = f"https://open.spotify.com/embed/album/{album_m.group(1)}"
+    elif track_m:
+        embed_url = f"https://open.spotify.com/embed/track/{track_m.group(1)}"
+    else:
+        return None
+        
+    try:
+        html = None
+        try:
+            from curl_cffi import requests as cffi_requests
+            session = cffi_requests.Session(impersonate="chrome124")
+            r = session.get(embed_url, timeout=12)
+            if r.status_code == 200:
+                html = r.text
+        except Exception:
+            pass
+            
+        if not html:
+            req = urllib.request.Request(embed_url, headers={'User-Agent': USER_AGENT})
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                html = resp.read().decode('utf-8', errors='replace')
+                
+        if not html:
+            return None
+            
+        soup = BeautifulSoup(html, 'html.parser')
+        script = soup.find('script', id='__NEXT_DATA__')
+        if not script or not script.text:
+            return None
+            
+        data = json.loads(script.text)
+        entity = data.get('props', {}).get('pageProps', {}).get('state', {}).get('data', {}).get('entity', {})
+        if not entity:
+            return None
+            
+        name = entity.get('name') or entity.get('title') or 'Spotify Media'
+        
+        # Extract cover art (highest resolution available)
+        cover_url = ''
+        v_images = entity.get('visualIdentity', {}).get('image', []) if entity.get('visualIdentity') else []
+        if v_images and isinstance(v_images, list):
+            sorted_imgs = sorted(v_images, key=lambda x: (x.get('maxWidth', 0) or x.get('maxHeight', 0)), reverse=True)
+            cover_url = sorted_imgs[0].get('url', '')
+        if not cover_url:
+            sources = entity.get('coverArt', {}).get('sources', []) if entity.get('coverArt') else []
+            cover_url = sources[0].get('url') if sources else ''
+            
+        tracks = []
+        if entity_type in ('playlist', 'album'):
+            raw_tracks = entity.get('trackList', [])
+            for i, t in enumerate(raw_tracks):
+                title = t.get('title', '')
+                artist = t.get('subtitle', '')
+                uri = t.get('uri', '')
+                track_id = uri.split(':')[-1] if uri else ''
+                t_url = f"https://open.spotify.com/track/{track_id}" if track_id else ''
+                dur = int(t.get('duration', 0) / 1000) if t.get('duration') else None
+                full_name = f"{artist} - {title}" if artist else title
+                tracks.append({
+                    'index': i + 1,
+                    'title': title,
+                    'artist': artist,
+                    'album_name': name,
+                    'album_artist': entity.get('subtitle', artist),
+                    'year': None,
+                    'track_number': i + 1,
+                    'tracks_count': len(raw_tracks),
+                    'disc_number': 1,
+                    'isrc': None,
+                    'duration': dur,
+                    'url': t_url,
+                    'cover_url': cover_url,
+                    'fullName': full_name
+                })
+        else:
+            title = entity.get('name') or entity.get('title', 'Track')
+            artists_list = [a.get('name') for a in entity.get('artists', []) if a.get('name')]
+            artist = ', '.join(artists_list) if artists_list else entity.get('subtitle', '')
+            uri = entity.get('uri', '')
+            track_id = uri.split(':')[-1] if uri else (track_m.group(1) if track_m else '')
+            t_url = f"https://open.spotify.com/track/{track_id}" if track_id else url
+            dur = int(entity.get('duration', 0) / 1000) if entity.get('duration') else None
+            full_name = f"{artist} - {title}" if artist else title
+            tracks.append({
+                'index': 1,
+                'title': title,
+                'artist': artist,
+                'album_name': '',
+                'album_artist': artist,
+                'year': None,
+                'track_number': 1,
+                'tracks_count': 1,
+                'disc_number': 1,
+                'isrc': None,
+                'duration': dur,
+                'url': t_url,
+                'cover_url': cover_url,
+                'fullName': full_name
+            })
+            
+        return {
+            'type': entity_type,
+            'name': name,
+            'cover_url': cover_url,
+            'tracks': tracks
+        }
+    except Exception as e:
+        print(f"[SpotiFLAC] Embed scrape fallback notice: {e}", file=sys.stderr)
+        return None
+
+
 def process_spotiflac_job(url, final_output_path):
     """
     Main entry point for SpotiFLAC jobs (Single Track, Album, or Playlist).
@@ -342,47 +468,69 @@ def process_spotiflac_job(url, final_output_path):
     tracks = []
     
     if 'playlist' in url:
-        from spotdl.types.playlist import Playlist
-        meta, songs = Playlist.get_metadata(url)
-        for i, s in enumerate(songs):
-            artist_str = ', '.join(s.artists) if s.artists else s.artist
-            tracks.append({
-                'index': i + 1,
-                'title': s.name,
-                'artist': artist_str,
-                'album_name': s.album_name,
-                'album_artist': s.album_artist,
-                'year': s.year,
-                'track_number': s.track_number,
-                'tracks_count': len(songs),
-                'disc_number': s.disc_number,
-                'isrc': s.isrc,
-                'duration': s.duration,
-                'url': s.url,
-                'cover_url': s.cover_url or meta.get('cover_url', ''),
-                'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
-            })
+        try:
+            from spotdl.types.playlist import Playlist
+            meta, songs = Playlist.get_metadata(url)
+            for i, s in enumerate(songs):
+                artist_str = ', '.join(s.artists) if s.artists else s.artist
+                tracks.append({
+                    'index': i + 1,
+                    'title': s.name,
+                    'artist': artist_str,
+                    'album_name': s.album_name,
+                    'album_artist': s.album_artist,
+                    'year': s.year,
+                    'track_number': s.track_number,
+                    'tracks_count': len(songs),
+                    'disc_number': s.disc_number,
+                    'isrc': s.isrc,
+                    'duration': s.duration,
+                    'url': s.url,
+                    'cover_url': s.cover_url or meta.get('cover_url', ''),
+                    'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
+                })
+        except Exception as e:
+            print(f"[SpotiFLAC] SpotDL playlist API failed ({e}), engaging embed fallback...", flush=True)
+            
+        if not tracks:
+            scraped = scrape_spotify_embed_tracks(url)
+            if scraped and scraped.get('tracks'):
+                tracks = scraped['tracks']
+            else:
+                raise RuntimeError(f"Could not retrieve playlist metadata for: {url}")
+                
     elif 'album' in url:
-        from spotdl.types.album import Album
-        meta, songs = Album.get_metadata(url)
-        for i, s in enumerate(songs):
-            artist_str = ', '.join(s.artists) if s.artists else s.artist
-            tracks.append({
-                'index': i + 1,
-                'title': s.name,
-                'artist': artist_str,
-                'album_name': s.album_name,
-                'album_artist': s.album_artist,
-                'year': s.year,
-                'track_number': s.track_number,
-                'tracks_count': len(songs),
-                'disc_number': s.disc_number,
-                'isrc': s.isrc,
-                'duration': s.duration,
-                'url': s.url,
-                'cover_url': s.cover_url or meta.get('cover_url', ''),
-                'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
-            })
+        try:
+            from spotdl.types.album import Album
+            meta, songs = Album.get_metadata(url)
+            for i, s in enumerate(songs):
+                artist_str = ', '.join(s.artists) if s.artists else s.artist
+                tracks.append({
+                    'index': i + 1,
+                    'title': s.name,
+                    'artist': artist_str,
+                    'album_name': s.album_name,
+                    'album_artist': s.album_artist,
+                    'year': s.year,
+                    'track_number': s.track_number,
+                    'tracks_count': len(songs),
+                    'disc_number': s.disc_number,
+                    'isrc': s.isrc,
+                    'duration': s.duration,
+                    'url': s.url,
+                    'cover_url': s.cover_url or meta.get('cover_url', ''),
+                    'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
+                })
+        except Exception as e:
+            print(f"[SpotiFLAC] SpotDL album API failed ({e}), engaging embed fallback...", flush=True)
+            
+        if not tracks:
+            scraped = scrape_spotify_embed_tracks(url)
+            if scraped and scraped.get('tracks'):
+                tracks = scraped['tracks']
+            else:
+                raise RuntimeError(f"Could not retrieve album metadata for: {url}")
+                
     else:
         try:
             from spotdl.types.song import Song
@@ -405,18 +553,14 @@ def process_spotiflac_job(url, final_output_path):
                 'fullName': f"{artist_str} - {s.name}" if artist_str else s.name
             })
         except Exception as e:
-            from spotify_downloader import get_spotify_playlist_info
-            sp_info = get_spotify_playlist_info(url)
+            scraped = scrape_spotify_embed_tracks(url)
             info = get_spotify_track_isrc_and_platforms(url)
             
-            real_title = ''
-            real_artist = ''
-            cover_url = ''
-            if sp_info and sp_info.get('tracks'):
-                t0 = sp_info['tracks'][0]
-                real_title = t0.get('title') or ''
-                real_artist = t0.get('artist') or ''
-                cover_url = sp_info.get('cover') or ''
+            scraped_track = scraped['tracks'][0] if scraped and scraped.get('tracks') else {}
+            real_title = scraped_track.get('title') or ''
+            real_artist = scraped_track.get('artist') or ''
+            cover_url = scraped_track.get('cover_url') or ''
+            duration = scraped_track.get('duration')
                 
             if not real_title or not real_artist:
                 raise RuntimeError(f"Could not resolve track metadata for: {url}")
@@ -425,14 +569,14 @@ def process_spotiflac_job(url, final_output_path):
                 'index': 1,
                 'title': real_title,
                 'artist': real_artist,
-                'album_name': '',
+                'album_name': scraped_track.get('album_name', ''),
                 'album_artist': real_artist,
                 'year': '',
                 'track_number': 1,
                 'tracks_count': 1,
                 'disc_number': 1,
                 'isrc': info.get('isrc') if info else None,
-                'duration': None,
+                'duration': duration,
                 'url': url,
                 'cover_url': cover_url,
                 'fullName': f"{real_artist} - {real_title}"
