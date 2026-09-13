@@ -299,6 +299,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     # 0. Check if this track is already downloaded in local Soulseek downloads repository
     title_lower_words = [w.lower() for w in tit_words if len(w) >= 2]
     art_lower_words = [w.lower() for w in art_words if len(w) >= 2]
+    matched_local_flacs = []
     if os.path.exists(slskd_dl_dir):
         for root, _, files in os.walk(slskd_dl_dir):
             for f in files:
@@ -311,23 +312,48 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                             if os.path.getsize(local_flac) >= 5 * 1024 * 1024:
                                 is_v, qual = verify_flac_integrity(local_flac)
                                 if is_v:
-                                    f_sz_mb = os.path.getsize(local_flac) / (1024 * 1024)
-                                    print(f"[Soulseek HiFi] ⚡ Found existing authentic {qual} Lossless FLAC in local archive: '{f}'", flush=True)
-                                    print(f"[download] 100.0% of {f_sz_mb:.1f}MiB at 30.00MiB/s ETA 00:00 (Soulseek HiFi)", flush=True)
-                                    if os.path.exists(output_path):
-                                        try: os.remove(output_path)
-                                        except Exception: pass
-                                    shutil.copy2(local_flac, output_path)
-                                    lyrics = fetch_synced_lyrics(artist, title, duration=duration)
-                                    tag_flac(output_path, {
-                                        'title': title,
-                                        'artist': artist,
-                                        'isrc': isrc,
-                                        'cover_url': cover_url,
-                                        'lyrics': lyrics
+                                    bps = 16
+                                    sr = 44100
+                                    br = 0
+                                    if HAS_MUTAGEN:
+                                        try:
+                                            aud = FLAC(local_flac)
+                                            bps = aud.info.bits_per_sample or 16
+                                            sr = aud.info.sample_rate or 44100
+                                            br = aud.info.bitrate or 0
+                                        except Exception:
+                                            pass
+                                    q_score = (bps * 100000) + sr + (br / 1000)
+                                    matched_local_flacs.append({
+                                        'path': local_flac,
+                                        'filename': f,
+                                        'qual': qual,
+                                        'score': q_score
                                     })
-                                    print(f"[Soulseek HiFi] 🎉 Authentic {qual} Lossless FLAC saved: {output_path} ({f_sz_mb:.1f}MB)", flush=True)
-                                    return True
+                                    
+    if matched_local_flacs:
+        matched_local_flacs.sort(key=lambda x: x['score'], reverse=True)
+        best_local = matched_local_flacs[0]
+        local_flac = best_local['path']
+        qual = best_local['qual']
+        f = best_local['filename']
+        f_sz_mb = os.path.getsize(local_flac) / (1024 * 1024)
+        print(f"[Soulseek HiFi] ⚡ Found existing authentic {qual} Lossless FLAC in local archive: '{f}'", flush=True)
+        print(f"[download] 100.0% of {f_sz_mb:.1f}MiB at 30.00MiB/s ETA 00:00 (Soulseek HiFi)", flush=True)
+        if os.path.exists(output_path):
+            try: os.remove(output_path)
+            except Exception: pass
+        shutil.copy2(local_flac, output_path)
+        lyrics = fetch_synced_lyrics(artist, title, duration=duration)
+        tag_flac(output_path, {
+            'title': title,
+            'artist': artist,
+            'isrc': isrc,
+            'cover_url': cover_url,
+            'lyrics': lyrics
+        })
+        print(f"[Soulseek HiFi] 🎉 Authentic {qual} Lossless FLAC saved: {output_path} ({f_sz_mb:.1f}MB)", flush=True)
+        return True
     
     # Search terms in priority order
     search_terms = []
@@ -409,9 +435,13 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             queue_len = p.get('queueLength', 999)
             
             for f in p.get('files', []):
+                if f.get('isLocked', False):
+                    continue  # Ignore locked/inaccessible files
                 fname = f.get('filename', '')
                 ext = f.get('extension', '').lower()
                 size = f.get('size', 0)
+                bit_depth = f.get('bitDepth') or 0
+                sample_rate = f.get('sampleRate') or 0
                 
                 # Must be a FLAC file of realistic size (8MB - 250MB)
                 if ('flac' in ext or fname.lower().endswith('.flac')) and (8 * 1024 * 1024 <= size <= 250 * 1024 * 1024):
@@ -427,11 +457,38 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                         if not has_art:
                             continue  # REJECT: Wrong artist!
                             
-                    score = (5000 if free_slot else -5000) + 1000 - (queue_len * 50) + min(speed / 100000, 500)
+                    # Best Quality FLAC Scoring:
+                    # 24-bit / 32-bit Studio Master priority
+                    quality_bonus = 0
+                    if bit_depth >= 24 or any(k in fn_lower for k in ['24bit', '24-bit', '24 bit', '24/']):
+                        quality_bonus += 15000
+                    if bit_depth >= 32:
+                        quality_bonus += 2000
+                        
+                    # Sample Rate priority (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz)
+                    if sample_rate >= 192000 or '192khz' in fn_lower or '192 khz' in fn_lower:
+                        quality_bonus += 8000
+                    elif sample_rate >= 96000 or '96khz' in fn_lower or '96 khz' in fn_lower:
+                        quality_bonus += 6000
+                    elif sample_rate >= 88200 or '88.2khz' in fn_lower:
+                        quality_bonus += 5000
+                    elif sample_rate >= 48000 or '48khz' in fn_lower:
+                        quality_bonus += 3000
+
+                    # Audiophile keywords
+                    if any(k in fn_lower for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz']):
+                        quality_bonus += 4000
+                        
+                    # Size bonus (higher resolution streams have larger file sizes)
+                    quality_bonus += min((size / (1024 * 1024)) * 20, 2000)
+                    
+                    score = quality_bonus + (5000 if free_slot else -5000) + 1000 - (queue_len * 50) + min(speed / 100000, 500)
                     candidates.append({
                         'username': uname,
                         'filename': fname,
                         'size': size,
+                        'bit_depth': bit_depth,
+                        'sample_rate': sample_rate,
                         'free_slot': free_slot,
                         'queue_len': queue_len,
                         'speed': speed,
