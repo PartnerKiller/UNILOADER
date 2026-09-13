@@ -7,6 +7,7 @@ import shutil
 import base64
 import zipfile
 import subprocess
+import requests as std_requests
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
@@ -24,6 +25,19 @@ try:
 except ImportError:
     HAS_MUTAGEN = False
 
+# Try importing Cryptodome for Deezer Blowfish decryption
+try:
+    from Cryptodome.Cipher import Blowfish
+    from hashlib import md5
+    HAS_CRYPTODOME = True
+except ImportError:
+    try:
+        from Crypto.Cipher import Blowfish
+        from hashlib import md5
+        HAS_CRYPTODOME = True
+    except ImportError:
+        HAS_CRYPTODOME = False
+
 # HTTP session with Chrome impersonation
 session = requests.Session(impersonate="chrome124")
 
@@ -33,6 +47,17 @@ def get_deezer_client():
         return None
     dz = deezer.Deezer()
     arl = os.environ.get('DEEZER_ARL', '').strip()
+    if not arl:
+        env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+        if os.path.exists(env_file):
+            try:
+                with open(env_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.strip().startswith('DEEZER_ARL='):
+                            arl = line.strip().split('=', 1)[1].strip().strip('"\'')
+                            break
+            except Exception:
+                pass
     if arl:
         try:
             dz.login_via_arl(arl)
@@ -153,24 +178,44 @@ def download_deezer_flac_track(track_info, output_path, dz=None):
         if not gw_track:
             return False
             
-        # Get direct FLAC URL from Deezer CDN
-        flac_url = dz.get_track_url(gw_track, deezer.TrackFormats.FLAC)
+        track_token = gw_track.get('TRACK_TOKEN') or gw_track.get('track_token')
+        if not track_token:
+            return False
+
+        flac_url = None
+        try:
+            urls = dz.get_tracks_url([track_token], 'FLAC')
+            if urls and len(urls) > 0:
+                flac_url = urls[0]
+        except Exception:
+            pass
+
         if not flac_url:
-            # Fallback to 320k MP3 if FLAC is restricted on account tier
-            flac_url = dz.get_track_url(gw_track, deezer.TrackFormats.MP3_320)
+            try:
+                urls = dz.get_tracks_url([track_token], 'MP3_320')
+                if urls and len(urls) > 0:
+                    flac_url = urls[0]
+            except Exception:
+                pass
             
         if not flac_url:
             return False
             
-        # Stream and decrypt track
-        r = session.get(flac_url, stream=True, timeout=15)
+        # Stream and decrypt track using standard requests for exact 2048-byte chunking
+        r = std_requests.get(flac_url, stream=True, timeout=15)
         if r.status_code != 200:
             return False
+
+        BF_SECRET = b"g4el58wc0zvf9na1"
+        md5_id = md5(str(track_id).encode('ascii')).hexdigest().encode('ascii')
+        bf_key = bytes([md5_id[i] ^ md5_id[i + 16] ^ BF_SECRET[i] for i in range(16)])
             
         with open(output_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=65536):
-                if chunk:
-                    f.write(chunk)
+            for i, chunk in enumerate(r.iter_content(2048)):
+                if i % 3 == 0 and len(chunk) == 2048 and HAS_CRYPTODOME:
+                    cipher = Blowfish.new(bf_key, Blowfish.MODE_CBC, b"\x00\x01\x02\x03\x04\x05\x06\x07")
+                    chunk = cipher.decrypt(chunk)
+                f.write(chunk)
                     
         return os.path.exists(output_path) and os.path.getsize(output_path) > 100000
     except Exception as e:
