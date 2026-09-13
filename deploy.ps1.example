@@ -1,0 +1,33 @@
+﻿# One-Click Deployment Script Template for JAV-Downloader
+# Copy to 'deploy.ps1' and configure your target host/directory.
+# Note: 'deploy.ps1' is gitignored to protect infrastructure credentials.
+
+Continue = "Stop"
+
+ = if () {  } else { "user@your-server-ip" }
+  = if ()  {  }  else { "/home/user/jav" }
+ = "deploy_bundle.tar.gz"
+
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "Deploying JAV-Downloader to " -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+
+Write-Host "
+[1/4] Packing deployment bundle..." -ForegroundColor Yellow
+tar.exe -czf  server.js extractor.js fetcher.py flac_checker.py hifi_engine.py deezer_hifi_engine.py hls_downloader.py instagram_engine.py soulseek_flac_engine.py spotiflac_engine.py spotiflac_next_engine.py spotify_downloader.py tiktok_engine.py tidal_monochrome_engine.py package.json package-lock.json public
+
+try {
+    Write-Host "[2/4] Uploading  via SCP to ..." -ForegroundColor Yellow
+    scp -o BatchMode=yes  ":/"
+
+    Write-Host "[3/4] Extracting bundle and restarting service on remote server..." -ForegroundColor Yellow
+    ssh -o BatchMode=yes  "cd  && tar -xzvf  && rm  && npm install --omit=dev && sudo systemctl restart jav-downloader.service"
+
+    Write-Host "
+Deployment Succeeded!" -ForegroundColor Green
+}
+finally {
+    if (Test-Path ) {
+        Remove-Item  -Force
+    }
+}
