@@ -606,8 +606,12 @@ function startJobProcess(job) {
   const isSpotify = url && url.includes('spotify.com');
   const isSpotifyPlaylistOrAlbum = url && (url.includes('spotify.com/playlist') || url.includes('spotify.com/album'));
   const isYouTube = url && (url.includes('youtube.com') || url.includes('youtu.be'));
-  const isYouTubeFlac = isYouTube && mode === 'audio' && audioFormat === 'flac';
-  const isAppleOrDeezer = url && (url.includes('music.apple.com') || url.includes('deezer.com'));
+  const isDeezer = url && url.includes('deezer.com');
+  const isTidal = url && (url.includes('tidal.com') || url.includes('listen.tidal.com'));
+  const isAudioFlac = mode === 'audio' && audioFormat === 'flac';
+  const isYouTubeFlac = isYouTube && isAudioFlac;
+  const isDeezerFlac = isDeezer && isAudioFlac;
+  const isAppleOrDeezer = url && (url.includes('music.apple.com') || (isDeezer && !isAudioFlac));
   const isInstagram = url && url.includes('instagram.com');
   const isTikTok = url && url.includes('tiktok.com');
 
@@ -680,10 +684,10 @@ function startJobProcess(job) {
     });
     job.process = child;
     attachProcessListeners(job, child);
-  } else if (isYouTubeFlac) {
+  } else if (isYouTubeFlac || isDeezerFlac || (isTidal && isAudioFlac)) {
     const pythonBin = getPythonBin();
-    const slskScript = path.join(__dirname, 'soulseek_flac_engine.py');
-    const safeTitle = (job.title || 'youtube_audio').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const audiophileScript = path.join(__dirname, 'audiophile_flac_engine.py');
+    const safeTitle = (job.title || 'audiophile_track').replace(/[\\/:*?"<>|]/g, '_').trim();
     const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
 
     let artist = '';
@@ -696,11 +700,12 @@ function startJobProcess(job) {
       artist = job.uploader || '';
     }
 
-    job.logs.push(`Lossless FLAC requested for YouTube music: "${job.title}"`);
-    job.logs.push(`Notice: YouTube audio is lossy (128-160kbps Opus). Querying decentralized Soulseek HiFi network for authentic CD/Vinyl Master FLAC...`);
+    job.logs.push(`Lossless FLAC requested: "${job.title}"`);
+    job.logs.push(`Initiating 3-Tier Audiophile Resolution Pipeline (Tidal Hi-Res → Soulseek P2P → Deezer HiFi)...`);
+    job.logs.push(`Strict Quality Guarantee: Fake/upscaled transcodes prohibited; full spectral authenticity analysis will be enforced.`);
 
     const child = spawn(pythonBin, [
-      slskScript,
+      audiophileScript,
       artist,
       trackTitle,
       finalOutPath
@@ -799,6 +804,10 @@ function startJobProcess(job) {
 
     // Mode options
     if (mode === 'audio') {
+      if (audioFormat === 'flac' && isYouTube) {
+        job.logs.push(`Strict Quality Policy: Transcoding lossy YouTube audio (128-160k Opus) into fake FLAC is prohibited.`);
+        throw new Error("Transcoding lossy YouTube audio streams into fake FLAC is strictly prohibited to preserve lossless integrity.");
+      }
       args.push('-x');
       const aFmt = audioFormat || 'mp3';
       args.push('--audio-format', aFmt);

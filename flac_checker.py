@@ -300,6 +300,19 @@ def analyze_flac(file_path, generate_spectrogram=True):
     }
 
 
+def is_lossless_authentic(file_path):
+    """
+    Returns (True, report) if audio is genuine CDDA or Hi-Res Studio Master FLAC.
+    Returns (False, report) if audio is a fake/upscaled transcode or invalid container.
+    """
+    report = analyze_flac(file_path, generate_spectrogram=False)
+    if not report.get("valid"):
+        return False, report
+    if report.get("verdict") == "FAKE_FLAC" or report.get("authenticityScore", 0) < 60:
+        return False, report
+    return True, report
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print("Usage: python flac_checker.py <FILE_PATH> [--no-spectrogram]")

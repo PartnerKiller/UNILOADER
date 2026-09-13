@@ -167,6 +167,14 @@ def download_tidal_flac(artist, title, output_path, isrc=None, cover_url=None, d
                     f.write(chunk)
                     
         if os.path.exists(output_path) and os.path.getsize(output_path) > 100000:
+            with open(output_path, 'rb') as vf:
+                magic = vf.read(4)
+                if magic != b'fLaC':
+                    print(f"[Tidal Hi-Res] Stream does not contain valid FLAC magic header (got {magic}). Rejecting non-lossless response.", file=sys.stderr)
+                    try: os.remove(output_path)
+                    except Exception: pass
+                    return False
+
             lyrics = fetch_synced_lyrics(artist, title, duration=duration)
             meta = {
                 'title': title,

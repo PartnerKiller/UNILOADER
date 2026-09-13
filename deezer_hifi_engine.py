@@ -192,20 +192,16 @@ def download_deezer_flac_track(track_info, output_path, dz=None):
             return None
 
         flac_url = None
-        # 1. Try primary track token
+        # 1. Try primary track token (FLAC only - strictly NO lossy MP3_320 fallback)
         if track_token:
             flac_url = _extract_valid_url(track_token, 'FLAC')
-            if not flac_url:
-                flac_url = _extract_valid_url(track_token, 'MP3_320')
 
-        # 2. If primary token geo-restricted or failed, check Deezer GW FALLBACK object
+        # 2. If primary token geo-restricted or failed, check Deezer GW FALLBACK object (FLAC only)
         if not flac_url and gw_track.get('FALLBACK'):
             fb = gw_track['FALLBACK']
             fb_token = fb.get('TRACK_TOKEN')
             if fb_token:
                 flac_url = _extract_valid_url(fb_token, 'FLAC')
-                if not flac_url:
-                    flac_url = _extract_valid_url(fb_token, 'MP3_320')
                 if flac_url:
                     active_id = str(fb.get('SNG_ID') or active_id)
 
@@ -228,7 +224,16 @@ def download_deezer_flac_track(track_info, output_path, dz=None):
                     chunk = cipher.decrypt(chunk)
                 f.write(chunk)
                     
-        return os.path.exists(output_path) and os.path.getsize(output_path) > 100000
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 100000:
+            with open(output_path, 'rb') as vf:
+                magic = vf.read(4)
+                if magic != b'fLaC':
+                    print(f"[Deezer] Downloaded file does not contain valid FLAC magic header (got {magic}). Rejecting non-lossless stream.", file=sys.stderr)
+                    try: os.remove(output_path)
+                    except Exception: pass
+                    return False
+            return True
+        return False
     except Exception as e:
         print(f"[Deezer] Download exception for {track_id}: {e}", file=sys.stderr)
         return False
