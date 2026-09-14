@@ -24,3 +24,7 @@
   - **Minor updates**: `0.0.X` (bump patch value for bug fixes, tweaks, and maintenance, e.g., `v3.9.0` → `v3.9.1`).
   - *(where `X` is the main incremented value)*.
 
+## 5. Remote Host SSH Command
+- **Always use `ssh sakura`**: Never use the full IP address (`ssh sakura@192.168.0.10`); always use the configured SSH host alias `ssh sakura`.
+
+
