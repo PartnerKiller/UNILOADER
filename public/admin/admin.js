@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupTools();
   setupCreds();
   setupQueue();
+  setupFlacLab();
 
   if (adminToken) {
     verifySession();
@@ -130,6 +131,8 @@ function setupNavigation() {
         loadSystemMetrics();
       } else if (btn.getAttribute('data-tab') === 'creds') {
         loadCredsData();
+      } else if (btn.getAttribute('data-tab') === 'flac-lab') {
+        loadRecentFlacFiles();
       }
     });
   });
@@ -138,6 +141,7 @@ function setupNavigation() {
 function loadAllAdminData() {
   loadSystemMetrics();
   loadCredsData();
+  loadRecentFlacFiles();
   updateSandboxIframe();
 }
 
@@ -223,6 +227,20 @@ function updateSandboxIframe() {
   if (sandboxActiveTheme) {
     sandboxActiveTheme.textContent = `Active Theme: ${currentActiveTheme.toUpperCase()} • Density: ${currentActiveDensity}`;
   }
+  document.querySelectorAll('.theme-card').forEach(card => {
+    if (card.getAttribute('data-theme-name') === currentActiveTheme) {
+      card.classList.add('active-theme');
+    } else {
+      card.classList.remove('active-theme');
+    }
+  });
+  document.querySelectorAll('.density-btn').forEach(btn => {
+    if (btn.getAttribute('data-density') === currentActiveDensity) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
 }
 
 // 2. SYSTEM TOOLS LOGIC
@@ -280,6 +298,46 @@ function setupTools() {
       }
     });
   }
+
+  const checkFfmpegBtn = document.getElementById('checkFfmpegBtn');
+  if (checkFfmpegBtn) {
+    checkFfmpegBtn.addEventListener('click', async () => {
+      checkFfmpegBtn.disabled = true;
+      checkFfmpegBtn.innerHTML = '<span>Verifying...</span>';
+      const box = document.getElementById('codecResultBox');
+      if (box) {
+        box.style.display = 'flex';
+        box.innerHTML = '<span style="color: var(--admin-text-muted); font-size: 0.8rem;">Querying FFmpeg binary...</span>';
+      }
+
+      try {
+        const res = await fetch('/api/admin/verify-codecs', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        if (res.ok && data.success && data.codecs) {
+          const c = data.codecs;
+          box.innerHTML = `
+            <span class="codec-badge ${c.flac_lossless ? 'supported' : 'unsupported'}">FLAC ${c.flac_lossless ? '✓' : '✗'}</span>
+            <span class="codec-badge ${c.opus ? 'supported' : 'unsupported'}">OPUS ${c.opus ? '✓' : '✗'}</span>
+            <span class="codec-badge ${c.aac ? 'supported' : 'unsupported'}">AAC ${c.aac ? '✓' : '✗'}</span>
+            <span class="codec-badge ${c.h264 ? 'supported' : 'unsupported'}">H.264 ${c.h264 ? '✓' : '✗'}</span>
+            <span class="codec-badge ${c.h265_hevc ? 'supported' : 'unsupported'}">HEVC ${c.h265_hevc ? '✓' : '✗'}</span>
+            <span class="codec-badge ${c.vp9 ? 'supported' : 'unsupported'}">VP9 ${c.vp9 ? '✓' : '✗'}</span>
+            <span class="codec-badge ${c.av1 ? 'supported' : 'unsupported'}">AV1 ${c.av1 ? '✓' : '✗'}</span>
+          `;
+        } else {
+          box.innerHTML = `<span style="color: var(--admin-pink); font-size: 0.8rem;">Verification failed: ${data.error || 'Unknown'}</span>`;
+        }
+      } catch (err) {
+        if (box) box.innerHTML = `<span style="color: var(--admin-pink); font-size: 0.8rem;">Error: ${err.message}</span>`;
+      } finally {
+        checkFfmpegBtn.disabled = false;
+        checkFfmpegBtn.innerHTML = 'Verify Codecs';
+      }
+    });
+  }
 }
 
 async function loadSystemMetrics() {
@@ -320,6 +378,16 @@ async function loadSystemMetrics() {
     }
     if (data.tools.ffmpegVersion) {
       document.getElementById('ffmpegStatusLabel').textContent = `Build: ${data.tools.ffmpegVersion.slice(0, 30)}`;
+    }
+
+    // SLSKD P2P Daemon Status
+    if (data.tools.slskd) {
+      const dot = document.getElementById('slskdStatusDot');
+      const lbl = document.getElementById('slskdStatusLabel');
+      if (dot) dot.className = `status-dot ${data.tools.slskd.running ? 'active' : 'inactive'}`;
+      if (lbl) lbl.textContent = data.tools.slskd.running 
+        ? `Embedded daemon: Active on port ${data.tools.slskd.port || 5030}` 
+        : `Embedded daemon: Offline / Stopped`;
     }
 
     // Uptime
@@ -420,16 +488,37 @@ async function loadCredsData() {
     if (!res.ok) return;
     const data = await res.json();
 
+    const dzBadge = document.getElementById('deezerStatusBadge');
     if (data.deezerArl) {
       document.getElementById('deezerArlInput').value = data.deezerArl;
-      document.getElementById('deezerStatusBadge').textContent = 'Configured (Masked)';
+      if (dzBadge) {
+        dzBadge.textContent = 'Configured (Masked)';
+        dzBadge.className = 'badge-tag';
+      }
+    } else {
+      if (dzBadge) {
+        dzBadge.textContent = 'Not Configured';
+        dzBadge.className = 'badge-tag error';
+      }
     }
+
+    const spBadge = document.getElementById('spotifyStatusBadge');
     if (data.spotifyClientId) {
       document.getElementById('spotifyClientId').value = data.spotifyClientId;
     }
     if (data.spotifyClientSecret) {
       document.getElementById('spotifyClientSecret').value = data.spotifyClientSecret;
     }
+    if (spBadge) {
+      if (data.spotifyClientId && data.spotifyClientSecret) {
+        spBadge.textContent = 'Configured';
+        spBadge.className = 'badge-tag';
+      } else {
+        spBadge.textContent = 'Missing API Keys';
+        spBadge.className = 'badge-tag error';
+      }
+    }
+
     if (data.adminUser) {
       document.getElementById('newAdminUser').value = data.adminUser;
     }
@@ -447,7 +536,10 @@ function setupQueue() {
   if (clearBtn) {
     clearBtn.addEventListener('click', async () => {
       try {
-        await fetch('/api/jobs', { method: 'DELETE' });
+        await fetch('/api/jobs', {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
         loadQueueData();
         showToast('Cleared completed jobs.');
       } catch (e) {}
@@ -460,7 +552,9 @@ async function loadQueueData() {
   if (!listEl) return;
 
   try {
-    const res = await fetch('/api/jobs');
+    const res = await fetch('/api/jobs', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
     const jobs = await res.json();
 
     if (!jobs || jobs.length === 0) {
@@ -496,19 +590,187 @@ async function loadQueueData() {
 }
 
 window.adminPauseJob = async function(id) {
-  await fetch(`/api/jobs/${id}/pause`, { method: 'POST' });
+  await fetch(`/api/jobs/${id}/pause`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${adminToken}` }
+  });
   loadQueueData();
 };
 
 window.adminResumeJob = async function(id) {
-  await fetch(`/api/jobs/${id}/resume`, { method: 'POST' });
+  await fetch(`/api/jobs/${id}/resume`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${adminToken}` }
+  });
   loadQueueData();
 };
 
 window.adminCancelJob = async function(id) {
-  await fetch(`/api/jobs/${id}/cancel`, { method: 'POST' });
+  await fetch(`/api/jobs/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${adminToken}` }
+  });
   loadQueueData();
 };
+
+// 5. FLAC TEST BENCH LOGIC
+function setupFlacLab() {
+  const refreshBtn = document.getElementById('refreshRecentFlacBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadRecentFlacFiles);
+
+  const selectEl = document.getElementById('flacRecentSelect');
+  if (selectEl) {
+    selectEl.addEventListener('change', () => {
+      if (selectEl.value) {
+        const inputEl = document.getElementById('flacFilePath');
+        if (inputEl) inputEl.value = selectEl.value;
+      }
+    });
+  }
+
+  const runBtn = document.getElementById('runFlacTestBtn');
+  if (runBtn) {
+    runBtn.addEventListener('click', runFlacAnalysis);
+  }
+}
+
+async function loadRecentFlacFiles() {
+  const selectEl = document.getElementById('flacRecentSelect');
+  if (!selectEl) return;
+  try {
+    const res = await fetch('/api/flac-check/recent', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) return;
+    const files = await res.json();
+    selectEl.innerHTML = '<option value="">-- Choose a recent file on server --</option>';
+    if (Array.isArray(files) && files.length > 0) {
+      files.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.filePath;
+        opt.textContent = `${f.filename} (${f.sizeMB} MB)`;
+        selectEl.appendChild(opt);
+      });
+    } else {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '(No recent FLAC files found in download directories)';
+      selectEl.appendChild(opt);
+    }
+  } catch (e) {
+    console.warn('Failed to load recent FLAC files:', e);
+  }
+}
+
+async function runFlacAnalysis() {
+  const inputEl = document.getElementById('flacFilePath');
+  const filePath = inputEl ? inputEl.value.trim() : '';
+  const runBtn = document.getElementById('runFlacTestBtn');
+  const reportBox = document.getElementById('flacTestReport');
+
+  if (!filePath) {
+    showToast('Please specify a file path or choose a recent file', 'error');
+    return;
+  }
+
+  if (runBtn) {
+    runBtn.disabled = true;
+    runBtn.innerHTML = '<span>Analyzing Spectrum...</span>';
+  }
+
+  if (reportBox) {
+    reportBox.style.display = 'block';
+    reportBox.innerHTML = '<div style="color: var(--admin-text-muted); padding: 16px; text-align: center;">Running deep Fourier spectral analysis & checking bitstream authenticity...</div>';
+  }
+
+  try {
+    const res = await fetch('/api/flac-check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ filePath })
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      if (reportBox) reportBox.innerHTML = `<div class="test-result-box error">Error: ${escapeHtml(data.error || 'Analysis failed')}</div>`;
+      return;
+    }
+
+    const isGenuine = data.verdict === 'GENUINE_LOSSLESS' || data.verdict === 'STUDIO_MASTER' || data.verdict === 'AUTHENTIC_CDDA';
+    const verdictClass = isGenuine ? 'genuine' : (data.verdict === 'SUSPICIOUS_TRANSCODE' ? 'suspicious' : 'fake');
+    const verdictText = data.verdictBadge || data.verdictTitle || data.verdict || 'FLAC Analyzed';
+
+    const detailsList = Array.isArray(data.details) && data.details.length > 0
+      ? data.details.map(d => `<div>&bull; ${escapeHtml(d)}</div>`).join('')
+      : '';
+
+    const warningsList = Array.isArray(data.warnings) && data.warnings.length > 0
+      ? data.warnings.map(w => `<div style="color: var(--admin-pink); font-weight: 600;">⚠ ${escapeHtml(w)}</div>`).join('')
+      : '';
+
+    if (reportBox) {
+      reportBox.innerHTML = `
+        <div class="flac-report-header">
+          <div>
+            <h3>${escapeHtml(data.filename || filePath.split('/').pop().split('\\').pop())}</h3>
+            <span style="font-size: 0.8rem; color: var(--admin-text-muted); font-family: var(--font-mono); word-break: break-all;">${escapeHtml(data.filePath || filePath)}</span>
+          </div>
+          <span class="flac-verdict-tag ${verdictClass}">${escapeHtml(verdictText)}</span>
+        </div>
+
+        <div class="flac-metrics-row">
+          <div class="flac-metric-card">
+            <span class="f-label">Sample Rate</span>
+            <span class="f-val">${data.sampleRate ? (data.sampleRate / 1000).toFixed(1) + ' kHz' : '--'}</span>
+          </div>
+          <div class="flac-metric-card">
+            <span class="f-label">Bit Depth</span>
+            <span class="f-val">${data.bitsPerSample ? data.bitsPerSample + '-bit' : '--'}</span>
+          </div>
+          <div class="flac-metric-card">
+            <span class="f-label">Bitrate</span>
+            <span class="f-val">${data.bitrateKbps ? Math.round(data.bitrateKbps) + ' kbps' : '--'}</span>
+          </div>
+          <div class="flac-metric-card">
+            <span class="f-label">Cutoff Frequency</span>
+            <span class="f-val">${data.cutoffFrequencyHz ? (data.cutoffFrequencyHz / 1000).toFixed(1) + ' kHz' : '--'}</span>
+          </div>
+          <div class="flac-metric-card">
+            <span class="f-label">Nyquist Limit</span>
+            <span class="f-val">${data.nyquistLimitHz ? (data.nyquistLimitHz / 1000).toFixed(1) + ' kHz' : '--'}</span>
+          </div>
+          <div class="flac-metric-card">
+            <span class="f-label">File Size</span>
+            <span class="f-val">${data.fileSizeMB ? data.fileSizeMB + ' MB' : '--'}</span>
+          </div>
+        </div>
+
+        ${(detailsList || warningsList) ? `
+          <div class="flac-reason-text">
+            ${warningsList}
+            ${detailsList}
+          </div>
+        ` : ''}
+
+        ${data.spectrogram ? `
+          <div class="flac-spectrogram-box">
+            <img src="${data.spectrogram}" alt="Spectrogram Analysis" />
+          </div>
+        ` : ''}
+      `;
+    }
+  } catch (err) {
+    if (reportBox) reportBox.innerHTML = `<div class="test-result-box error">Analysis failed: ${escapeHtml(err.message)}</div>`;
+  } finally {
+    if (runBtn) {
+      runBtn.disabled = false;
+      runBtn.innerHTML = 'Analyze Spectrum';
+    }
+  }
+}
 
 // Toggle password eyes
 function setupEyeToggles() {

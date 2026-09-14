@@ -330,6 +330,7 @@
             <div class="tool-actions">
               <button class="btn btn-outline btn-sm" id="checkFfmpegBtn">Verify Codecs</button>
             </div>
+            <div id="codecResultBox" class="codec-result-box" style="display: none; margin-top: 10px;"></div>
           </div>
 
           <div class="tool-box">
@@ -457,9 +458,17 @@
             <h2>Audiophile FLAC Authenticity Test Bench</h2>
             <p>Directly analyze any audio file or recently downloaded track for lossy brickwall cutoffs and fake upscales.</p>
           </div>
+          <button class="btn btn-outline btn-sm" id="refreshRecentFlacBtn">↻ Refresh Recent</button>
         </div>
 
         <div class="flac-lab-box">
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label for="flacRecentSelect">Quick Pick Recent Download on Server</label>
+            <select id="flacRecentSelect" class="admin-select" style="width: 100%; padding: 10px 14px; background: var(--admin-bg); border: 1px solid var(--admin-border); border-radius: 8px; color: #fff; font-size: 0.9rem;">
+              <option value="">-- Choose a recent file on server --</option>
+            </select>
+          </div>
+
           <div class="form-group">
             <label for="flacFilePath">File Path or URL on Server</label>
             <div class="input-with-btn">

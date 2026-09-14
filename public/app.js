@@ -13,7 +13,7 @@ function saveSessionJobs() {
 }
 
 // Theme & Layout Density Initializer (Testing & Non-Production Preview Support)
-function initThemeAndDensity() {
+async function initThemeAndDensity() {
   try {
     const urlParams = new URLSearchParams(window.location.search);
     const paramTheme = urlParams.get('preview_theme') || urlParams.get('theme');
@@ -37,6 +37,22 @@ function initThemeAndDensity() {
       if (storedDensity) {
         document.documentElement.setAttribute('data-density', storedDensity);
       }
+    }
+
+    // Sync with server global settings if no client override is active
+    if (!paramTheme && !localStorage.getItem('preview_theme')) {
+      try {
+        const res = await fetch('/api/ui-settings');
+        if (res.ok) {
+          const cfg = await res.json();
+          if (cfg.theme && !localStorage.getItem('preview_theme')) {
+            document.documentElement.setAttribute('data-theme', cfg.theme);
+          }
+          if (cfg.density && !localStorage.getItem('preview_density')) {
+            document.documentElement.setAttribute('data-density', cfg.density);
+          }
+        }
+      } catch (e) {}
     }
   } catch (e) {}
 }

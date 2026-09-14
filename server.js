@@ -577,6 +577,15 @@ app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
       ffmpegVersion = execSync('ffmpeg -version', { timeout: 4000 }).toString().split('\n')[0].trim();
     } catch (e) {}
 
+    let slskdRunning = false;
+    try {
+      const curlBin = process.platform === 'win32' ? 'curl.exe' : 'curl';
+      execSync(`"${curlBin}" -s -m 1 http://127.0.0.1:5030/api/v0/application`, { stdio: 'ignore' });
+      slskdRunning = true;
+    } catch (e) {
+      slskdRunning = !!slskdProcess;
+    }
+
     res.json({
       memory: mem,
       system: {
@@ -593,7 +602,46 @@ app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
       },
       tools: {
         ytdlpVersion,
-        ffmpegVersion
+        ffmpegVersion,
+        slskd: {
+          running: slskdRunning,
+          port: 5030
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4.1 Verify FFmpeg Installed Codecs
+app.post('/api/admin/verify-codecs', requireAdmin, (req, res) => {
+  try {
+    let encodersOut = '';
+    let decodersOut = '';
+    try {
+      encodersOut = execSync('ffmpeg -encoders', { timeout: 5000 }).toString();
+      decodersOut = execSync('ffmpeg -decoders', { timeout: 5000 }).toString();
+    } catch (e) {}
+
+    const hasH264 = encodersOut.includes('libx264');
+    const hasH265 = encodersOut.includes('libx265');
+    const hasAac = encodersOut.includes('aac');
+    const hasFlac = encodersOut.includes('flac');
+    const hasOpus = encodersOut.includes('libopus') || encodersOut.includes('opus');
+    const hasVp9 = encodersOut.includes('libvpx-vp9');
+    const hasAv1 = encodersOut.includes('libsvtav1') || encodersOut.includes('libaom-av1');
+
+    res.json({
+      success: true,
+      codecs: {
+        h264: hasH264,
+        h265_hevc: hasH265,
+        flac_lossless: hasFlac,
+        aac: hasAac,
+        opus: hasOpus,
+        vp9: hasVp9,
+        av1: hasAv1
       }
     });
   } catch (err) {
