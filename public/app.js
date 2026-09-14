@@ -12,6 +12,54 @@ function saveSessionJobs() {
   sessionStorage.setItem('vortex_session_jobs', JSON.stringify(Array.from(sessionJobIds)));
 }
 
+// Theme & Layout Density Initializer (Testing & Non-Production Preview Support)
+function initThemeAndDensity() {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramTheme = urlParams.get('preview_theme') || urlParams.get('theme');
+    const paramDensity = urlParams.get('preview_density') || urlParams.get('density');
+
+    if (paramTheme) {
+      document.documentElement.setAttribute('data-theme', paramTheme);
+      localStorage.setItem('preview_theme', paramTheme);
+    } else {
+      const storedTheme = localStorage.getItem('preview_theme');
+      if (storedTheme) {
+        document.documentElement.setAttribute('data-theme', storedTheme);
+      }
+    }
+
+    if (paramDensity) {
+      document.documentElement.setAttribute('data-density', paramDensity);
+      localStorage.setItem('preview_density', paramDensity);
+    } else {
+      const storedDensity = localStorage.getItem('preview_density');
+      if (storedDensity) {
+        document.documentElement.setAttribute('data-density', storedDensity);
+      }
+    }
+  } catch (e) {}
+}
+
+window.addEventListener('storage', (e) => {
+  if (e.key === 'preview_theme') {
+    if (e.newValue) {
+      document.documentElement.setAttribute('data-theme', e.newValue);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+  if (e.key === 'preview_density') {
+    if (e.newValue) {
+      document.documentElement.setAttribute('data-density', e.newValue);
+    } else {
+      document.documentElement.removeAttribute('data-density');
+    }
+  }
+});
+
+initThemeAndDensity();
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)

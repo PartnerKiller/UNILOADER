@@ -39,6 +39,128 @@
   --transition-normal: 0.25s ease;
 }
 
+/* ==========================================================================
+   Theme Variants (Controlled via Admin Panel or preview param)
+   ========================================================================== */
+[data-theme="cyberpunk"] {
+  --bg-primary: #090814;
+  --bg-secondary: #120e24;
+  --bg-surface: #191334;
+  --bg-surface-hover: #251c4a;
+  --bg-input: #0e0a20;
+  --border-subtle: rgba(255, 0, 128, 0.28);
+  --border-focus: #00f0ff;
+  --text-primary: #fdfdfd;
+  --text-secondary: #c4b5fd;
+  --text-muted: #8b7ca6;
+  --accent-primary: #ff007f;
+  --accent-primary-hover: #ff3399;
+  --accent-emerald: #00ffaa;
+  --accent-amber: #ffe600;
+  --accent-rose: #ff0055;
+  --accent-purple: #b026ff;
+  --shadow-md: 0 4px 20px rgba(255, 0, 128, 0.15);
+  --shadow-lg: 0 12px 35px rgba(0, 240, 255, 0.15);
+}
+
+[data-theme="obsidian"] {
+  --bg-primary: #050507;
+  --bg-secondary: #0a0b0f;
+  --bg-surface: #111217;
+  --bg-surface-hover: #171821;
+  --bg-input: #07080b;
+  --border-subtle: #20222a;
+  --border-focus: #10b981;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #4b5563;
+  --accent-primary: #10b981;
+  --accent-primary-hover: #34d399;
+  --accent-emerald: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  --accent-purple: #8b5cf6;
+}
+
+[data-theme="frost"] {
+  --bg-primary: #0a111e;
+  --bg-secondary: #0f1a2c;
+  --bg-surface: rgba(18, 30, 49, 0.75);
+  --bg-surface-hover: rgba(25, 42, 69, 0.88);
+  --bg-input: #0b1422;
+  --border-subtle: rgba(147, 197, 253, 0.2);
+  --border-focus: #38bdf8;
+  --text-primary: #f0f9ff;
+  --text-secondary: #bae6fd;
+  --text-muted: #7dd3fc99;
+  --accent-primary: #38bdf8;
+  --accent-primary-hover: #7dd3fc;
+  --accent-emerald: #34d399;
+  --accent-amber: #fbbf24;
+  --accent-rose: #fb7185;
+  --accent-purple: #c084fc;
+}
+
+[data-theme="matrix"] {
+  --bg-primary: #020703;
+  --bg-secondary: #041206;
+  --bg-surface: #071c0a;
+  --bg-surface-hover: #0c2b11;
+  --bg-input: #030d05;
+  --border-subtle: #194d21;
+  --border-focus: #00ff41;
+  --text-primary: #e6ffe8;
+  --text-secondary: #6bf27b;
+  --text-muted: #2f853b;
+  --accent-primary: #00ff41;
+  --accent-primary-hover: #39ff68;
+  --accent-emerald: #00ff41;
+  --accent-amber: #ffb703;
+  --accent-rose: #ff3366;
+  --accent-purple: #9b5de5;
+  --font-sans: 'JetBrains Mono', monospace;
+}
+
+[data-theme="minimal-slate"] {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-surface: #273549;
+  --bg-surface-hover: #334155;
+  --bg-input: #090e1a;
+  --border-subtle: #3d4f68;
+  --border-focus: #6366f1;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --accent-primary: #6366f1;
+  --accent-primary-hover: #818cf8;
+}
+
+/* Density Variants */
+[data-density="compact"] .form-card,
+[data-density="compact"] .job-card,
+[data-density="compact"] .preview-card {
+  padding: 12px 14px;
+}
+
+[data-density="compact"] .job-metrics-grid {
+  gap: 6px;
+}
+
+[data-density="compact"] .metric-item {
+  padding: 4px 8px;
+}
+
+[data-density="compact"] .jobs-list {
+  gap: 10px;
+}
+
+[data-density="grid"] .jobs-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 16px;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;

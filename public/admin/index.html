@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sakura Admin &bull; UI/UX Lab & Control Center</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <!-- Login Modal / Screen -->
+  <div class="login-backdrop" id="loginModal">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="brand-icon-pulse">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+        </div>
+        <h2>Sakura Admin Panel</h2>
+        <p>Testing laboratory & engine management</p>
+      </div>
+      <form id="loginForm" class="login-form">
+        <div class="form-group">
+          <label for="adminUser">Admin Username</label>
+          <input type="text" id="adminUser" placeholder="Username" autocomplete="username" required value="sakura">
+        </div>
+        <div class="form-group">
+          <label for="adminPass">Password</label>
+          <input type="password" id="adminPass" placeholder="Password" autocomplete="current-password" required value="sakura">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="loginBtn">
+          <span>Authenticate & Access</span>
+        </button>
+        <div id="loginError" class="login-error" style="display: none;"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Admin Main Dashboard Container -->
+  <div class="admin-shell" id="adminApp" style="display: none;">
+    <!-- Top Navigation Header -->
+    <header class="admin-header">
+      <div class="admin-brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+          </svg>
+        </div>
+        <div class="brand-titles">
+          <h1>Universal Downloader <span>Admin Lab</span></h1>
+          <span class="badge-tag">Testing & Engineering v4.0</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="status-indicator">
+          <span class="status-dot active"></span>
+          <span id="headerUptime">Online</span>
+        </div>
+        <a href="/" target="_blank" class="btn btn-outline btn-sm" title="Open Main Downloader Web App">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          <span>Main App</span>
+        </a>
+        <button type="button" class="btn btn-danger-outline btn-sm" id="logoutBtn" title="Sign out">
+          <span>Logout</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="admin-tabs">
+      <button class="tab-btn active" data-tab="ui-lab">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg>
+        <span>🎨 UI/UX Laboratory</span>
+      </button>
+      <button class="tab-btn" data-tab="tools">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+        <span>🛠️ System Tools</span>
+      </button>
+      <button class="tab-btn" data-tab="creds">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        <span>🔑 Credentials & Tokens</span>
+      </button>
+      <button class="tab-btn" data-tab="queue">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+        <span>📋 Queue Inspector</span>
+      </button>
+      <button class="tab-btn" data-tab="flac-lab">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        <span>🔬 FLAC Analyzer</span>
+      </button>
+    </nav>
+
+    <!-- Main Content Panels -->
+    <main class="admin-content">
+      <!-- 1. UI/UX LAB TAB -->
+      <section class="tab-panel active" id="tab-ui-lab">
+        <div class="panel-header">
+          <div>
+            <h2>UI/UX Design Studio & Theme Switcher</h2>
+            <p>Test multiple interface variations, density profiles, and color schemes safely without altering production defaults.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-outline btn-sm" id="resetThemeBtn">Reset to Production Default</button>
+            <button class="btn btn-primary btn-sm" id="openPreviewTabBtn">Open Live Test Tab ↗</button>
+          </div>
+        </div>
+
+        <div class="theme-grid">
+          <!-- Theme Card 1 -->
+          <div class="theme-card" data-theme-name="sakura">
+            <div class="theme-preview-box preview-sakura">
+              <div class="preview-bar"></div>
+              <div class="preview-elements">
+                <span class="p-badge pink">READY</span>
+                <span class="p-btn primary">Download</span>
+              </div>
+            </div>
+            <div class="theme-info">
+              <h3>Sakura Dark (Default)</h3>
+              <p>Production glassmorphism with deep navy hues and neon-rose/cyan highlights.</p>
+              <div class="theme-actions">
+                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="sakura">Apply Local</button>
+                <button class="btn btn-sm btn-primary set-global-btn" data-theme="sakura">Set Global</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Theme Card 2 -->
+          <div class="theme-card" data-theme-name="cyberpunk">
+            <div class="theme-preview-box preview-cyberpunk">
+              <div class="preview-bar"></div>
+              <div class="preview-elements">
+                <span class="p-badge neon-cyan">NEON</span>
+                <span class="p-btn neon-pink">Download</span>
+              </div>
+            </div>
+            <div class="theme-info">
+              <h3>Cyberpunk Synthwave</h3>
+              <p>Futuristic high-contrast dark with hot magenta accents, cyan borders, and ambient glow.</p>
+              <div class="theme-actions">
+                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="cyberpunk">Apply Local</button>
+                <button class="btn btn-sm btn-primary set-global-btn" data-theme="cyberpunk">Set Global</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Theme Card 3 -->
+          <div class="theme-card" data-theme-name="obsidian">
+            <div class="theme-preview-box preview-obsidian">
+              <div class="preview-bar"></div>
+              <div class="preview-elements">
+                <span class="p-badge emerald">READY</span>
+                <span class="p-btn emerald">Download</span>
+              </div>
+            </div>
+            <div class="theme-info">
+              <h3>Midnight Obsidian</h3>
+              <p>Pure stealth matte-black (#050507) with emerald accents and crisp hairline dividers.</p>
+              <div class="theme-actions">
+                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="obsidian">Apply Local</button>
+                <button class="btn btn-sm btn-primary set-global-btn" data-theme="obsidian">Set Global</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Theme Card 4 -->
+          <div class="theme-card" data-theme-name="frost">
+            <div class="theme-preview-box preview-frost">
+              <div class="preview-bar"></div>
+              <div class="preview-elements">
+                <span class="p-badge ice">ICE</span>
+                <span class="p-btn ice">Download</span>
+              </div>
+            </div>
+            <div class="theme-info">
+              <h3>Frost Glassmorphism</h3>
+              <p>Nordic frosted translucent acrylic cards with sky-blue accents and soft backdrop blur.</p>
+              <div class="theme-actions">
+                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="frost">Apply Local</button>
+                <button class="btn btn-sm btn-primary set-global-btn" data-theme="frost">Set Global</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Theme Card 5 -->
+          <div class="theme-card" data-theme-name="matrix">
+            <div class="theme-preview-box preview-matrix">
+              <div class="preview-bar"></div>
+              <div class="preview-elements">
+                <span class="p-badge green">TERM</span>
+                <span class="p-btn green">Download</span>
+              </div>
+            </div>
+            <div class="theme-info">
+              <h3>Retro Matrix Terminal</h3>
+              <p>Hacker CRT phosphor-green palette with monospace typography and scanline aesthetics.</p>
+              <div class="theme-actions">
+                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="matrix">Apply Local</button>
+                <button class="btn btn-sm btn-primary set-global-btn" data-theme="matrix">Set Global</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Theme Card 6 -->
+          <div class="theme-card" data-theme-name="minimal-slate">
+            <div class="theme-preview-box preview-slate">
+              <div class="preview-bar"></div>
+              <div class="preview-elements">
+                <span class="p-badge indigo">SLATE</span>
+                <span class="p-btn indigo">Download</span>
+              </div>
+            </div>
+            <div class="theme-info">
+              <h3>Minimalist Slate</h3>
+              <p>Clean modern UI with high-contrast slate surfaces and indigo action buttons.</p>
+              <div class="theme-actions">
+                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="minimal-slate">Apply Local</button>
+                <button class="btn btn-sm btn-primary set-global-btn" data-theme="minimal-slate">Set Global</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Density and Layout Controls -->
+        <div class="sub-section">
+          <h3>Layout Density & Card Presentation</h3>
+          <div class="density-toggles">
+            <button class="density-btn active" data-density="standard">
+              <strong>Standard Density</strong>
+              <span>Spacious padding, maximum touch target comfort</span>
+            </button>
+            <button class="density-btn" data-density="compact">
+              <strong>Compact Mode</strong>
+              <span>High information density, condensed padding for power-users</span>
+            </button>
+            <button class="density-btn" data-density="grid">
+              <strong>Multi-Column Card Grid</strong>
+              <span>Side-by-side card grid layout for widescreen desktop displays</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Sandbox / Embedded Iframe Preview -->
+        <div class="sub-section">
+          <div class="sandbox-header">
+            <h3>Live In-Browser Sandbox Preview</h3>
+            <span id="sandboxActiveTheme">Active: Sakura Dark</span>
+          </div>
+          <div class="sandbox-frame-wrapper">
+            <iframe id="previewIframe" src="/" title="Live Theme Sandbox"></iframe>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. SYSTEM TOOLS TAB -->
+      <section class="tab-panel" id="tab-tools">
+        <div class="panel-header">
+          <div>
+            <h2>System Diagnostics & Engineering Tools</h2>
+            <p>Monitor real-time host resources, clean disk caches, and maintain download engines.</p>
+          </div>
+          <button class="btn btn-outline btn-sm" id="refreshStatsBtn">↻ Refresh Metrics</button>
+        </div>
+
+        <!-- Metrics Cards -->
+        <div class="metrics-grid">
+          <div class="stat-card">
+            <span class="stat-label">RAM Usage (RSS)</span>
+            <span class="stat-value" id="statRam">-- MB</span>
+            <span class="stat-sub" id="statHeap">Heap: -- MB</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">System Free Memory</span>
+            <span class="stat-value" id="statSysFree">-- GB</span>
+            <span class="stat-sub" id="statSysTotal">Total: -- GB</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">CPU Cores & Load</span>
+            <span class="stat-value" id="statCpuLoad">--</span>
+            <span class="stat-sub" id="statCores">Cores: --</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Temp Storage</span>
+            <span class="stat-value" id="statTempSize">-- MB</span>
+            <span class="stat-sub" id="statTempFiles">-- Files</span>
+          </div>
+        </div>
+
+        <!-- Engine Version Status Grid -->
+        <div class="tools-grid">
+          <div class="tool-box">
+            <div class="tool-header">
+              <h3>yt-dlp Core Engine</h3>
+              <span class="status-dot active"></span>
+            </div>
+            <p class="tool-meta" id="ytdlpVersionLabel">Version: Detecting...</p>
+            <div class="tool-actions">
+              <button class="btn btn-primary btn-sm" id="updateYtdlpBtn">
+                <span>Update yt-dlp (-U)</span>
+              </button>
+            </div>
+            <pre class="terminal-log" id="ytdlpLogOutput" style="display: none;"></pre>
+          </div>
+
+          <div class="tool-box">
+            <div class="tool-header">
+              <h3>Temp Cache & Fragment Cleaner</h3>
+              <span class="badge-tag" id="orphanedCountBadge">0 Orphaned</span>
+            </div>
+            <p class="tool-meta">Safely purges abandoned .part, .ytdl, and .temp fragments while preserving active downloads.</p>
+            <div class="tool-actions">
+              <button class="btn btn-warning btn-sm" id="cleanTempBtn">
+                <span>Clean Orphaned Fragments</span>
+              </button>
+            </div>
+            <p id="cleanStatusText" class="clean-status"></p>
+          </div>
+
+          <div class="tool-box">
+            <div class="tool-header">
+              <h3>FFmpeg & Codec Transcoders</h3>
+              <span class="status-dot active"></span>
+            </div>
+            <p class="tool-meta" id="ffmpegStatusLabel">Status: Ready</p>
+            <div class="tool-actions">
+              <button class="btn btn-outline btn-sm" id="checkFfmpegBtn">Verify Codecs</button>
+            </div>
+          </div>
+
+          <div class="tool-box">
+            <div class="tool-header">
+              <h3>Soulseek (SLSKD) P2P HiFi</h3>
+              <span class="status-dot active" id="slskdStatusDot"></span>
+            </div>
+            <p class="tool-meta" id="slskdStatusLabel">Embedded daemon: Active on port 5030</p>
+            <div class="tool-actions">
+              <a href="http://127.0.0.1:5030" target="_blank" class="btn btn-outline btn-sm">Open SLSKD Web UI ↗</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. CREDENTIALS & TOKENS TAB -->
+      <section class="tab-panel" id="tab-creds">
+        <div class="panel-header">
+          <div>
+            <h2>Credentials, Tokens & API Configurations</h2>
+            <p>Manage and test tokens securely. Secrets are persisted to your local gitignored environment.</p>
+          </div>
+        </div>
+
+        <div class="creds-container">
+          <!-- Deezer HiFi ARL Card -->
+          <div class="cred-card">
+            <div class="cred-header">
+              <div class="cred-title">
+                <h3>Deezer HiFi ARL Token</h3>
+                <span class="badge-tag" id="deezerStatusBadge">Configured</span>
+              </div>
+              <button class="btn btn-outline btn-sm" id="testDeezerBtn">Test ARL Token</button>
+            </div>
+            <p class="cred-desc">Required for direct 1411 kbps 16-bit 44.1 kHz FLAC stream decryption from Deezer CDNs.</p>
+            <div class="form-group">
+              <label for="deezerArlInput">Active ARL Token</label>
+              <div class="input-with-btn">
+                <input type="password" id="deezerArlInput" placeholder="Paste 192-character Deezer ARL token...">
+                <button type="button" class="btn btn-secondary btn-sm toggle-eye" data-target="deezerArlInput">👁</button>
+              </div>
+            </div>
+            <div id="deezerTestResult" class="test-result-box" style="display: none;"></div>
+          </div>
+
+          <!-- Spotify API Keys -->
+          <div class="cred-card">
+            <div class="cred-header">
+              <div class="cred-title">
+                <h3>Spotify API Client Credentials</h3>
+                <span class="badge-tag" id="spotifyStatusBadge">Configured</span>
+              </div>
+            </div>
+            <p class="cred-desc">Used for SpotiFLAC-Next playlist metadata and embed JSON scraping.</p>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="spotifyClientId">Spotify Client ID</label>
+                <input type="text" id="spotifyClientId" placeholder="Client ID">
+              </div>
+              <div class="form-group">
+                <label for="spotifyClientSecret">Spotify Client Secret</label>
+                <div class="input-with-btn">
+                  <input type="password" id="spotifyClientSecret" placeholder="Client Secret">
+                  <button type="button" class="btn btn-secondary btn-sm toggle-eye" data-target="spotifyClientSecret">👁</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Admin Authentication Credentials -->
+          <div class="cred-card">
+            <div class="cred-header">
+              <div class="cred-title">
+                <h3>Admin Panel Authentication</h3>
+                <span class="badge-tag">Current: sakura</span>
+              </div>
+            </div>
+            <p class="cred-desc">Update the login credentials used to access this admin panel.</p>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="newAdminUser">Admin Username</label>
+                <input type="text" id="newAdminUser" value="sakura">
+              </div>
+              <div class="form-group">
+                <label for="newAdminPass">Admin Password</label>
+                <div class="input-with-btn">
+                  <input type="password" id="newAdminPass" placeholder="Leave blank to keep current">
+                  <button type="button" class="btn btn-secondary btn-sm toggle-eye" data-target="newAdminPass">👁</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="creds-footer">
+            <button class="btn btn-primary" id="saveCredsBtn">
+              <span>Save & Apply Credentials</span>
+            </button>
+            <span id="saveCredsStatus" class="save-status"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. QUEUE INSPECTOR TAB -->
+      <section class="tab-panel" id="tab-queue">
+        <div class="panel-header">
+          <div>
+            <h2>Real-Time Download Queue Inspector</h2>
+            <p>Inspect processes, memory allocations, and live stream activity across all active, paused, and queued tasks.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-outline btn-sm" id="refreshQueueBtn">↻ Refresh Queue</button>
+            <button class="btn btn-danger-outline btn-sm" id="adminClearCompletedBtn">Clear Completed</button>
+          </div>
+        </div>
+
+        <div class="admin-queue-list" id="adminQueueList">
+          <div class="empty-state">No downloads currently recorded in memory.</div>
+        </div>
+      </section>
+
+      <!-- 5. FLAC TEST BENCH TAB -->
+      <section class="tab-panel" id="tab-flac-lab">
+        <div class="panel-header">
+          <div>
+            <h2>Audiophile FLAC Authenticity Test Bench</h2>
+            <p>Directly analyze any audio file or recently downloaded track for lossy brickwall cutoffs and fake upscales.</p>
+          </div>
+        </div>
+
+        <div class="flac-lab-box">
+          <div class="form-group">
+            <label for="flacFilePath">File Path or URL on Server</label>
+            <div class="input-with-btn">
+              <input type="text" id="flacFilePath" placeholder="/home/sakura/slskd_downloads/... or file path">
+              <button class="btn btn-primary" id="runFlacTestBtn">Analyze Spectrum</button>
+            </div>
+          </div>
+          <div id="flacTestReport" class="flac-report-container" style="display: none;"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

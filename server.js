@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
+const os = require('os');
 
 // Load environment variables from .env file if present
 const envPath = path.join(__dirname, '.env');
@@ -45,6 +47,21 @@ app.use(express.static(path.join(__dirname, 'public'), {
     res.setHeader('Expires', '0');
   }
 }));
+
+// Admin Panel Static Serving & Direct Routes
+app.use('/admin', express.static(path.join(__dirname, 'public', 'admin'), {
+  maxAge: 0,
+  etag: false,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  }
+}));
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin', 'index.html'));
+});
+app.get('/admin/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin', 'index.html'));
+});
 
 // Helper to synchronously download image artwork
 function downloadImageSync(url, destPath) {
@@ -444,6 +461,342 @@ app.post('/api/config/open-folder', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: `Cannot open folder: ${err.message}` });
   }
+});
+
+// ==========================================================================
+// Sakura Admin Authentication, UI/UX Studio & Diagnostics Endpoints
+// ==========================================================================
+const adminSessions = new Map(); // token -> { user, createdAt }
+
+let globalUiSettings = {
+  theme: 'sakura',
+  density: 'standard',
+  updatedAt: Date.now()
+};
+
+function generateAdminToken(user) {
+  const token = crypto.randomBytes(32).toString('hex');
+  adminSessions.set(token, { user, createdAt: Date.now() });
+  return token;
+}
+
+function verifyAdminToken(req) {
+  let token = null;
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (req.headers['x-admin-token']) {
+    token = req.headers['x-admin-token'];
+  } else if (req.query && req.query.admin_token) {
+    token = req.query.admin_token;
+  }
+
+  if (!token) return null;
+  const session = adminSessions.get(token);
+  if (!session) return null;
+  if (Date.now() - session.createdAt > 7 * 24 * 60 * 60 * 1000) {
+    adminSessions.delete(token);
+    return null;
+  }
+  return session;
+}
+
+function requireAdmin(req, res, next) {
+  const session = verifyAdminToken(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Unauthorized: Admin authentication required' });
+  }
+  req.admin = session;
+  next();
+}
+
+// 1. Admin Login
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body || {};
+  const expectedUser = process.env.ADMIN_USER || 'sakura';
+  const expectedPass = process.env.ADMIN_PASS || 'sakura';
+
+  if (username === expectedUser && password === expectedPass) {
+    const token = generateAdminToken(username);
+    res.json({ success: true, token, user: username });
+  } else {
+    res.status(401).json({ error: 'Invalid admin credentials' });
+  }
+});
+
+// 2. Admin Logout
+app.post('/api/admin/logout', requireAdmin, (req, res) => {
+  const token = req.headers['authorization']?.replace('Bearer ', '').trim() || req.headers['x-admin-token'];
+  if (token) adminSessions.delete(token);
+  res.json({ success: true });
+});
+
+// 3. Verify Admin Session
+app.get('/api/admin/me', requireAdmin, (req, res) => {
+  res.json({ success: true, user: req.admin.user });
+});
+
+// 4. System Diagnostics & Host Stats
+app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
+  try {
+    const mem = process.memoryUsage();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const cpus = os.cpus();
+    const loadavg = os.loadavg();
+    const uptime = os.uptime();
+
+    let tempSizeBytes = 0;
+    let tempFileCount = 0;
+    let orphanedPartials = 0;
+
+    try {
+      if (fs.existsSync(TEMP_DIR)) {
+        const files = fs.readdirSync(TEMP_DIR);
+        tempFileCount = files.length;
+        for (const f of files) {
+          try {
+            const stat = fs.statSync(path.join(TEMP_DIR, f));
+            tempSizeBytes += stat.size;
+            if (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp')) {
+              orphanedPartials++;
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+
+    let ytdlpVersion = 'Unknown';
+    try {
+      const ytdlpBin = getYtDlpPath();
+      ytdlpVersion = execSync(`"${ytdlpBin}" --version`, { timeout: 4000 }).toString().trim();
+    } catch (e) {}
+
+    let ffmpegVersion = 'Unknown';
+    try {
+      ffmpegVersion = execSync('ffmpeg -version', { timeout: 4000 }).toString().split('\n')[0].trim();
+    } catch (e) {}
+
+    res.json({
+      memory: mem,
+      system: {
+        total: totalMem,
+        free: freeMem,
+        cpus: cpus.length,
+        loadavg,
+        uptime
+      },
+      storage: {
+        tempSizeBytes,
+        tempFileCount,
+        orphanedPartials
+      },
+      tools: {
+        ytdlpVersion,
+        ffmpegVersion
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Clean Orphaned Temp Files
+app.post('/api/admin/clean-temp', requireAdmin, (req, res) => {
+  try {
+    let deletedFiles = 0;
+    let freedBytes = 0;
+
+    const activeFiles = new Set();
+    for (const j of jobs.values()) {
+      if (j.status === 'downloading' && j.filename) {
+        activeFiles.add(j.filename);
+      }
+    }
+
+    if (fs.existsSync(TEMP_DIR)) {
+      const files = fs.readdirSync(TEMP_DIR);
+      for (const f of files) {
+        if (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp')) {
+          let isCurrent = false;
+          for (const act of activeFiles) {
+            if (f.includes(act)) isCurrent = true;
+          }
+          if (!isCurrent) {
+            try {
+              const full = path.join(TEMP_DIR, f);
+              const sz = fs.statSync(full).size;
+              fs.unlinkSync(full);
+              deletedFiles++;
+              freedBytes += sz;
+            } catch (e) {}
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, deletedFiles, freedBytes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Update yt-dlp Core
+app.post('/api/admin/update-ytdlp', requireAdmin, (req, res) => {
+  try {
+    const ytdlpBin = getYtDlpPath();
+    let output = '';
+    try {
+      output = execSync(`"${ytdlpBin}" -U`, { timeout: 30000 }).toString();
+    } catch (err) {
+      output = err.stdout ? err.stdout.toString() : (err.message || 'Update executed');
+    }
+    res.json({ success: true, output });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 7. Get Creds Status
+app.get('/api/admin/creds', requireAdmin, (req, res) => {
+  const arl = process.env.DEEZER_ARL || '';
+  res.json({
+    deezerArl: arl ? (arl.slice(0, 8) + '...' + arl.slice(-6)) : '',
+    spotifyClientId: process.env.SPOTIFY_CLIENT_ID || '',
+    spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET ? '••••••••••••••••' : '',
+    adminUser: process.env.ADMIN_USER || 'sakura'
+  });
+});
+
+// 8. Update Creds & Persist to .env
+app.post('/api/admin/creds', requireAdmin, (req, res) => {
+  try {
+    const { deezerArl, spotifyClientId, spotifyClientSecret, adminUser, adminPass } = req.body || {};
+
+    if (deezerArl && !deezerArl.includes('...')) {
+      process.env.DEEZER_ARL = deezerArl.trim();
+    }
+    if (spotifyClientId) {
+      process.env.SPOTIFY_CLIENT_ID = spotifyClientId.trim();
+    }
+    if (spotifyClientSecret && !spotifyClientSecret.includes('••')) {
+      process.env.SPOTIFY_CLIENT_SECRET = spotifyClientSecret.trim();
+    }
+    if (adminUser) {
+      process.env.ADMIN_USER = adminUser.trim();
+    }
+    if (adminPass) {
+      process.env.ADMIN_PASS = adminPass.trim();
+    }
+
+    try {
+      let envContent = '';
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, 'utf8');
+      }
+      const envMap = new Map();
+      const lines = envContent.split(/\r?\n/);
+      for (const line of lines) {
+        const t = line.trim();
+        if (t && !t.startsWith('#') && t.includes('=')) {
+          const [k, ...v] = t.split('=');
+          envMap.set(k.trim(), v.join('=').trim());
+        }
+      }
+
+      if (process.env.DEEZER_ARL) envMap.set('DEEZER_ARL', process.env.DEEZER_ARL);
+      if (process.env.SPOTIFY_CLIENT_ID) envMap.set('SPOTIFY_CLIENT_ID', process.env.SPOTIFY_CLIENT_ID);
+      if (process.env.SPOTIFY_CLIENT_SECRET) envMap.set('SPOTIFY_CLIENT_SECRET', process.env.SPOTIFY_CLIENT_SECRET);
+      if (process.env.ADMIN_USER) envMap.set('ADMIN_USER', process.env.ADMIN_USER);
+      if (process.env.ADMIN_PASS) envMap.set('ADMIN_PASS', process.env.ADMIN_PASS);
+      if (process.env.PORT) envMap.set('PORT', process.env.PORT);
+
+      let newContent = '';
+      for (const [k, v] of envMap.entries()) {
+        newContent += `${k}=${v}\n`;
+      }
+      fs.writeFileSync(envPath, newContent, 'utf8');
+    } catch (e) {}
+
+    res.json({ success: true, message: 'Credentials safely updated in server environment' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9. Test Deezer HiFi ARL Token
+app.post('/api/admin/test-deezer', requireAdmin, (req, res) => {
+  let { arl } = req.body || {};
+  if (!arl || arl.includes('...')) {
+    arl = process.env.DEEZER_ARL || '';
+  }
+  if (!arl) {
+    return res.status(400).json({ valid: false, error: 'No Deezer ARL token provided or configured' });
+  }
+
+  const https = require('https');
+  const url = 'https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&input=3&api_version=1.0&api_token=';
+  const options = {
+    headers: {
+      'Cookie': `arl=${arl}`,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    },
+    timeout: 8000
+  };
+
+  const request = https.get(url, options, (response) => {
+    let body = '';
+    response.on('data', (chunk) => body += chunk);
+    response.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const user = data?.results?.USER || {};
+        const userId = user.USER_ID;
+        if (userId && userId !== 0 && userId !== '0') {
+          res.json({
+            valid: true,
+            user: user.BLOG_NAME || `Deezer User (${userId})`,
+            country: data?.results?.COUNTRY || 'US',
+            canStreamLossless: true
+          });
+        } else {
+          res.json({
+            valid: false,
+            error: data?.error?.length ? data.error.join(', ') : 'Invalid or expired Deezer ARL token'
+          });
+        }
+      } catch (e) {
+        res.json({ valid: false, error: 'Failed to parse Deezer response' });
+      }
+    });
+  });
+
+  request.on('error', (err) => {
+    res.status(500).json({ valid: false, error: err.message });
+  });
+
+  request.on('timeout', () => {
+    request.destroy();
+    res.status(504).json({ valid: false, error: 'Deezer API request timed out' });
+  });
+});
+
+// 10. UI/UX Global Settings
+app.get('/api/admin/ui-settings', requireAdmin, (req, res) => {
+  res.json(globalUiSettings);
+});
+
+app.post('/api/admin/ui-settings', requireAdmin, (req, res) => {
+  const { theme, density } = req.body || {};
+  if (theme) globalUiSettings.theme = theme;
+  if (density) globalUiSettings.density = density;
+  globalUiSettings.updatedAt = Date.now();
+  res.json({ success: true, settings: globalUiSettings });
+});
+
+// Public UI Settings (Non-admin client sync)
+app.get('/api/ui-settings', (req, res) => {
+  res.json({ theme: globalUiSettings.theme, density: globalUiSettings.density });
 });
 
 // ==========================================
