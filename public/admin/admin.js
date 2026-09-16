@@ -350,6 +350,36 @@ function setupTools() {
       }
     });
   }
+
+  const purgeFlacBtn = document.getElementById('purgeFlacCacheBtn');
+  if (purgeFlacBtn) {
+    purgeFlacBtn.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to purge all downloaded FLAC files from server storage?')) return;
+      purgeFlacBtn.disabled = true;
+      purgeFlacBtn.innerHTML = '<span>Purging...</span>';
+      try {
+        const res = await fetch('/api/admin/purge-flac-cache', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const statusText = document.getElementById('purgeFlacStatusText');
+          if (statusText) statusText.textContent = `Purged ${data.deletedCount} files (${data.freedMB} MB freed)`;
+          loadSystemMetrics();
+          loadRecentFlacFiles();
+          showToast(`Purged ${data.deletedCount} FLAC files (${data.freedMB} MB freed)`);
+        } else {
+          showToast(data.error || 'Failed to purge FLAC cache', 'error');
+        }
+      } catch (err) {
+        showToast('Purge error: ' + err.message, 'error');
+      } finally {
+        purgeFlacBtn.disabled = false;
+        purgeFlacBtn.innerHTML = '<span>Purge FLAC Cache</span>';
+      }
+    });
+  }
 }
 
 async function loadSystemMetrics() {
@@ -383,6 +413,15 @@ async function loadSystemMetrics() {
     document.getElementById('statTempSize').textContent = `${tempMb} MB`;
     document.getElementById('statTempFiles').textContent = `${data.storage.tempFileCount} Files`;
     document.getElementById('orphanedCountBadge').textContent = `${data.storage.orphanedPartials} Orphaned`;
+
+    // FLAC Library Cache
+    if (data.storage && data.storage.flacCache) {
+      const fc = data.storage.flacCache;
+      const countBadge = document.getElementById('flacCacheCountBadge');
+      const sizeLabel = document.getElementById('flacCacheSizeLabel');
+      if (countBadge) countBadge.textContent = `${fc.fileCount} Files`;
+      if (sizeLabel) sizeLabel.textContent = `${fc.sizeMB} MB`;
+    }
 
     // Tool versions
     if (data.tools.ytdlpVersion) {
@@ -643,6 +682,34 @@ function setupFlacLab() {
   const runBtn = document.getElementById('runFlacTestBtn');
   if (runBtn) {
     runBtn.addEventListener('click', runFlacAnalysis);
+  }
+
+  const clearBenchBtn = document.getElementById('adminClearFlacBenchBtn');
+  if (clearBenchBtn) {
+    clearBenchBtn.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to purge all downloaded FLAC files from server storage?')) return;
+      clearBenchBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/purge-flac-cache', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Purged ${data.deletedCount} FLAC files (${data.freedMB} MB freed)`);
+          loadRecentFlacFiles();
+          loadSystemMetrics();
+          const inputEl = document.getElementById('flacFilePath');
+          if (inputEl) inputEl.value = '';
+        } else {
+          showToast(data.error || 'Failed to purge FLAC cache', 'error');
+        }
+      } catch (err) {
+        showToast('Purge error: ' + err.message, 'error');
+      } finally {
+        clearBenchBtn.disabled = false;
+      }
+    });
   }
 }
 

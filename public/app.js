@@ -1466,6 +1466,31 @@ function initFlacChecker() {
     });
   }
 
+  // Clear / Purge Recent Downloads button
+  const btnClearRecent = document.getElementById('btnClearRecentFlac');
+  if (btnClearRecent) {
+    btnClearRecent.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to purge all downloaded FLAC files from server storage?')) return;
+      btnClearRecent.disabled = true;
+      try {
+        const res = await fetch('/api/flac-check/clear-recent', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Purged ${data.deletedCount} FLAC files (${data.freedMB} MB freed)`, 'success');
+          loadRecentFlacFiles();
+          const results = document.getElementById('flacResultsContainer');
+          if (results) results.style.display = 'none';
+        } else {
+          showToast(data.error || 'Failed to clear files', 'error');
+        }
+      } catch (err) {
+        showToast('Clear error: ' + err.message, 'error');
+      } finally {
+        btnClearRecent.disabled = false;
+      }
+    });
+  }
+
   // Vorbis Metadata accordion toggle
   if (btnToggleMeta && metaContent) {
     btnToggleMeta.addEventListener('click', () => {

@@ -2849,6 +2849,38 @@ body {
   border-color: var(--accent-primary);
 }
 
+.btn-clear-recent-flac {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: hsla(0, 84%, 60%, 0.12);
+  border: 1px solid hsla(0, 84%, 60%, 0.35);
+  color: #ff6b6b;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-clear-recent-flac:hover {
+  background: hsla(0, 84%, 60%, 0.22);
+  border-color: #ff5252;
+  color: #ff5252;
+  transform: translateY(-1px);
+}
+
+.btn-clear-recent-flac:active {
+  transform: translateY(0);
+}
+
+.btn-clear-recent-flac:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Loading State */
 .flac-loading-state {
   text-align: center;

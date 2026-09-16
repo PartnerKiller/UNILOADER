@@ -536,6 +536,104 @@ app.get('/api/admin/me', requireAdmin, (req, res) => {
   res.json({ success: true, user: req.admin.user });
 });
 
+// Helper: FLAC storage directories on server
+function getFlacStorageDirs() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+  return [
+    TEMP_DIR,
+    path.join(__dirname, 'temp_media'),
+    path.join(homeDir, 'slskd_downloads'),
+    path.join(homeDir, 'OrpheusDL', 'downloads'),
+    path.join(homeDir, 'Downloads', 'JAV-Downloader'),
+    path.join(homeDir, 'Downloads'),
+    path.join(homeDir, 'music'),
+    path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'Downloads', 'JAV-Downloader')
+  ].filter(Boolean);
+}
+
+function scanFlacFiles() {
+  const dirs = getFlacStorageDirs();
+  const results = [];
+  const seen = new Set();
+
+  function scanDir(dir, maxDepth = 2, currentDepth = 0) {
+    if (!dir || !fs.existsSync(dir) || currentDepth > maxDepth) return;
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isFile() && entry.name.toLowerCase().endsWith('.flac')) {
+          if (!seen.has(fullPath)) {
+            seen.add(fullPath);
+            try {
+              const stat = fs.statSync(fullPath);
+              results.push({
+                filename: entry.name,
+                filePath: fullPath,
+                sizeBytes: stat.size,
+                sizeMB: (stat.size / (1024 * 1024)).toFixed(2),
+                mtime: stat.mtimeMs
+              });
+            } catch (e) {}
+          }
+        } else if (entry.isDirectory() && entry.name !== 'incomplete' && !entry.name.startsWith('.') && currentDepth < maxDepth) {
+          scanDir(fullPath, maxDepth, currentDepth + 1);
+        }
+      }
+    } catch (e) {}
+  }
+
+  for (const dir of dirs) {
+    scanDir(dir, 2, 0);
+  }
+
+  results.sort((a, b) => b.mtime - a.mtime);
+  return results;
+}
+
+function purgeFlacFiles() {
+  const activePaths = new Set();
+  for (const j of jobs.values()) {
+    if (j.status === 'downloading' && j.filePath) {
+      activePaths.add(j.filePath);
+    }
+  }
+
+  const allFlacs = scanFlacFiles();
+  let deletedCount = 0;
+  let freedBytes = 0;
+
+  for (const f of allFlacs) {
+    if (!activePaths.has(f.filePath)) {
+      try {
+        fs.unlinkSync(f.filePath);
+        deletedCount++;
+        freedBytes += f.sizeBytes;
+        try {
+          const parent = path.dirname(f.filePath);
+          if (fs.readdirSync(parent).length === 0) {
+            fs.rmdirSync(parent);
+          }
+        } catch (e) {}
+      } catch (err) {
+        if (process.platform !== 'win32') {
+          try {
+            execSync(`rm -f "${f.filePath}"`, { stdio: 'ignore' });
+            deletedCount++;
+            freedBytes += f.sizeBytes;
+          } catch (e) {}
+        }
+      }
+    }
+  }
+
+  return {
+    deletedCount,
+    freedBytes,
+    freedMB: (freedBytes / (1024 * 1024)).toFixed(2)
+  };
+}
+
 // 4. System Diagnostics & Host Stats
 app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
   try {
@@ -563,6 +661,16 @@ app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
             }
           } catch (e) {}
         }
+      }
+    } catch (e) {}
+
+    let flacCacheBytes = 0;
+    let flacCacheFiles = 0;
+    try {
+      const flacs = scanFlacFiles();
+      flacCacheFiles = flacs.length;
+      for (const f of flacs) {
+        flacCacheBytes += f.sizeBytes;
       }
     } catch (e) {}
 
@@ -598,7 +706,12 @@ app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
       storage: {
         tempSizeBytes,
         tempFileCount,
-        orphanedPartials
+        orphanedPartials,
+        flacCache: {
+          fileCount: flacCacheFiles,
+          sizeBytes: flacCacheBytes,
+          sizeMB: (flacCacheBytes / (1024 * 1024)).toFixed(1)
+        }
       },
       tools: {
         ytdlpVersion,
@@ -684,6 +797,16 @@ app.post('/api/admin/clean-temp', requireAdmin, (req, res) => {
     }
 
     res.json({ success: true, deletedFiles, freedBytes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5.1 Purge Audiophile FLAC Library Cache
+app.post('/api/admin/purge-flac-cache', requireAdmin, (req, res) => {
+  try {
+    const stats = purgeFlacFiles();
+    res.json({ success: true, ...stats });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -854,54 +977,18 @@ app.get('/api/ui-settings', (req, res) => {
 // List recent FLAC files for quick inspection
 app.get('/api/flac-check/recent', (req, res) => {
   try {
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-    const searchDirs = [
-      TEMP_DIR,
-      path.join(__dirname, 'temp_media'),
-      path.join(homeDir, 'slskd_downloads'),
-      path.join(homeDir, 'OrpheusDL', 'downloads'),
-      path.join(homeDir, 'Downloads', 'JAV-Downloader'),
-      path.join(homeDir, 'Downloads'),
-      path.join(homeDir, 'music'),
-      path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'Downloads', 'JAV-Downloader')
-    ].filter(Boolean);
-
-    const results = [];
-    const seen = new Set();
-
-    function scanDir(dir, maxDepth = 2, currentDepth = 0) {
-      if (!dir || !fs.existsSync(dir) || currentDepth > maxDepth) return;
-      try {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isFile() && entry.name.toLowerCase().endsWith('.flac')) {
-            if (!seen.has(fullPath)) {
-              seen.add(fullPath);
-              try {
-                const stat = fs.statSync(fullPath);
-                results.push({
-                  filename: entry.name,
-                  filePath: fullPath,
-                  sizeBytes: stat.size,
-                  sizeMB: (stat.size / (1024 * 1024)).toFixed(2),
-                  mtime: stat.mtimeMs
-                });
-              } catch (e) {}
-            }
-          } else if (entry.isDirectory() && !entry.name.startsWith('.') && currentDepth < maxDepth) {
-            scanDir(fullPath, maxDepth, currentDepth + 1);
-          }
-        }
-      } catch (e) {}
-    }
-
-    for (const dir of searchDirs) {
-      scanDir(dir, 2, 0);
-    }
-
-    results.sort((a, b) => b.mtime - a.mtime);
+    const results = scanFlacFiles();
     res.json(results.slice(0, 35));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Purge / Clear Recent Downloaded FLAC files from server storage
+app.post('/api/flac-check/clear-recent', (req, res) => {
+  try {
+    const stats = purgeFlacFiles();
+    res.json({ success: true, ...stats });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -348,6 +348,20 @@
               <a href="https://slskd.nazuna.dpdns.org" target="_blank" id="slskdWebUiLink" class="btn btn-outline btn-sm">Open SLSKD Web UI ↗</a>
             </div>
           </div>
+
+          <div class="tool-box">
+            <div class="tool-header">
+              <h3>Audiophile FLAC Library Cache</h3>
+              <span class="badge-tag" id="flacCacheCountBadge">-- Files</span>
+            </div>
+            <p class="tool-meta" id="flacCacheMeta">Soulseek & OrpheusDL disk cache: <strong id="flacCacheSizeLabel">-- MB</strong></p>
+            <div class="tool-actions">
+              <button class="btn btn-danger-outline btn-sm" id="purgeFlacCacheBtn">
+                <span>Purge FLAC Cache</span>
+              </button>
+            </div>
+            <p id="purgeFlacStatusText" class="clean-status"></p>
+          </div>
         </div>
       </section>
 
@@ -463,7 +477,10 @@
             <h2>Audiophile FLAC Authenticity Test Bench</h2>
             <p>Directly analyze any audio file or recently downloaded track for lossy brickwall cutoffs and fake upscales.</p>
           </div>
-          <button class="btn btn-outline btn-sm" id="refreshRecentFlacBtn">↻ Refresh Recent</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-outline btn-sm" id="refreshRecentFlacBtn">↻ Refresh Recent</button>
+            <button class="btn btn-danger-outline btn-sm" id="adminClearFlacBenchBtn">🗑 Purge FLAC Cache</button>
+          </div>
         </div>
 
         <div class="flac-lab-box">
