@@ -322,6 +322,7 @@ function switchView(viewName) {
   const panels = {
     downloader: document.getElementById('viewDownloader'),
     'flac-checker': document.getElementById('viewFlacChecker'),
+    'adult-search': document.getElementById('viewAdultSearch'),
     supported: document.getElementById('viewSupported'),
     about: document.getElementById('viewAbout')
   };
@@ -1699,7 +1700,339 @@ function renderFlacReport(report) {
   results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+// ==========================================================================
+// Adult Search & JAV Hub Controller
+// ==========================================================================
+
+let currentAdultQuery = '';
+let currentAdultSource = 'all'; // 'all', 'tubes', 'jav'
+let currentAdultPage = 1;
+let currentAdultResults = [];
+
+function initAdultSearch() {
+  const form = document.getElementById('adultSearchForm');
+  const input = document.getElementById('adultSearchInput');
+  const clearBtn = document.getElementById('btnClearAdultSearch');
+  const submitBtn = document.getElementById('btnAdultSearchSubmit');
+  const sourceTabs = document.getElementById('adultSourceTabs');
+  const quickTags = document.getElementById('adultQuickTags');
+  const prevPageBtn = document.getElementById('btnAdultPrevPage');
+  const nextPageBtn = document.getElementById('btnAdultNextPage');
+  const closePreviewBtn = document.getElementById('closeAdultModalBtn');
+  const previewModal = document.getElementById('adultPreviewModal');
+  const modalPlayer = document.getElementById('adultModalPlayer');
+
+  if (!input) return;
+
+  // Input typing and clear button
+  input.addEventListener('input', () => {
+    if (clearBtn) clearBtn.style.display = input.value.trim() ? 'block' : 'none';
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      clearBtn.style.display = 'none';
+      input.focus();
+    });
+  }
+
+  // Submit search
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = input.value.trim();
+      if (!q) return;
+      currentAdultQuery = q;
+      currentAdultPage = 1;
+      executeAdultSearch();
+    });
+  }
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', () => {
+      const q = input.value.trim();
+      if (!q) return;
+      currentAdultQuery = q;
+      currentAdultPage = 1;
+      executeAdultSearch();
+    });
+  }
+
+  // Source tabs
+  if (sourceTabs) {
+    sourceTabs.querySelectorAll('.source-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        sourceTabs.querySelectorAll('.source-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentAdultSource = tab.getAttribute('data-type') || 'all';
+        if (currentAdultQuery) {
+          currentAdultPage = 1;
+          executeAdultSearch();
+        }
+      });
+    });
+  }
+
+  // Quick tag chips
+  if (quickTags) {
+    quickTags.querySelectorAll('.quick-tag-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const q = chip.getAttribute('data-query');
+        if (q) {
+          input.value = q;
+          if (clearBtn) clearBtn.style.display = 'block';
+          currentAdultQuery = q;
+          currentAdultPage = 1;
+          executeAdultSearch();
+        }
+      });
+    });
+  }
+
+  // Pagination
+  if (prevPageBtn) {
+    prevPageBtn.addEventListener('click', () => {
+      if (currentAdultPage > 1) {
+        currentAdultPage--;
+        executeAdultSearch();
+      }
+    });
+  }
+
+  if (nextPageBtn) {
+    nextPageBtn.addEventListener('click', () => {
+      currentAdultPage++;
+      executeAdultSearch();
+    });
+  }
+
+  // Modal preview close
+  if (closePreviewBtn && previewModal) {
+    closePreviewBtn.addEventListener('click', () => {
+      previewModal.style.display = 'none';
+      if (modalPlayer) {
+        modalPlayer.pause();
+        modalPlayer.src = '';
+      }
+    });
+    previewModal.addEventListener('click', (e) => {
+      if (e.target === previewModal) {
+        previewModal.style.display = 'none';
+        if (modalPlayer) {
+          modalPlayer.pause();
+          modalPlayer.src = '';
+        }
+      }
+    });
+  }
+}
+
+async function executeAdultSearch() {
+  const loading = document.getElementById('adultLoadingState');
+  const emptyState = document.getElementById('adultEmptyState');
+  const resultsGrid = document.getElementById('adultResultsGrid');
+  const paginationBar = document.getElementById('adultPaginationBar');
+  const pageIndicator = document.getElementById('adultPageIndicator');
+  const prevBtn = document.getElementById('btnAdultPrevPage');
+  const nextBtn = document.getElementById('btnAdultNextPage');
+
+  if (!currentAdultQuery) return;
+
+  if (loading) loading.style.display = 'flex';
+  if (emptyState) emptyState.style.display = 'none';
+  if (resultsGrid) resultsGrid.style.display = 'none';
+  if (paginationBar) paginationBar.style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/adult/search?q=${encodeURIComponent(currentAdultQuery)}&type=${currentAdultSource}&page=${currentAdultPage}`);
+    if (!res.ok) {
+      throw new Error(`Server returned HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    currentAdultResults = data.results || [];
+
+    if (currentAdultResults.length === 0) {
+      if (emptyState) {
+        emptyState.innerHTML = `
+          <div class="empty-icon">🔍</div>
+          <h3>No Results Found for "${escapeHtml(currentAdultQuery)}"</h3>
+          <p>Try searching by JAV product code (e.g. SSIS, IPX, MIDV), actress name, or broader keywords.</p>
+        `;
+        emptyState.style.display = 'flex';
+      }
+    } else {
+      renderAdultResults(currentAdultResults);
+      if (resultsGrid) resultsGrid.style.display = 'grid';
+      if (paginationBar) {
+        paginationBar.style.display = 'flex';
+        if (pageIndicator) pageIndicator.textContent = `Page ${currentAdultPage}`;
+        if (prevBtn) prevBtn.disabled = currentAdultPage <= 1;
+        if (nextBtn) nextBtn.disabled = currentAdultResults.length < 10;
+      }
+    }
+  } catch (err) {
+    showToast(`Search failed: ${err.message}`, 'error');
+    if (emptyState) {
+      emptyState.innerHTML = `
+        <div class="empty-icon">⚠️</div>
+        <h3>Search Encountered an Error</h3>
+        <p>${escapeHtml(err.message)}</p>
+      `;
+      emptyState.style.display = 'flex';
+    }
+  } finally {
+    if (loading) loading.style.display = 'none';
+  }
+}
+
+function renderAdultResults(items) {
+  const grid = document.getElementById('adultResultsGrid');
+  if (!grid) return;
+
+  grid.innerHTML = items.map((item, idx) => {
+    const isJav = item.type === 'jav';
+    const sourceLabel = isJav ? 'JAV Master' : 'Tube Stream';
+    const badgeClass = isJav ? 'badge-jav' : 'badge-tube';
+    const metaTag = isJav 
+      ? `${item.size || 'HD Full'} &bull; ${item.seeders || 0} Seeds`
+      : `${item.duration || 'Video'} &bull; ${item.quality || 'HD'}`;
+
+    const defaultImg = isJav
+      ? 'https://pics.dmm.co.jp/mono/movie/adult/default/defaultpl.jpg'
+      : 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22400%22%20height%3D%22260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23111%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20fill%3D%22%23555%22%20font-size%3D%2224%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3ENo%20Cover%3C%2Ftext%3E%3C%2Fsvg%3E';
+
+    const thumbUrl = item.thumb || defaultImg;
+
+    return `
+      <div class="adult-card" data-index="${idx}">
+        <div class="adult-card-media">
+          <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(item.title)}" class="adult-card-thumb" loading="lazy" onerror="this.src='${defaultImg}'" />
+          ${item.previewVideo ? `
+            <video class="adult-card-hover-video" muted loop playsinline preload="none" data-src="${escapeHtml(item.previewVideo)}"></video>
+          ` : ''}
+          <div class="adult-card-badges">
+            <span class="adult-badge ${badgeClass}">${sourceLabel}</span>
+            ${item.code ? `<span class="adult-badge badge-code">${escapeHtml(item.code)}</span>` : ''}
+          </div>
+          <span class="adult-card-meta-pill">${escapeHtml(metaTag)}</span>
+          ${item.previewVideo ? `
+            <button type="button" class="btn-hover-preview-play" title="Click to open preview player" onclick="openAdultPreview(${idx})">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            </button>
+          ` : ''}
+        </div>
+        <div class="adult-card-body">
+          <h4 class="adult-card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h4>
+          <div class="adult-card-actions">
+            <button type="button" class="btn btn-download btn-sm adult-dl-btn" id="btnAdultDl_${idx}" onclick="dispatchAdultDownload(${idx})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>1-Click Download</span>
+            </button>
+            ${item.previewVideo ? `
+              <button type="button" class="btn btn-secondary btn-sm adult-preview-btn" onclick="openAdultPreview(${idx})">
+                <span>Preview</span>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Setup hover video preview on desktop
+  grid.querySelectorAll('.adult-card').forEach(card => {
+    const video = card.querySelector('.adult-card-hover-video');
+    if (!video) return;
+    let hoverTimer = null;
+
+    card.addEventListener('mouseenter', () => {
+      hoverTimer = setTimeout(() => {
+        if (!video.src && video.dataset.src) {
+          video.src = video.dataset.src;
+        }
+        video.play().catch(() => {});
+        video.style.opacity = '1';
+      }, 250);
+    });
+
+    card.addEventListener('mouseleave', () => {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      video.pause();
+      video.style.opacity = '0';
+    });
+  });
+}
+
+window.openAdultPreview = function(idx) {
+  const item = currentAdultResults[idx];
+  if (!item) return;
+
+  const modal = document.getElementById('adultPreviewModal');
+  const player = document.getElementById('adultModalPlayer');
+  const title = document.getElementById('adultModalTitle');
+  const meta = document.getElementById('adultModalMeta');
+  const dlBtn = document.getElementById('btnAdultModalDownload');
+
+  if (!modal || !player) return;
+
+  title.textContent = item.title;
+  meta.textContent = `${(item.provider || '').toUpperCase()} &bull; ${item.duration || item.size || ''} &bull; ${item.quality || 'HD'}`;
+  player.src = item.previewVideo || item.url;
+  modal.style.display = 'flex';
+  player.play().catch(() => {});
+
+  if (dlBtn) {
+    dlBtn.onclick = () => {
+      dispatchAdultDownload(idx);
+      modal.style.display = 'none';
+      player.pause();
+      player.src = '';
+    };
+  }
+};
+
+window.dispatchAdultDownload = async function(idx) {
+  const item = currentAdultResults[idx];
+  if (!item) return;
+
+  const btn = document.getElementById(`btnAdultDl_${idx}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>Starting...</span>`;
+  }
+
+  try {
+    const res = await fetch('/api/adult/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`Added to Active Downloads: ${item.title.substring(0, 30)}...`, 'success');
+      if (btn) {
+        btn.innerHTML = `<span>✓ Enqueued</span>`;
+        btn.classList.add('btn-success');
+      }
+    } else {
+      showToast(data.error || 'Failed to dispatch download', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>1-Click Download</span>`;
+      }
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>1-Click Download</span>`;
+    }
+  }
+};
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   initFlacChecker();
+  initAdultSearch();
 });

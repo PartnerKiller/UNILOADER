@@ -384,7 +384,11 @@ function processDownloadQueue() {
 
   for (const job of jobs.values()) {
     if (job.status === 'queued') {
-      startJobProcess(job);
+      if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
+        startTorrentJob(job);
+      } else {
+        startJobProcess(job);
+      }
       if (getActiveDownloadCount() >= MAX_CONCURRENT_DOWNLOADS) break;
     }
   }
@@ -405,7 +409,9 @@ app.get('/api/health', (req, res) => {
       deezerHiFi: true,
       tiktokHD: true,
       instagramHD: true,
-      universalYtdlp: true
+      universalYtdlp: true,
+      adultJavHub: true,
+      aria2cBitTorrent: true
     },
     downloadDir: TEMP_DIR
   });
@@ -1056,6 +1062,305 @@ app.post('/api/flac-check', async (req, res) => {
   }
 });
 
+// ==========================================================================
+// Adult Search & JAV Engine (Tubes via XVideos & Studio Masters via Sukebei)
+// ==========================================================================
+
+function extractJavCode(title) {
+  if (!title) return null;
+  const match = title.match(/\b([A-Za-z]{2,6})[-_ ]?(\d{2,5})\b/);
+  if (match) {
+    const letters = match[1].toUpperCase();
+    const numbers = match[2];
+    return `${letters}-${numbers}`;
+  }
+  return null;
+}
+
+function getDmmCoverUrl(code) {
+  if (!code) return '';
+  const parts = code.toLowerCase().split('-');
+  if (parts.length !== 2) return '';
+  const letters = parts[0];
+  const num = parts[1];
+  const padded = num.padStart(5, '0');
+  return `https://pics.dmm.co.jp/mono/movie/adult/${letters}${padded}/${letters}${padded}pl.jpg`;
+}
+
+async function searchXVideos(query, page = 1) {
+  const url = `https://www.xvideos.com/?k=${encodeURIComponent(query)}&p=${page}`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+  });
+  if (!res.ok) return [];
+  const html = await res.text();
+  const results = [];
+  const parts = html.split(/class="[^"]*thumb-block/);
+
+  for (let i = 1; i < parts.length; i++) {
+    const chunk = parts[i];
+    const urlMatch = chunk.match(/href="(\/video\.[^"]+)"/);
+    if (!urlMatch) continue;
+    const href = urlMatch[1];
+    const fullUrl = `https://www.xvideos.com${href}`;
+
+    const titleMatch = chunk.match(/<p class="title">\s*<a[^>]*title="([^"]+)"/i) ||
+                       chunk.match(/<p class="title">\s*<a[^>]*>([^<]+)<\/a>/i);
+    const title = titleMatch ? titleMatch[1].trim() : 'Untitled Video';
+
+    const thumbMatch = chunk.match(/data-src="([^"]+)"/i) || chunk.match(/src="([^"]+)"/i);
+    const thumb = thumbMatch ? thumbMatch[1] : '';
+
+    const previewMatch = chunk.match(/data-pvv="([^"]+)"/i);
+    const previewVideo = previewMatch ? previewMatch[1] : '';
+
+    const durMatch = chunk.match(/<span class="duration">([^<]+)<\/span>/i);
+    const duration = durMatch ? durMatch[1].trim() : '';
+
+    const qMatch = chunk.match(/<span class="video-(?:hd|sd)-mark">([^<]+)<\/span>/i);
+    const quality = qMatch ? qMatch[1].trim() : 'HD';
+
+    results.push({
+      id: href,
+      title,
+      url: fullUrl,
+      thumb,
+      previewVideo,
+      duration,
+      quality,
+      provider: 'xvideos',
+      type: 'tube'
+    });
+  }
+  return results;
+}
+
+async function searchSukebeiJAV(query, page = 1) {
+  const url = `https://sukebei.nyaa.si/?f=0&c=2_2&q=${encodeURIComponent(query)}&p=${page}&page=rss`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!res.ok) return [];
+  const xml = await res.text();
+  const items = [];
+  const itemRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<link>([\s\S]*?)<\/link>[\s\S]*?<guid[^>]*>([\s\S]*?)<\/guid>[\s\S]*?<pubDate>([\s\S]*?)<\/pubDate>[\s\S]*?<nyaa:seeders>(\d+)<\/nyaa:seeders>[\s\S]*?<nyaa:leechers>(\d+)<\/nyaa:leechers>[\s\S]*?<nyaa:infoHash>([a-fA-F0-9]+)<\/nyaa:infoHash>[\s\S]*?<nyaa:size>([\s\S]*?)<\/nyaa:size>/g;
+  let match;
+  while ((match = itemRegex.exec(xml)) !== null && items.length < 30) {
+    const rawTitle = match[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+    const javCode = extractJavCode(rawTitle);
+    const coverUrl = javCode ? getDmmCoverUrl(javCode) : '';
+    const infoHash = match[7].trim();
+    items.push({
+      id: infoHash,
+      title: rawTitle,
+      code: javCode || '',
+      thumb: coverUrl,
+      size: match[8].trim(),
+      seeders: parseInt(match[5], 10),
+      leechers: parseInt(match[6], 10),
+      torrentUrl: match[2].trim(),
+      magnet: `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(rawTitle)}&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce`,
+      provider: 'sukebei',
+      type: 'jav'
+    });
+  }
+  return items;
+}
+
+// Unified Adult Search API
+app.get('/api/adult/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const type = req.query.type || 'all';
+    const page = parseInt(req.query.page, 10) || 1;
+
+    if (!q) {
+      return res.json({ success: true, results: [], query: '', total: 0 });
+    }
+
+    let tubeResults = [];
+    let javResults = [];
+
+    if (type === 'all' || type === 'tubes') {
+      try {
+        tubeResults = await searchXVideos(q, page);
+      } catch (e) {
+        console.warn('[AdultSearch] XVideos error:', e.message);
+      }
+    }
+
+    if (type === 'all' || type === 'jav') {
+      try {
+        javResults = await searchSukebeiJAV(q, page);
+      } catch (e) {
+        console.warn('[AdultSearch] Sukebei error:', e.message);
+      }
+    }
+
+    let combined = [];
+    if (type === 'tubes') {
+      combined = tubeResults;
+    } else if (type === 'jav') {
+      combined = javResults;
+    } else {
+      const maxLen = Math.max(tubeResults.length, javResults.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < javResults.length) combined.push(javResults[i]);
+        if (i < tubeResults.length) combined.push(tubeResults[i]);
+      }
+    }
+
+    res.json({
+      success: true,
+      query: q,
+      page,
+      count: combined.length,
+      results: combined
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Adult Direct 1-Click Download API
+app.post('/api/adult/download', async (req, res) => {
+  try {
+    const item = req.body || {};
+    if (!item.url && !item.magnet && !item.torrentUrl) {
+      return res.status(400).json({ error: 'Valid URL or magnet link is required' });
+    }
+
+    const isTorrent = !!(item.magnet || item.torrentUrl || item.type === 'jav');
+    const jobPayload = {
+      url: item.url || item.magnet,
+      magnet: item.magnet,
+      torrentUrl: item.torrentUrl,
+      title: item.title || item.code || 'Adult Media',
+      poster: item.thumb || '',
+      code: item.code || 'ADULT',
+      mode: 'video',
+      videoQuality: 'best',
+      type: isTorrent ? 'torrent' : 'tube'
+    };
+
+    const job = createAndStartJob(jobPayload);
+    res.json({
+      success: true,
+      jobId: job.id,
+      title: job.title,
+      type: jobPayload.type
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function startTorrentJob(job) {
+  job.status = 'downloading';
+  job.startTime = Date.now();
+  job.progress.eta = 'Connecting to DHT/Peers...';
+  job.logs.push('Starting BitTorrent engine via aria2c...');
+  broadcastJobUpdate(job.id);
+
+  const { opts } = job;
+  const target = (opts && (opts.magnet || opts.torrentUrl)) || job.url;
+  if (!target) {
+    job.status = 'failed';
+    job.error = 'Missing valid magnet link or torrent URL';
+    broadcastJobUpdate(job.id);
+    processDownloadQueue();
+    return;
+  }
+
+  const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
+  const outDir = TEMP_DIR;
+  const args = [
+    '--dir=' + outDir,
+    '--seed-time=0',
+    '--max-connection-per-server=16',
+    '--split=16',
+    '--bt-stop-timeout=600',
+    '--summary-interval=1',
+    '--enable-dht=true',
+    '--bt-enable-lpd=true',
+    '--follow-torrent=mem',
+    target
+  ];
+
+  try {
+    const child = spawn(ariaBin, args, { windowsHide: true });
+    job.process = child;
+    job.pid = child.pid;
+
+    child.stdout.on('data', data => {
+      const text = data.toString();
+      const lines = text.split(/\r?\n/);
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        job.logs.push(line);
+        if (job.logs.length > 100) job.logs.shift();
+
+        const m = line.match(/\[#\w+\s+([\d.]+\w+)\/([\d.]+\w+)\((\d+)%\).*?DL:([\d.]+\w+).*?ETA:([\w\d]+)\]/i);
+        if (m) {
+          job.progress.downloadedSize = m[1];
+          job.progress.totalSize = m[2];
+          job.progress.percent = parseInt(m[3], 10);
+          job.progress.speed = m[4] + '/s';
+          job.progress.eta = m[5];
+          broadcastJobUpdate(job.id);
+        }
+      }
+    });
+
+    child.stderr.on('data', data => {
+      job.logs.push(`[ERR] ${data.toString()}`);
+    });
+
+    child.on('close', code => {
+      job.process = null;
+      job.pid = null;
+      if (code === 0) {
+        try {
+          const files = fs.readdirSync(outDir);
+          const sorted = files
+            .map(f => ({ name: f, time: fs.statSync(path.join(outDir, f)).mtimeMs, size: fs.statSync(path.join(outDir, f)).size }))
+            .filter(f => !f.name.endsWith('.aria2') && !f.name.startsWith('.'))
+            .sort((a, b) => b.time - a.time);
+
+          if (sorted.length > 0) {
+            job.filePath = path.join(outDir, sorted[0].name);
+            job.filename = sorted[0].name;
+            job.filesize = (sorted[0].size / (1024 * 1024)).toFixed(1) + ' MB';
+          }
+        } catch (e) {}
+
+        job.status = 'completed';
+        job.progress.percent = 100;
+        job.progress.speed = '0 MB/s';
+        job.progress.eta = 'Ready';
+        job.completedTime = Date.now();
+        job.logs.push('BitTorrent download completed successfully.');
+      } else {
+        if (job.status !== 'cancelled' && job.status !== 'paused') {
+          job.status = 'failed';
+          job.error = `aria2c exited with code ${code}`;
+        }
+      }
+      broadcastJobUpdate(job.id);
+      processDownloadQueue();
+    });
+
+    child.on('error', err => {
+      job.status = 'failed';
+      job.error = `Failed to start aria2c: ${err.message}`;
+      broadcastJobUpdate(job.id);
+      processDownloadQueue();
+    });
+  } catch (err) {
+    job.status = 'failed';
+    job.error = err.message;
+    broadcastJobUpdate(job.id);
+    processDownloadQueue();
+  }
+}
 
 // 1. Metadata Extraction Endpoint
 app.post('/api/extract', async (req, res) => {
@@ -1677,7 +1982,11 @@ function createAndStartJob(opts) {
 
   // Check if we can start immediately or queue
   if (getActiveDownloadCount() < MAX_CONCURRENT_DOWNLOADS) {
-    startJobProcess(job);
+    if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
+      startTorrentJob(job);
+    } else {
+      startJobProcess(job);
+    }
   } else {
     job.logs.push('Task queued (waiting for active downloads to complete)...');
     broadcastJobUpdate(jobId);

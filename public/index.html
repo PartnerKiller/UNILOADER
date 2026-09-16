@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.0.5">
+  <link rel="stylesheet" href="styles.css?v=4.0.6">
 </head>
 <body>
   <div class="app-layout">
@@ -48,6 +48,10 @@
         <button type="button" class="nav-item" data-view="flac-checker" id="navFlacChecker">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           <span>FLAC Checker</span>
+        </button>
+        <button type="button" class="nav-item" data-view="adult-search" id="navAdultSearch">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+          <span>Adult & JAV Hub</span>
         </button>
         <button type="button" class="nav-item" data-view="supported" id="navSupported">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
@@ -81,7 +85,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag">v4.0.5 &bull; PWA Enabled</span>
+        <span class="version-tag">v4.0.6 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -547,6 +551,84 @@
       </div>
 
       <!-- ==========================================
+           VIEW PANEL: ADULT SEARCH & JAV HUB
+           ========================================== -->
+      <div class="view-panel" id="viewAdultSearch" style="display: none;">
+        <section class="section-card adult-search-card">
+          <div class="section-header-flex">
+            <div>
+              <div class="badge-tag adult-hub-badge">🔞 Audiophile Adult & JAV Hub</div>
+              <h2 class="section-title">Direct Adult Video Search & 1-Click Downloader</h2>
+              <p class="section-description">
+                Search and download high-bitrate streaming tube clips (XVideos via yt-dlp) and full-length Japanese Adult Video Studio Masters (Sukebei JAV via aria2c) with official DMM jacket art.
+              </p>
+            </div>
+          </div>
+
+          <!-- Search & Filter Controls -->
+          <div class="adult-search-bar-wrap">
+            <form id="adultSearchForm" class="adult-search-form" onsubmit="return false;">
+              <div class="adult-input-wrap">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="adult-search-icon">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="adultSearchInput" class="adult-search-input" placeholder="Search by actress, keyword, or JAV code (e.g. SSIS-062, Yua Mikami, Japanese)..." autocomplete="off" />
+                <button type="button" class="btn-clear-adult-search" id="btnClearAdultSearch" style="display: none;">&times;</button>
+              </div>
+              <button type="submit" class="btn btn-primary btn-adult-search-submit" id="btnAdultSearchSubmit">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <span>Search</span>
+              </button>
+            </form>
+
+            <!-- Filter & Preset Pills -->
+            <div class="adult-controls-row">
+              <div class="adult-source-tabs" id="adultSourceTabs">
+                <button type="button" class="source-tab active" data-type="all">All Sources</button>
+                <button type="button" class="source-tab" data-type="tubes">Streaming Tubes (XVideos)</button>
+                <button type="button" class="source-tab" data-type="jav">JAV Full Movies (Sukebei)</button>
+              </div>
+
+              <div class="adult-quick-tags" id="adultQuickTags">
+                <span class="quick-tag-label">Popular Codes:</span>
+                <button type="button" class="quick-tag-chip" data-query="SSIS">SSIS</button>
+                <button type="button" class="quick-tag-chip" data-query="IPX">IPX</button>
+                <button type="button" class="quick-tag-chip" data-query="MIDV">MIDV</button>
+                <button type="button" class="quick-tag-chip" data-query="STARS">STARS</button>
+                <button type="button" class="quick-tag-chip" data-query="FC2-PPV">FC2</button>
+                <button type="button" class="quick-tag-chip" data-query="Uncensored">Uncensored</button>
+                <button type="button" class="quick-tag-chip" data-query="Japanese">Japanese</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Loading State -->
+          <div class="adult-loading-state" id="adultLoadingState" style="display: none;">
+            <div class="flac-spinner"></div>
+            <p class="adult-loading-text">Searching catalogs across XVideos and Sukebei JAV Index...</p>
+          </div>
+
+          <!-- Empty State -->
+          <div class="adult-empty-state" id="adultEmptyState">
+            <div class="empty-icon">🎬</div>
+            <h3>Discover & Download Adult Media</h3>
+            <p>Enter an actress name, studio code, or keyword above to instantly search and download videos.</p>
+          </div>
+
+          <!-- Results Grid -->
+          <div class="adult-results-grid" id="adultResultsGrid" style="display: none;"></div>
+
+          <!-- Pagination / Load More -->
+          <div class="adult-pagination-bar" id="adultPaginationBar" style="display: none;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnAdultPrevPage" disabled>&larr; Previous</button>
+            <span class="adult-page-indicator" id="adultPageIndicator">Page 1</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="btnAdultNextPage">Next Page &rarr;</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- ==========================================
            VIEW PANEL 2: SUPPORTED SITES
            ========================================== -->
       <div class="view-panel" id="viewSupported" style="display: none;">
@@ -849,6 +931,10 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
         <span>FLAC Check</span>
       </button>
+      <button type="button" class="bottom-nav-item" data-view="adult-search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+        <span>Adult</span>
+      </button>
       <button type="button" class="bottom-nav-item" data-view="supported">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
         <span>Sites</span>
@@ -928,10 +1014,28 @@
           </a>
         </div>
       </div>
+    <!-- Adult Video Preview Modal -->
+    <div class="modal-backdrop" id="adultPreviewModal" style="display: none;">
+      <div class="modal-dialog adult-preview-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title" id="adultModalTitle">Video Preview</h3>
+          <button class="modal-close" id="closeAdultModalBtn" title="Close">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 0; background: #000; display: flex; justify-content: center; align-items: center; min-height: 280px;">
+          <video id="adultModalPlayer" controls autoplay loop playsinline style="width: 100%; max-height: 480px; object-fit: contain;"></video>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 18px;">
+          <span class="adult-modal-meta" id="adultModalMeta" style="font-size: 0.82rem; color: var(--text-muted);"></span>
+          <button type="button" class="btn btn-download btn-sm" id="btnAdultModalDownload">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Download</span>
+          </button>
+        </div>
+      </div>
     </div>
 
   </div>
 
-  <script src="app.js?v=4.0.2"></script>
+  <script src="app.js?v=4.0.6"></script>
 </body>
 </html>
