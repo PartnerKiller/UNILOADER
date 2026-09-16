@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.0.4">
+  <link rel="stylesheet" href="styles.css?v=4.0.5">
 </head>
 <body>
   <div class="app-layout">
@@ -81,7 +81,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag">v4.0.4 &bull; PWA Enabled</span>
+        <span class="version-tag">v4.0.5 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -419,6 +419,10 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                 <span>Recent Downloads</span>
               </button>
+              <button type="button" class="btn btn-danger btn-sm" id="btnClearRecentFlac" title="Purge downloaded FLAC files from server">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>Clear Files</span>
+              </button>
             </div>
           </div>
 
@@ -443,10 +447,6 @@
               <select id="selectRecentFlac" class="select-recent-flac">
                 <option value="">-- Inspect Recent Downloaded FLAC --</option>
               </select>
-              <button type="button" class="btn-clear-recent-flac" id="btnClearRecentFlac" title="Purge downloaded FLAC files from server">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                <span>Clear Files</span>
-              </button>
             </div>
           </div>
 
