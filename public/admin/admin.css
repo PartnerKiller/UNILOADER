@@ -180,13 +180,40 @@ body {
 }
 
 .badge-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  flex-shrink: 0;
   font-size: 0.72rem;
+  font-weight: 600;
   background: rgba(244, 63, 94, 0.15);
   color: var(--admin-pink);
   border: 1px solid rgba(244, 63, 94, 0.3);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
   font-family: var(--font-mono);
+  line-height: 1.2;
+}
+
+.badge-tag.success {
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.32);
+}
+
+.badge-tag.warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: var(--admin-amber);
+  border-color: rgba(245, 158, 11, 0.32);
+}
+
+.badge-tag.accent,
+.badge-tag.cyan,
+.badge-tag.info {
+  background: rgba(56, 189, 248, 0.14);
+  color: var(--admin-accent);
+  border-color: rgba(56, 189, 248, 0.32);
 }
 
 .header-right {
@@ -618,25 +645,38 @@ body {
   border: 1px solid var(--admin-border);
   border-radius: 14px;
   padding: 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .tool-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  gap: 12px;
+  margin-bottom: 10px;
+  min-height: 32px;
 }
 
 .tool-header h3 {
-  font-size: 1rem;
+  font-size: 0.98rem;
   font-weight: 700;
   color: #fff;
+  line-height: 1.35;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .tool-meta {
   font-size: 0.82rem;
   color: var(--admin-text-muted);
   margin-bottom: 16px;
+  flex: 1;
+}
+
+.tool-actions {
+  margin-top: auto;
 }
 
 .clean-status {

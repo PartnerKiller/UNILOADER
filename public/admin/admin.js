@@ -430,15 +430,26 @@ async function loadSystemMetrics() {
     // Temp storage
     const tempMb = (data.storage.tempSizeBytes / (1024 * 1024)).toFixed(1);
     document.getElementById('statTempSize').textContent = `${tempMb} MB`;
-    document.getElementById('statTempFiles').textContent = `${data.storage.tempFileCount} Files`;
-    document.getElementById('orphanedCountBadge').textContent = `${data.storage.orphanedPartials} Orphaned`;
+    const tempFileCount = data.storage.tempFileCount || 0;
+    document.getElementById('statTempFiles').textContent = tempFileCount === 1 ? '1 File' : `${tempFileCount} Files`;
+
+    const orphBadge = document.getElementById('orphanedCountBadge');
+    if (orphBadge) {
+      const orphCount = data.storage.orphanedPartials || 0;
+      orphBadge.textContent = `${orphCount} Orphaned`;
+      orphBadge.className = orphCount > 0 ? 'badge-tag warning' : 'badge-tag success';
+    }
 
     // FLAC Library Cache
     if (data.storage && data.storage.flacCache) {
       const fc = data.storage.flacCache;
       const countBadge = document.getElementById('flacCacheCountBadge');
       const sizeLabel = document.getElementById('flacCacheSizeLabel');
-      if (countBadge) countBadge.textContent = `${fc.fileCount} Files`;
+      if (countBadge) {
+        const fcCount = fc.fileCount || 0;
+        countBadge.textContent = fcCount === 1 ? '1 File' : `${fcCount} Files`;
+        countBadge.className = 'badge-tag accent';
+      }
       if (sizeLabel) sizeLabel.textContent = `${fc.sizeMB} MB`;
     }
 
@@ -563,7 +574,7 @@ async function loadCredsData() {
       document.getElementById('deezerArlInput').value = data.deezerArl;
       if (dzBadge) {
         dzBadge.textContent = 'Configured (Masked)';
-        dzBadge.className = 'badge-tag';
+        dzBadge.className = 'badge-tag success';
       }
     } else {
       if (dzBadge) {
@@ -582,7 +593,7 @@ async function loadCredsData() {
     if (spBadge) {
       if (data.spotifyClientId && data.spotifyClientSecret) {
         spBadge.textContent = 'Configured';
-        spBadge.className = 'badge-tag';
+        spBadge.className = 'badge-tag success';
       } else {
         spBadge.textContent = 'Missing API Keys';
         spBadge.className = 'badge-tag error';
