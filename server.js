@@ -550,7 +550,34 @@ app.post('/api/config/open-folder', (req, res) => {
 // ==========================================================================
 // Sakura Admin Authentication, UI/UX Studio & Diagnostics Endpoints
 // ==========================================================================
+const SESSIONS_FILE = path.join(__dirname, '.admin_sessions.json');
 const adminSessions = new Map(); // token -> { user, createdAt }
+
+function loadAdminSessions() {
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'));
+      const now = Date.now();
+      for (const [token, sess] of Object.entries(parsed)) {
+        if (now - (sess.createdAt || 0) < 14 * 24 * 60 * 60 * 1000) {
+          adminSessions.set(token, sess);
+        }
+      }
+    }
+  } catch (e) {}
+}
+
+function saveAdminSessions() {
+  try {
+    const obj = {};
+    for (const [token, sess] of adminSessions.entries()) {
+      obj[token] = sess;
+    }
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(obj), 'utf8');
+  } catch (e) {}
+}
+
+loadAdminSessions();
 
 let globalUiSettings = {
   theme: 'sakura',
@@ -561,6 +588,7 @@ let globalUiSettings = {
 function generateAdminToken(user) {
   const token = crypto.randomBytes(32).toString('hex');
   adminSessions.set(token, { user, createdAt: Date.now() });
+  saveAdminSessions();
   return token;
 }
 
@@ -578,8 +606,9 @@ function verifyAdminToken(req) {
   if (!token) return null;
   const session = adminSessions.get(token);
   if (!session) return null;
-  if (Date.now() - session.createdAt > 7 * 24 * 60 * 60 * 1000) {
+  if (Date.now() - session.createdAt > 14 * 24 * 60 * 60 * 1000) {
     adminSessions.delete(token);
+    saveAdminSessions();
     return null;
   }
   return session;
@@ -611,7 +640,10 @@ app.post('/api/admin/login', (req, res) => {
 // 2. Admin Logout
 app.post('/api/admin/logout', requireAdmin, (req, res) => {
   const token = req.headers['authorization']?.replace('Bearer ', '').trim() || req.headers['x-admin-token'];
-  if (token) adminSessions.delete(token);
+  if (token) {
+    adminSessions.delete(token);
+    saveAdminSessions();
+  }
   res.json({ success: true });
 });
 
@@ -971,7 +1003,7 @@ app.post('/api/admin/creds', requireAdmin, (req, res) => {
   try {
     const { deezerArl, spotifyClientId, spotifyClientSecret, adminUser, adminPass } = req.body || {};
 
-    if (deezerArl && !deezerArl.includes('...')) {
+    if (deezerArl && !deezerArl.includes('...') && !deezerArl.includes('•')) {
       process.env.DEEZER_ARL = deezerArl.trim();
     }
     if (spotifyClientId) {
@@ -1025,18 +1057,18 @@ app.post('/api/admin/creds', requireAdmin, (req, res) => {
 // 9. Test Deezer HiFi ARL Token
 app.post('/api/admin/test-deezer', requireAdmin, (req, res) => {
   let { arl } = req.body || {};
-  if (!arl || arl.includes('...')) {
+  if (!arl || arl.includes('...') || arl.includes('•')) {
     arl = process.env.DEEZER_ARL || '';
   }
   if (!arl) {
-    return res.status(400).json({ valid: false, error: 'No Deezer ARL token provided or configured' });
+    return res.status(400).json({ valid: false, error: 'No Deezer ARL token provided or configured in server environment' });
   }
 
   const https = require('https');
   const url = 'https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&input=3&api_version=1.0&api_token=';
   const options = {
     headers: {
-      'Cookie': `arl=${arl}`,
+      'Cookie': `arl=${arl.trim()}`,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     },
     timeout: 8000
@@ -1050,27 +1082,45 @@ app.post('/api/admin/test-deezer', requireAdmin, (req, res) => {
         const data = JSON.parse(body);
         const user = data?.results?.USER || {};
         const userId = user.USER_ID;
+        const soundQuality = user?.OPTIONS?.mobile_sound_quality || {};
+        const hasLossless = !!(soundQuality.lossless || soundQuality.high);
         if (userId && userId !== 0 && userId !== '0') {
+          // If a new valid raw token was provided, persist to .env
+          if (!arl.includes('...') && !arl.includes('•') && arl.length >= 64) {
+            process.env.DEEZER_ARL = arl.trim();
+            try {
+              let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+              if (envContent.includes('DEEZER_ARL=')) {
+                envContent = envContent.replace(/DEEZER_ARL=.*/g, `DEEZER_ARL=${arl.trim()}`);
+              } else {
+                envContent += `\nDEEZER_ARL=${arl.trim()}\n`;
+              }
+              fs.writeFileSync(envPath, envContent, 'utf8');
+            } catch (e) {}
+          }
+
           res.json({
             valid: true,
             user: user.BLOG_NAME || `Deezer User (${userId})`,
-            country: data?.results?.COUNTRY || 'US',
-            canStreamLossless: true
+            country: data?.results?.COUNTRY || 'Global',
+            canStreamLossless: hasLossless
           });
         } else {
           res.json({
             valid: false,
-            error: data?.error?.length ? data.error.join(', ') : 'Invalid or expired Deezer ARL token'
+            error: (data?.error && Array.isArray(data.error) && data.error.length)
+              ? data.error.join(', ')
+              : (data?.error && typeof data.error === 'object' ? JSON.stringify(data.error) : 'Invalid or expired Deezer ARL token')
           });
         }
       } catch (e) {
-        res.json({ valid: false, error: 'Failed to parse Deezer response' });
+        res.json({ valid: false, error: 'Failed to parse Deezer response: ' + e.message });
       }
     });
   });
 
   request.on('error', (err) => {
-    res.status(500).json({ valid: false, error: err.message });
+    res.status(500).json({ valid: false, error: 'Deezer connection error: ' + err.message });
   });
 
   request.on('timeout', () => {

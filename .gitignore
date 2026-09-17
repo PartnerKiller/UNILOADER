@@ -9,6 +9,7 @@ yarn-error.log*
 .env.*
 !.env.example
 config.json
+.admin_sessions.json
 *.key
 *.pem
 *.p12

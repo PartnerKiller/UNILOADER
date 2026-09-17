@@ -500,10 +500,23 @@ function setupCreds() {
           },
           body: JSON.stringify({ arl })
         });
+        if (res.status === 401) {
+          resBox.className = 'test-result-box error';
+          resBox.textContent = `✗ Session Expired: Please log in again.`;
+          showToast('Admin session expired. Please sign in again.', 'error');
+          setTimeout(() => showLogin(), 1000);
+          return;
+        }
+
         const data = await res.json();
         if (res.ok && data.valid) {
           resBox.className = 'test-result-box success';
           resBox.textContent = `✓ Token Verified! Account: ${data.user || 'HiFi Subscriber'} • Country: ${data.country || 'Global'} • Lossless 1411k: ${data.canStreamLossless ? 'ACTIVE' : 'STANDARD'}`;
+          const dzBadge = document.getElementById('deezerStatusBadge');
+          if (dzBadge) {
+            dzBadge.textContent = 'Configured (Verified)';
+            dzBadge.className = 'badge-tag success';
+          }
         } else {
           resBox.className = 'test-result-box error';
           resBox.textContent = `✗ Invalid Token: ${data.error || 'Cannot authenticate with Deezer API'}`;
@@ -543,6 +556,13 @@ function setupCreds() {
             adminPass
           })
         });
+
+        if (res.status === 401) {
+          statusEl.textContent = '✗ Session Expired: Please log in again.';
+          showToast('Admin session expired. Please sign in again.', 'error');
+          setTimeout(() => showLogin(), 1000);
+          return;
+        }
 
         const data = await res.json();
         if (res.ok) {
