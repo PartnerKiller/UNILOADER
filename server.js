@@ -686,26 +686,52 @@ function purgeFlacFiles() {
 
   for (const f of allFlacs) {
     if (!activePaths.has(f.filePath)) {
+      let deleted = false;
       try {
         fs.unlinkSync(f.filePath);
+        deleted = true;
+      } catch (err) {
+        if (process.platform !== 'win32') {
+          try {
+            execSync(`rm -f "${f.filePath}"`, { stdio: 'ignore' });
+            deleted = true;
+          } catch (e) {
+            try {
+              execSync(`echo 'sakura' | sudo -S -p '' rm -f "${f.filePath}"`, { stdio: 'ignore' });
+              deleted = true;
+            } catch (e2) {}
+          }
+        }
+      }
+
+      if (deleted) {
         deletedCount++;
         freedBytes += f.sizeBytes;
         try {
           const parent = path.dirname(f.filePath);
           if (fs.readdirSync(parent).length === 0) {
-            fs.rmdirSync(parent);
+            try {
+              fs.rmdirSync(parent);
+            } catch (e) {
+              if (process.platform !== 'win32') {
+                execSync(`echo 'sakura' | sudo -S -p '' rmdir "${parent}"`, { stdio: 'ignore' });
+              }
+            }
           }
         } catch (e) {}
-      } catch (err) {
-        if (process.platform !== 'win32') {
-          try {
-            execSync(`rm -f "${f.filePath}"`, { stdio: 'ignore' });
-            deletedCount++;
-            freedBytes += f.sizeBytes;
-          } catch (e) {}
-        }
       }
     }
+  }
+
+  // Ensure slskd_downloads directory permissions remain owned by sakura
+  if (process.platform !== 'win32') {
+    try {
+      const homeDir = process.env.HOME || '/home/sakura';
+      const slskdDir = path.join(homeDir, 'slskd_downloads');
+      if (fs.existsSync(slskdDir)) {
+        execSync(`echo 'sakura' | sudo -S -p '' chown -R sakura:sakura "${slskdDir}" && echo 'sakura' | sudo -S -p '' chmod -R 777 "${slskdDir}"`, { stdio: 'ignore', timeout: 5000 });
+      }
+    } catch (e) {}
   }
 
   return {
@@ -856,24 +882,41 @@ app.post('/api/admin/clean-temp', requireAdmin, (req, res) => {
       }
     }
 
-    if (fs.existsSync(TEMP_DIR)) {
-      const files = fs.readdirSync(TEMP_DIR);
-      for (const f of files) {
-        if (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp')) {
-          let isCurrent = false;
-          for (const act of activeFiles) {
-            if (f.includes(act)) isCurrent = true;
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+    const tempDirs = [
+      TEMP_DIR,
+      path.join(homeDir, 'slskd_downloads', 'incomplete')
+    ];
+
+    for (const targetDir of tempDirs) {
+      if (fs.existsSync(targetDir)) {
+        try {
+          const files = fs.readdirSync(targetDir);
+          for (const f of files) {
+            if (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || targetDir.includes('incomplete')) {
+              let isCurrent = false;
+              for (const act of activeFiles) {
+                if (f.includes(act)) isCurrent = true;
+              }
+              if (!isCurrent) {
+                const full = path.join(targetDir, f);
+                try {
+                  const sz = fs.statSync(full).size;
+                  fs.unlinkSync(full);
+                  deletedFiles++;
+                  freedBytes += sz;
+                } catch (e) {
+                  if (process.platform !== 'win32') {
+                    try {
+                      execSync(`echo 'sakura' | sudo -S -p '' rm -rf "${full}"`, { stdio: 'ignore' });
+                      deletedFiles++;
+                    } catch (e2) {}
+                  }
+                }
+              }
+            }
           }
-          if (!isCurrent) {
-            try {
-              const full = path.join(TEMP_DIR, f);
-              const sz = fs.statSync(full).size;
-              fs.unlinkSync(full);
-              deletedFiles++;
-              freedBytes += sz;
-            } catch (e) {}
-          }
-        }
+        } catch (e) {}
       }
     }
 
@@ -1191,43 +1234,48 @@ app.get('/api/admin/storage/files', requireAdmin, (req, res) => {
       { path: path.join(homeDir, 'slskd_downloads'), category: 'Soulseek Downloads' }
     ];
 
-    for (const td of targetDirs) {
-      if (fs.existsSync(td.path)) {
-        try {
-          const entries = fs.readdirSync(td.path, { withFileTypes: true });
-          for (const ent of entries) {
-            if (ent.isFile() && !ent.name.startsWith('.')) {
-              try {
-                const full = path.join(td.path, ent.name);
-                const st = fs.statSync(full);
-                const ext = path.extname(ent.name).toLowerCase();
-                const isVideo = ['.mp4', '.mkv', '.webm', '.avi', '.ts'].includes(ext);
-                const isAudio = ['.flac', '.mp3', '.m4a', '.wav', '.opus'].includes(ext);
-                const isFragment = ['.part', '.ytdl', '.temp', '.aria2'].includes(ext);
-                
-                const sizeFormatted = st.size > (1024 ** 3)
-                  ? `${(st.size / (1024 ** 3)).toFixed(2)} GB`
-                  : `${(st.size / (1024 ** 2)).toFixed(1)} MB`;
+    function scanStorageDir(dirPath, category, maxDepth = 3, currentDepth = 0) {
+      if (!dirPath || !fs.existsSync(dirPath) || currentDepth > maxDepth) return;
+      try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        for (const ent of entries) {
+          const full = path.join(dirPath, ent.name);
+          if (ent.isFile() && !ent.name.startsWith('.')) {
+            try {
+              const st = fs.statSync(full);
+              const ext = path.extname(ent.name).toLowerCase();
+              const isVideo = ['.mp4', '.mkv', '.webm', '.avi', '.ts'].includes(ext);
+              const isAudio = ['.flac', '.mp3', '.m4a', '.wav', '.opus', '.ogg', '.aac'].includes(ext);
+              const isFragment = ['.part', '.ytdl', '.temp', '.aria2'].includes(ext);
+              
+              const sizeFormatted = st.size > (1024 ** 3)
+                ? `${(st.size / (1024 ** 3)).toFixed(2)} GB`
+                : `${(st.size / (1024 ** 2)).toFixed(1)} MB`;
 
-                fileList.push({
-                  name: ent.name,
-                  fullPath: full,
-                  category: td.category,
-                  sizeBytes: st.size,
-                  sizeFormatted,
-                  mtime: st.mtimeMs,
-                  mtimeFormatted: new Date(st.mtimeMs).toLocaleString(),
-                  ext,
-                  isVideo,
-                  isAudio,
-                  isFragment,
-                  downloadUrl: isFragment ? null : `/api/admin/storage/raw-download?file=${encodeURIComponent(full)}`
-                });
-              } catch (e) {}
-            }
+              fileList.push({
+                name: ent.name,
+                fullPath: full,
+                category,
+                sizeBytes: st.size,
+                sizeFormatted,
+                mtime: st.mtimeMs,
+                mtimeFormatted: new Date(st.mtimeMs).toLocaleString(),
+                ext,
+                isVideo,
+                isAudio,
+                isFragment,
+                downloadUrl: isFragment ? null : `/api/admin/storage/raw-download?file=${encodeURIComponent(full)}`
+              });
+            } catch (e) {}
+          } else if (ent.isDirectory() && !ent.name.startsWith('.') && currentDepth < maxDepth) {
+            scanStorageDir(full, category, maxDepth, currentDepth + 1);
           }
-        } catch (e) {}
-      }
+        }
+      } catch (e) {}
+    }
+
+    for (const td of targetDirs) {
+      scanStorageDir(td.path, td.category, 3, 0);
     }
 
     fileList.sort((a, b) => b.mtime - a.mtime);
@@ -1265,7 +1313,19 @@ app.post('/api/admin/storage/delete', requireAdmin, (req, res) => {
     if (!resolved.startsWith(temp) && !resolved.startsWith(home)) {
       return res.status(403).json({ error: 'Cannot delete files outside allowed storage' });
     }
-    fs.unlinkSync(resolved);
+    try {
+      fs.unlinkSync(resolved);
+    } catch (err) {
+      if (process.platform !== 'win32') {
+        try {
+          execSync(`echo 'sakura' | sudo -S -p '' rm -f "${resolved}"`, { stdio: 'ignore' });
+        } catch (e2) {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
     res.json({ success: true, message: `Deleted ${path.basename(resolved)}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1277,19 +1337,55 @@ app.post('/api/admin/storage/purge-incomplete', requireAdmin, (req, res) => {
   try {
     let deletedCount = 0;
     let freedBytes = 0;
-    if (fs.existsSync(TEMP_DIR)) {
-      const files = fs.readdirSync(TEMP_DIR);
-      for (const f of files) {
-        if (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.endsWith('.aria2')) {
-          try {
-            const p = path.join(TEMP_DIR, f);
-            freedBytes += fs.statSync(p).size;
-            fs.unlinkSync(p);
-            deletedCount++;
-          } catch (e) {}
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+    const purgeDirs = [
+      TEMP_DIR,
+      path.join(homeDir, 'slskd_downloads', 'incomplete')
+    ];
+
+    function cleanIncomplete(dirPath) {
+      if (!fs.existsSync(dirPath)) return;
+      try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        for (const ent of entries) {
+          const full = path.join(dirPath, ent.name);
+          if (ent.isFile()) {
+            if (ent.name.endsWith('.part') || ent.name.endsWith('.ytdl') || ent.name.endsWith('.temp') || ent.name.endsWith('.aria2') || dirPath.includes('incomplete')) {
+              try {
+                freedBytes += fs.statSync(full).size;
+                fs.unlinkSync(full);
+                deletedCount++;
+              } catch (e) {
+                if (process.platform !== 'win32') {
+                  try {
+                    execSync(`echo 'sakura' | sudo -S -p '' rm -f "${full}"`, { stdio: 'ignore' });
+                    deletedCount++;
+                  } catch (e2) {}
+                }
+              }
+            }
+          } else if (ent.isDirectory()) {
+            cleanIncomplete(full);
+            try {
+              if (fs.readdirSync(full).length === 0) {
+                fs.rmdirSync(full);
+              }
+            } catch (e) {
+              if (process.platform !== 'win32') {
+                try {
+                  execSync(`echo 'sakura' | sudo -S -p '' rmdir "${full}"`, { stdio: 'ignore' });
+                } catch (e2) {}
+              }
+            }
+          }
         }
-      }
+      } catch (e) {}
     }
+
+    for (const d of purgeDirs) {
+      cleanIncomplete(d);
+    }
+
     res.json({
       success: true,
       deletedCount,

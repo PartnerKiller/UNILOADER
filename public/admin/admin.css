@@ -242,11 +242,15 @@ body {
 /* Tabs Navigation */
 .admin-tabs {
   display: flex;
-  background: #0d1017;
+  background: rgba(13, 16, 23, 0.95);
   border-bottom: 1px solid var(--admin-border);
   padding: 0 28px;
   gap: 8px;
   overflow-x: auto;
+  position: sticky;
+  top: 65px;
+  z-index: 99;
+  backdrop-filter: blur(12px);
 }
 
 .tab-btn {
