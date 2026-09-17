@@ -1453,63 +1453,75 @@ app.post('/api/admin/storage/purge-incomplete', requireAdmin, (req, res) => {
 // 14. Network & API Health Bench
 app.get('/api/admin/health-bench', requireAdmin, async (req, res) => {
   const targets = [
-    { name: 'Tidal Monochrome API', url: 'https://api.tidal.com/v1/ping', expect: [200, 401, 403] },
-    { name: 'Deezer Core API', url: 'https://api.deezer.com', expect: [200] },
-    { name: 'Local Soulseek Daemon', url: 'http://127.0.0.1:5030/api/v0/application', expect: [200, 401] },
-    { name: 'OlaMovies Domain', url: cachedOlaDomain || 'https://v5.olamovies.mov', expect: [200, 301, 302, 403] },
+    {
+      name: 'Tidal Monochrome API',
+      url: 'https://monochrome.tf/api',
+      fallbacks: ['https://api.monochrome-music.com', 'https://api.tidal.com/v1/ping'],
+      method: 'HEAD',
+      expect: [200, 301, 302, 401, 403]
+    },
+    { name: 'Deezer Core API', url: 'https://api.deezer.com', method: 'HEAD', expect: [200] },
+    { name: 'Local Soulseek Daemon', url: 'http://127.0.0.1:5030/api/v0/application', method: 'GET', expect: [200, 401] },
+    { name: 'OlaMovies Domain', url: cachedOlaDomain || 'https://v5.olamovies.mov', method: 'HEAD', expect: [200, 301, 302, 403] },
     {
       name: 'YTS Movie API',
-      url: 'https://yts.gg/api/v2/list_movies.json?limit=1',
+      url: 'https://movies-api.accel.li/api/v2/list_movies.json?limit=1',
       fallbacks: [
-        'https://movies-api.accel.li/api/v2/list_movies.json?limit=1',
+        'https://yts.gg/api/v2/list_movies.json?limit=1',
         'https://yts.lt/api/v2/list_movies.json?limit=1'
       ],
+      method: 'HEAD',
       expect: [200]
     },
-    { name: 'YouTube / Google Core', url: 'https://www.youtube.com', expect: [200, 302] },
-    { name: 'GitHub Upstream API', url: 'https://api.github.com/zen', expect: [200] }
+    { name: 'YouTube / Google Core', url: 'https://www.youtube.com', method: 'HEAD', expect: [200, 302] },
+    { name: 'GitHub Upstream API', url: 'https://api.github.com/zen', method: 'HEAD', expect: [200] }
   ];
 
   const results = await Promise.all(targets.map(async (t) => {
     const urlsToTry = [t.url, ...(t.fallbacks || [])];
-    let lastErr = null;
-    for (const testUrl of urlsToTry) {
+
+    // Concurrently race configured mirrors to measure the fastest healthy route
+    const probeSingle = async (testUrl) => {
       const start = Date.now();
-      try {
-        const resp = await fetch(testUrl, {
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': '*/*'
-          },
-          signal: AbortSignal.timeout(5000)
-        });
-        const latencyMs = Date.now() - start;
-        const isExpected = (t.expect || [200]).includes(resp.status);
-        if (isExpected) {
-          return {
-            name: t.name,
-            url: testUrl,
-            status: resp.status,
-            statusText: resp.statusText || String(resp.status),
-            latencyMs,
-            ok: true,
-            tier: latencyMs < 300 ? 'optimal' : (latencyMs < 800 ? 'fair' : 'slow')
-          };
-        }
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    return {
-      name: t.name,
-      url: t.url,
-      status: 0,
-      statusText: lastErr?.message || 'Connection Error',
-      latencyMs: 5000,
-      ok: false,
-      tier: 'error'
+      const resp = await fetch(testUrl, {
+        method: t.method || 'HEAD',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': '*/*'
+        },
+        signal: AbortSignal.timeout(4500)
+      });
+      const latencyMs = Date.now() - start;
+      const isExpected = (t.expect || [200]).includes(resp.status);
+      if (!isExpected) throw new Error(`Unexpected status ${resp.status}`);
+      return {
+        name: t.name,
+        url: testUrl,
+        status: resp.status,
+        statusText: resp.statusText || String(resp.status),
+        latencyMs,
+        ok: true,
+        tier: latencyMs < 500 ? 'optimal' : (latencyMs < 900 ? 'fair' : 'slow')
+      };
     };
+
+    try {
+      if (urlsToTry.length === 1) {
+        return await probeSingle(urlsToTry[0]);
+      }
+      // Pick the fastest responding healthy mirror
+      return await Promise.any(urlsToTry.map(u => probeSingle(u)));
+    } catch (e) {
+      return {
+        name: t.name,
+        url: t.url,
+        status: 0,
+        statusText: e.message || 'Connection Error',
+        latencyMs: 4500,
+        ok: false,
+        tier: 'error'
+      };
+    }
   }));
 
   res.json({ success: true, timestamp: Date.now(), results });
