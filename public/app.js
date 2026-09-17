@@ -2505,10 +2505,13 @@ function renderMovieResults(items) {
     const can1Click = true; // Always enable 1-Click Download for movie cards
     const releaseCount = item.releasesCount || (item.releases ? item.releases.length : 0);
 
+    const displayTitle = item.pureTitle || item.title;
+    const releaseFilename = (item.pureTitle && item.pureTitle !== item.title) ? item.title : '';
+
     return `
       <div class="movie-card" data-index="${idx}">
         <div class="movie-card-media">
-          <img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(item.title)}" class="movie-card-poster" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${defaultPoster}'" />
+          <img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(displayTitle)}" class="movie-card-poster" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${defaultPoster}'" />
           <div class="movie-card-overlay-gradient"></div>
           
           <div class="movie-card-top-badges">
@@ -2526,7 +2529,7 @@ function renderMovieResults(items) {
         </div>
 
         <div class="movie-card-body">
-          <h4 class="movie-card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h4>
+          <h4 class="movie-card-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</h4>
           
           <div class="movie-card-meta-line">
             ${isOla ? `
@@ -2537,6 +2540,9 @@ function renderMovieResults(items) {
             ` : ''}
             ${bestRelease && bestRelease.seeders !== undefined ? `
               <span class="movie-meta-item meta-seeds" title="Active BitTorrent Seeders">🟢 ${bestRelease.seeders} Seeds</span>
+            ` : ''}
+            ${releaseFilename ? `
+              <span class="movie-meta-item meta-release-name" title="${escapeHtml(releaseFilename)}" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; color: var(--text-muted);">${escapeHtml(releaseFilename)}</span>
             ` : ''}
           </div>
 

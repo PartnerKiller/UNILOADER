@@ -1947,6 +1947,111 @@ async function searchYtsMovies(query, page = 1) {
   return [];
 }
 
+// Clean raw torrent/release filenames into clean movie titles & years
+function extractCleanMovieTitle(rawName) {
+  if (!rawName) return { title: '', year: '' };
+  let s = rawName.replace(/[\._]/g, ' ').trim();
+  let yr = '';
+  const yearMatch = s.match(/\b(19\d\d|20\d\d)\b/);
+  if (yearMatch) {
+    yr = yearMatch[1];
+    const idx = s.indexOf(yr);
+    if (idx > 2) s = s.substring(0, idx).trim();
+  }
+  s = s.replace(/\b(4k|2160p|1080p|720p|480p|uhd|bluray|blu-ray|bdrip|brrip|webrip|web-dl|webdl|hdrip|dvdrip|cam|h264|x264|h265|x265|hevc|10bit|aac|ac3|dts|remux|hdr|dv|sdr|atmos|sub|dub|multi|amzn|dsnp|hs|galaxy|yts|proper|repack|extended|unrated|directors cut)\b.*/i, '');
+  s = s.replace(/[\[\]\(\)\{\}\-_+]/g, ' ').replace(/\s+/g, ' ').trim();
+  return { title: s, year: yr };
+}
+
+// In-memory poster and metadata cache for instant responses
+const movieMetaCache = new Map();
+
+async function resolveMoviePoster(rawTitle, fallbackQuery = '') {
+  const { title, year } = extractCleanMovieTitle(rawTitle);
+  const searchKey = (title || fallbackQuery || '').toLowerCase().trim();
+  if (!searchKey) return '';
+
+  if (movieMetaCache.has(searchKey)) {
+    const cached = movieMetaCache.get(searchKey);
+    return (cached && cached.poster) ? cached.poster : '';
+  }
+
+  async function queryCinemeta(term, type = 'movie') {
+    try {
+      const url = `https://v3-cinemeta.strem.io/catalog/${type}/top/search=${encodeURIComponent(term)}.json`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(4500)
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data && Array.isArray(data.metas) && data.metas.length > 0) {
+        if (year) {
+          const matchYear = data.metas.find(m => m.releaseInfo && m.releaseInfo.includes(year) && m.poster);
+          if (matchYear) return matchYear;
+        }
+        const firstWithPoster = data.metas.find(m => m.poster);
+        if (firstWithPoster) return firstWithPoster;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  try {
+    let meta = null;
+
+    // 1. Query Cinemeta catalog with extracted clean title
+    if (title) {
+      meta = await queryCinemeta(title, 'movie');
+      if (!meta) meta = await queryCinemeta(title, 'series');
+    }
+
+    // 2. Fallback to user query if title differed
+    if (!meta && fallbackQuery && fallbackQuery.toLowerCase() !== title.toLowerCase()) {
+      meta = await queryCinemeta(fallbackQuery, 'movie');
+      if (!meta) meta = await queryCinemeta(fallbackQuery, 'series');
+    }
+
+    let poster = meta ? meta.poster : null;
+
+    // 3. Fallback to iTunes Search API if Cinemeta had no result
+    if (!poster) {
+      try {
+        const qTerm = title || fallbackQuery;
+        const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(qTerm)}&media=movie&limit=3`;
+        const itRes = await fetch(itunesUrl, { signal: AbortSignal.timeout(3500) });
+        if (itRes.ok) {
+          const itData = await itRes.json();
+          if (itData && itData.results && itData.results.length > 0) {
+            const rawArt = itData.results[0].artworkUrl100 || '';
+            if (rawArt) {
+              poster = rawArt.replace(/100x100bb\.jpg/i, '600x600bb.jpg');
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (poster) {
+      // Upgrade Cinemeta / IMDb Amazon poster resolution to crisp 600px
+      if (poster.includes('media-amazon.com/images/M/') && poster.includes('._V1_')) {
+        poster = poster.replace(/\._V1_.*?\.(jpg|jpeg|png|webp)/i, '._V1_SX600.$1');
+      }
+      if (movieMetaCache.size > 2500) movieMetaCache.clear();
+      movieMetaCache.set(searchKey, {
+        poster,
+        name: (meta && meta.name) || title,
+        year: (meta && meta.releaseInfo) || year,
+        rating: (meta && meta.imdbRating) || ''
+      });
+      return poster;
+    }
+  } catch (err) {}
+
+  movieMetaCache.set(searchKey, { poster: '', name: title, year, rating: '' });
+  return '';
+}
+
 async function searchApibayMovies(query) {
   try {
     const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}&cat=200`;
@@ -1978,13 +2083,15 @@ async function searchApibayMovies(query) {
       const yearMatch = name.match(/\b(19\d\d|20\d\d)\b/);
       const year = yearMatch ? yearMatch[1] : '';
 
+      const { title: cleanTitle, year: cleanYear } = extractCleanMovieTitle(name);
+
       const magnet = `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce`;
 
       results.push({
         id: `tpb_${hash}`,
         title: name,
-        pureTitle: name.replace(/[\._]/g, ' '),
-        year,
+        pureTitle: cleanTitle || name.replace(/[\._]/g, ' '),
+        year: cleanYear || year,
         poster: '',
         provider: 'torrent',
         type: 'movie',
@@ -2002,6 +2109,28 @@ async function searchApibayMovies(query) {
         }]
       });
     }
+
+    // Concurrently resolve official movie posters from Cinemeta / iTunes
+    const distinctSearchKeys = [...new Set(results.map(r => {
+      const { title } = extractCleanMovieTitle(r.title);
+      return (title || query).toLowerCase().trim();
+    }))];
+
+    await Promise.allSettled(distinctSearchKeys.map(k => resolveMoviePoster(k, query)));
+
+    // Attach posters and metadata to results
+    for (const it of results) {
+      const { title } = extractCleanMovieTitle(it.title);
+      const k = (title || query).toLowerCase().trim();
+      const meta = movieMetaCache.get(k);
+      if (meta && meta.poster) {
+        it.poster = meta.poster;
+        if (meta.name && it.pureTitle === it.title) it.pureTitle = meta.name;
+        if (meta.year && !it.year) it.year = meta.year;
+        if (meta.rating && !it.rating) it.rating = meta.rating;
+      }
+    }
+
     return results;
   } catch (e) {
     console.warn('[MovieSearch] Apibay error:', e.message);
@@ -2113,6 +2242,27 @@ app.get('/api/movies/search', async (req, res) => {
       }
     }
 
+    // Ensure every movie/torrent item across all sources has a resolved official poster
+    const missingPosters = combined.filter(it => !it.poster || it.poster.trim() === '');
+    if (missingPosters.length > 0) {
+      const distinctKeys = [...new Set(missingPosters.map(it => {
+        const { title } = extractCleanMovieTitle(it.title || q);
+        return (title || q).toLowerCase().trim();
+      }))];
+      await Promise.allSettled(distinctKeys.map(k => resolveMoviePoster(k, q)));
+      for (const it of missingPosters) {
+        const { title } = extractCleanMovieTitle(it.title || q);
+        const k = (title || q).toLowerCase().trim();
+        const meta = movieMetaCache.get(k);
+        if (meta && meta.poster) {
+          it.poster = meta.poster;
+          if (meta.name && (!it.pureTitle || it.pureTitle === it.title)) it.pureTitle = meta.name;
+          if (meta.year && !it.year) it.year = meta.year;
+          if (meta.rating && !it.rating) it.rating = meta.rating;
+        }
+      }
+    }
+
     // Proxy posters through server to bypass foreign referer Cloudflare hotlink blocks
     for (const it of combined) {
       if (it.poster && it.poster.startsWith('http') && !it.poster.startsWith('/api/proxy-image')) {
@@ -2142,6 +2292,18 @@ app.get('/api/movies/search', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Standalone Movie Poster & Metadata Lookup API
+app.get('/api/movies/poster', async (req, res) => {
+  try {
+    const title = (req.query.title || req.query.q || '').trim();
+    if (!title) return res.json({ success: false, poster: '' });
+    const poster = await resolveMoviePoster(title, title);
+    res.json({ success: true, poster });
+  } catch (e) {
+    res.json({ success: false, poster: '' });
   }
 });
 
