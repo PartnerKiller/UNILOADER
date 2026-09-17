@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/admin.css?v=4.2.4">
+  <link rel="stylesheet" href="/admin/admin.css?v=4.3.0">
 </head>
 <body>
   <!-- Login Modal / Screen -->
@@ -57,7 +57,7 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.2.4</span>
+          <span class="badge-tag">Sakura Suite v4.3.0</span>
         </div>
       </div>
 
@@ -472,6 +472,37 @@
               </label>
             </div>
           </div>
+
+          <!-- Movie Search Providers & Scrapers -->
+          <div class="engine-config-card">
+            <div class="card-head">
+              <h3>🎬 Movie Search Providers &amp; Scrapers</h3>
+              <p>Enable or disable specific movie catalog providers and torrent scrapers shown in the Movie &amp; TV Hub.</p>
+            </div>
+            <div class="switch-list">
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>OlaMovies Catalog (Direct Fast Cloud)</strong>
+                  <span>Scrape OlaMovies catalog with Google Drive, FastCloud, and Rapid links</span>
+                </div>
+                <input type="checkbox" id="switchSourceOlaMovies" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>YTS (YIFY) High-Res Torrents</strong>
+                  <span>Enable direct YTS movie catalog searching with 720p/1080p/2160p torrent streams</span>
+                </div>
+                <input type="checkbox" id="switchSourceYts" class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>BitTorrent / Apibay P2P Swarm</strong>
+                  <span>Enable Pirate Bay / Apibay P2P distributed torrent magnet stream search</span>
+                </div>
+                <input type="checkbox" id="switchSourceTorrents" class="admin-toggle">
+              </label>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -822,6 +853,6 @@
     </main>
   </div>
 
-  <script src="/admin/admin.js?v=4.2.4"></script>
+  <script src="/admin/admin.js?v=4.3.0"></script>
 </body>
 </html>

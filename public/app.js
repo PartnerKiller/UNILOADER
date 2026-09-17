@@ -350,6 +350,8 @@ function switchView(viewName) {
         panels[key].classList.add('active');
         if (key === 'flac-checker') {
           loadRecentFlacFiles();
+        } else if (key === 'movies') {
+          syncMovieSourceTabs();
         }
       } else {
         panels[key].style.display = 'none';
@@ -2191,6 +2193,86 @@ let currentMovieQuery = '';
 let currentMovieSource = 'olamovies';
 let currentMovieQuality = 'all';
 
+async function syncMovieSourceTabs() {
+  try {
+    const res = await fetch('/api/movie-sources');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.success || !data.sources) return;
+
+    const sources = data.sources; // { olamovies: bool, yts: bool, torrents: bool }
+    const sourceTabs = document.getElementById('movieSourceTabs');
+    if (!sourceTabs) return;
+
+    const tabs = sourceTabs.querySelectorAll('.movie-tab');
+    let hasActiveSelected = false;
+
+    tabs.forEach(tab => {
+      const src = tab.dataset.source;
+      const isEnabled = !!sources[src];
+
+      if (isEnabled) {
+        tab.disabled = false;
+        tab.classList.remove('disabled-source');
+        tab.removeAttribute('style');
+        if (src === 'olamovies') {
+          tab.textContent = 'OlaMovies';
+          tab.title = 'OlaMovies Fast Cloud Releases';
+        } else if (src === 'yts') {
+          tab.textContent = 'YTS';
+          tab.title = 'YTS High-Res Torrents';
+        } else if (src === 'torrents') {
+          tab.textContent = 'Torrents';
+          tab.title = 'BitTorrent / Apibay P2P Swarm';
+        }
+      } else {
+        tab.disabled = true;
+        tab.classList.add('disabled-source');
+        tab.style.opacity = '0.45';
+        tab.style.cursor = 'not-allowed';
+        tab.title = 'Disabled in Admin Settings';
+        if (src === 'olamovies') tab.textContent = 'OlaMovies (Disabled)';
+        else if (src === 'yts') tab.textContent = 'YTS (Disabled)';
+        else if (src === 'torrents') tab.textContent = 'Torrents (Disabled)';
+        tab.classList.remove('active');
+      }
+
+      if (src === currentMovieSource && isEnabled) {
+        tab.classList.add('active');
+        hasActiveSelected = true;
+      }
+    });
+
+    // If currently selected source is disabled, pick first enabled source
+    if (!hasActiveSelected) {
+      const firstEnabledTab = sourceTabs.querySelector('.movie-tab:not([disabled])');
+      if (firstEnabledTab) {
+        tabs.forEach(t => t.classList.remove('active'));
+        firstEnabledTab.classList.add('active');
+        currentMovieSource = firstEnabledTab.dataset.source;
+      } else {
+        currentMovieSource = 'none';
+      }
+    }
+
+    // Update search placeholder
+    const searchInput = document.getElementById('movieSearchInput');
+    if (searchInput) {
+      if (currentMovieSource === 'olamovies') {
+        searchInput.placeholder = 'Search movies or TV shows on OlaMovies (e.g. Deadpool & Wolverine, Oppenheimer, Stree 2)...';
+      } else if (currentMovieSource === 'yts') {
+        searchInput.placeholder = 'Search high-res movies on YTS (e.g. Oppenheimer, Interstellar, Dune)...';
+      } else if (currentMovieSource === 'torrents') {
+        searchInput.placeholder = 'Search BitTorrent movies & series (e.g. Game of Thrones, Breaking Bad, Dune)...';
+      } else if (currentMovieSource === 'none') {
+        searchInput.placeholder = 'All movie search providers are currently disabled in Admin Settings.';
+      }
+    }
+  } catch (err) {
+    console.warn('[Movies] Failed to sync movie source tabs:', err.message);
+  }
+}
+
 function initMoviesView() {
   const form = document.getElementById('movieSearchForm');
   const input = document.getElementById('movieSearchInput');
@@ -2202,6 +2284,9 @@ function initMoviesView() {
   const nextBtn = document.getElementById('btnMovieNextPage');
   const modalClose = document.getElementById('btnCloseMovieReleasesModal');
   const modal = document.getElementById('movieReleasesModal');
+
+  // Synchronize dynamic enabled/disabled states of movie tabs with admin configuration
+  syncMovieSourceTabs();
 
   if (modalClose && modal) {
     modalClose.onclick = () => { modal.style.display = 'none'; };
@@ -2236,6 +2321,17 @@ function initMoviesView() {
       sourceTabs.querySelectorAll('.movie-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentMovieSource = btn.dataset.source || 'olamovies';
+
+      if (input) {
+        if (currentMovieSource === 'olamovies') {
+          input.placeholder = 'Search movies or TV shows on OlaMovies (e.g. Deadpool & Wolverine, Oppenheimer, Stree 2)...';
+        } else if (currentMovieSource === 'yts') {
+          input.placeholder = 'Search high-res movies on YTS (e.g. Oppenheimer, Interstellar, Dune)...';
+        } else if (currentMovieSource === 'torrents') {
+          input.placeholder = 'Search BitTorrent movies & series (e.g. Game of Thrones, Breaking Bad, Dune)...';
+        }
+      }
+
       if (currentMovieQuery) {
         currentMoviePage = 1;
         executeMovieSearch(currentMovieQuery, currentMoviePage);
@@ -2307,6 +2403,19 @@ async function executeMovieSearch(query, page = 1) {
   if (emptyState) emptyState.style.display = 'none';
   if (grid) grid.style.display = 'none';
   if (paginationBar) paginationBar.style.display = 'none';
+
+  if (currentMovieSource === 'none') {
+    if (loading) loading.style.display = 'none';
+    if (emptyState) {
+      emptyState.innerHTML = `
+        <div class="empty-icon">🛡️</div>
+        <h3>Movie Providers Disabled</h3>
+        <p>All movie catalog and torrent search engines are currently disabled in Admin Engine Settings.</p>
+      `;
+      emptyState.style.display = 'flex';
+    }
+    return;
+  }
 
   try {
     const params = new URLSearchParams({

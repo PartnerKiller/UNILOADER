@@ -1092,7 +1092,10 @@ function setupEngineSettings() {
         strictLossless: document.getElementById('switchStrictLossless').checked,
         embedSubs: document.getElementById('switchEmbedSubs').checked,
         embedChapters: document.getElementById('switchEmbedChapters').checked,
-        sponsorBlock: document.getElementById('switchSponsorBlock').checked
+        sponsorBlock: document.getElementById('switchSponsorBlock').checked,
+        olamoviesSource: document.getElementById('switchSourceOlaMovies') ? document.getElementById('switchSourceOlaMovies').checked : true,
+        ytsSource: document.getElementById('switchSourceYts') ? document.getElementById('switchSourceYts').checked : false,
+        torrentsSource: document.getElementById('switchSourceTorrents') ? document.getElementById('switchSourceTorrents').checked : false
       };
 
       try {
@@ -1154,6 +1157,15 @@ async function loadEngineConfig() {
     if (feat.embedSubs !== undefined) document.getElementById('switchEmbedSubs').checked = !!feat.embedSubs;
     if (feat.embedChapters !== undefined) document.getElementById('switchEmbedChapters').checked = !!feat.embedChapters;
     if (feat.sponsorBlock !== undefined) document.getElementById('switchSponsorBlock').checked = !!feat.sponsorBlock;
+    if (feat.olamoviesSource !== undefined && document.getElementById('switchSourceOlaMovies')) {
+      document.getElementById('switchSourceOlaMovies').checked = !!feat.olamoviesSource;
+    }
+    if (feat.ytsSource !== undefined && document.getElementById('switchSourceYts')) {
+      document.getElementById('switchSourceYts').checked = !!feat.ytsSource;
+    }
+    if (feat.torrentsSource !== undefined && document.getElementById('switchSourceTorrents')) {
+      document.getElementById('switchSourceTorrents').checked = !!feat.torrentsSource;
+    }
   } catch (e) {}
 }
 

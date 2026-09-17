@@ -48,7 +48,10 @@ const defaultEngineConfig = {
     strictLossless: true,
     embedSubs: true,
     embedChapters: true,
-    sponsorBlock: true
+    sponsorBlock: true,
+    olamoviesSource: true,
+    ytsSource: false,
+    torrentsSource: false
   }
 };
 let engineConfig = { ...defaultEngineConfig };
@@ -2006,6 +2009,19 @@ async function searchApibayMovies(query) {
   }
 }
 
+// Public endpoint for client UI to sync enabled movie search provider tabs
+app.get('/api/movie-sources', (req, res) => {
+  const feat = (engineConfig && engineConfig.features) || {};
+  res.json({
+    success: true,
+    sources: {
+      olamovies: feat.olamoviesSource !== false,
+      yts: !!feat.ytsSource,
+      torrents: !!feat.torrentsSource
+    }
+  });
+});
+
 // Unified Movie Search API (OlaMovies + YTS + Torrents)
 app.get('/api/movies/search', async (req, res) => {
   try {
@@ -2014,7 +2030,7 @@ app.get('/api/movies/search', async (req, res) => {
     }
 
     const q = (req.query.q || '').trim();
-    const source = req.query.source || 'all'; // 'all', 'olamovies', 'yts', 'torrents'
+    let requestedSource = req.query.source || 'all'; // 'all', 'olamovies', 'yts', 'torrents'
     const qualityFilter = req.query.quality || 'all'; // 'all', '4k', '1080p', '720p'
     const page = parseInt(req.query.page, 10) || 1;
 
@@ -2022,45 +2038,82 @@ app.get('/api/movies/search', async (req, res) => {
       return res.json({ success: true, results: [], query: '', total: 0 });
     }
 
-    // 1. Fetch movie & TV catalog strictly from OlaMovies
-    const olaItems = await searchOlaMovies(q, page);
+    const feat = (engineConfig && engineConfig.features) || {};
+    const olaEnabled = feat.olamoviesSource !== false;
+    const ytsEnabled = !!feat.ytsSource;
+    const torrentsEnabled = !!feat.torrentsSource;
 
-    // 2. In parallel, query torrent mirrors for matching streams so that every OlaMovies card has an active Download button!
-    let ytsItems = [];
-    let tpbItems = [];
-    try {
-      const [yRes, tRes] = await Promise.allSettled([
-        searchYtsMovies(q, 1),
-        searchApibayMovies(q)
-      ]);
-      ytsItems = yRes.status === 'fulfilled' ? yRes.value : [];
-      tpbItems = tRes.status === 'fulfilled' ? tRes.value : [];
-    } catch (e) {}
+    if (!olaEnabled && !ytsEnabled && !torrentsEnabled) {
+      return res.json({ success: true, results: [], query: q, total: 0, message: 'All movie providers are currently disabled in Admin Settings.' });
+    }
 
-    // 3. Attach matching torrent stream fallback to each OlaMovies item
-    for (const item of olaItems) {
-      const cleanTitleWords = item.title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
-      let match = ytsItems.find(y => {
-        const yTitle = (y.pureTitle || y.title).toLowerCase();
-        return cleanTitleWords.slice(0, 2).every(w => yTitle.includes(w));
-      });
-      if (!match) {
-        match = tpbItems.find(t => {
-          const tTitle = t.title.toLowerCase();
-          return cleanTitleWords.slice(0, 2).every(w => tTitle.includes(w));
-        });
+    // Auto-resolve requested source against active provider states
+    if (requestedSource === 'olamovies' && !olaEnabled) {
+      requestedSource = ytsEnabled ? 'yts' : (torrentsEnabled ? 'torrents' : 'none');
+    } else if (requestedSource === 'yts' && !ytsEnabled) {
+      requestedSource = olaEnabled ? 'olamovies' : (torrentsEnabled ? 'torrents' : 'none');
+    } else if (requestedSource === 'torrents' && !torrentsEnabled) {
+      requestedSource = olaEnabled ? 'olamovies' : (ytsEnabled ? 'yts' : 'none');
+    }
+
+    if (requestedSource === 'none') {
+      return res.json({ success: true, results: [], query: q, total: 0, message: 'Requested provider is currently disabled by administrator.' });
+    }
+
+    let combined = [];
+
+    if (requestedSource === 'yts') {
+      combined = await searchYtsMovies(q, page);
+    } else if (requestedSource === 'torrents') {
+      combined = await searchApibayMovies(q);
+    } else if (requestedSource === 'olamovies') {
+      const olaItems = await searchOlaMovies(q, page);
+      // If torrent fallback is permitted and mirrors are available, attach torrent fallback to each Ola item
+      if (feat.torrentFallback !== false) {
+        try {
+          const [yRes, tRes] = await Promise.allSettled([
+            searchYtsMovies(q, 1),
+            searchApibayMovies(q)
+          ]);
+          const ytsItems = yRes.status === 'fulfilled' ? yRes.value : [];
+          const tpbItems = tRes.status === 'fulfilled' ? tRes.value : [];
+          for (const item of olaItems) {
+            const cleanTitleWords = item.title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+            let match = ytsItems.find(y => {
+              const yTitle = (y.pureTitle || y.title).toLowerCase();
+              return cleanTitleWords.slice(0, 2).every(w => yTitle.includes(w));
+            });
+            if (!match) {
+              match = tpbItems.find(t => {
+                const tTitle = t.title.toLowerCase();
+                return cleanTitleWords.slice(0, 2).every(w => tTitle.includes(w));
+              });
+            }
+            if (match && match.releases && match.releases.length > 0) {
+              item.torrentFallback = match.releases[0];
+            }
+            if (!item.poster && match && match.poster) {
+              item.poster = match.poster;
+            }
+          }
+        } catch (e) {}
       }
-      if (match && match.releases && match.releases.length > 0) {
-        item.torrentFallback = match.releases[0];
-      }
-      if (!item.poster && match && match.poster) {
-        item.poster = match.poster;
+      combined = olaItems;
+    } else {
+      // 'all': query all currently enabled providers concurrently
+      const tasks = [];
+      if (olaEnabled) tasks.push(searchOlaMovies(q, page));
+      if (ytsEnabled) tasks.push(searchYtsMovies(q, page));
+      if (torrentsEnabled) tasks.push(searchApibayMovies(q));
+      const settled = await Promise.allSettled(tasks);
+      for (const s of settled) {
+        if (s.status === 'fulfilled' && Array.isArray(s.value)) {
+          combined.push(...s.value);
+        }
       }
     }
 
-    // Results are strictly 100% OlaMovies cards only
-    let combined = olaItems;
-
+    // Proxy posters through server to bypass foreign referer Cloudflare hotlink blocks
     for (const it of combined) {
       if (it.poster && it.poster.startsWith('http') && !it.poster.startsWith('/api/proxy-image')) {
         it.poster = `/api/proxy-image?url=${encodeURIComponent(it.poster)}`;
@@ -2082,7 +2135,7 @@ app.get('/api/movies/search', async (req, res) => {
       success: true,
       query: q,
       page,
-      source: 'olamovies',
+      source: requestedSource,
       quality: qualityFilter,
       count: combined.length,
       results: combined

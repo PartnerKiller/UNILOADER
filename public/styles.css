@@ -4009,6 +4009,13 @@ body {
   color: #fff;
 }
 
+.movie-tab.disabled-source,
+.movie-tab:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .movie-quality-filters {
   display: flex;
   align-items: center;
