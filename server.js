@@ -430,7 +430,8 @@ app.get('/api/health', (req, res) => {
       adultJavHub: true,
       movieHub: true,
       olaMovies: true,
-      ytsMovies: true,
+      ytsMovies: false, // disabled for testing
+      pirateBayTorrents: false, // disabled for testing
       aria2cBitTorrent: true
     },
     downloadDir: TEMP_DIR
@@ -1492,65 +1493,9 @@ app.get('/api/movies/search', async (req, res) => {
       return res.json({ success: true, results: [], query: '', total: 0 });
     }
 
-    const tasks = [];
-    if (source === 'all' || source === 'olamovies') {
-      tasks.push(searchOlaMovies(q, page));
-    } else {
-      tasks.push(Promise.resolve([]));
-    }
-
-    if (source === 'all' || source === 'yts') {
-      tasks.push(searchYtsMovies(q, page));
-    } else {
-      tasks.push(Promise.resolve([]));
-    }
-
-    if (source === 'all' || source === 'torrents') {
-      tasks.push(searchApibayMovies(q));
-    } else {
-      tasks.push(Promise.resolve([]));
-    }
-
-    const [olaRes, ytsRes, tpbRes] = await Promise.allSettled(tasks);
-    const olaItems = olaRes.status === 'fulfilled' ? olaRes.value : [];
-    const ytsItems = ytsRes.status === 'fulfilled' ? ytsRes.value : [];
-    const tpbItems = tpbRes.status === 'fulfilled' ? tpbRes.value : [];
-
-    // Attach torrent fallbacks to OlaMovies items
-    for (const item of olaItems) {
-      const cleanTitleWords = item.title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
-      let match = ytsItems.find(y => {
-        const yTitle = (y.pureTitle || y.title).toLowerCase();
-        return cleanTitleWords.slice(0, 2).every(w => yTitle.includes(w));
-      });
-      if (!match) {
-        match = tpbItems.find(t => {
-          const tTitle = t.title.toLowerCase();
-          return cleanTitleWords.slice(0, 2).every(w => tTitle.includes(w));
-        });
-      }
-      if (match && match.releases && match.releases.length > 0) {
-        item.torrentFallback = match.releases[0];
-      }
-    }
-
-    let combined = [];
-    if (source === 'olamovies') {
-      combined = olaItems;
-    } else if (source === 'yts') {
-      combined = ytsItems;
-    } else if (source === 'torrents') {
-      combined = tpbItems;
-    } else {
-      // Prioritize OlaMovies first (user requested: "thy to download it from olamovies, otherwise torrent")
-      // Interleave OlaMovies, YTS, and TPB
-      const maxLen = Math.max(olaItems.length, ytsItems.length, tpbItems.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (i < olaItems.length) combined.push(olaItems[i]);
-        if (i < ytsItems.length) combined.push(ytsItems[i]);
-        if (i < tpbItems.length) combined.push(tpbItems[i]);
-      }
-    }
+    // Testing Mode: Only query OlaMovies (YTS and TPB BitTorrent sources disabled)
+    const olaItems = await searchOlaMovies(q, page);
+    let combined = olaItems;
 
     // Apply quality filter if specified
     if (qualityFilter !== 'all') {

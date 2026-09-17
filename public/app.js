@@ -2188,7 +2188,7 @@ function setupVersionTapEasterEgg() {
 let currentMovieResults = [];
 let currentMoviePage = 1;
 let currentMovieQuery = '';
-let currentMovieSource = 'all';
+let currentMovieSource = 'olamovies';
 let currentMovieQuality = 'all';
 
 function initMoviesView() {
@@ -2232,10 +2232,10 @@ function initMoviesView() {
   if (sourceTabs) {
     sourceTabs.addEventListener('click', (e) => {
       const btn = e.target.closest('.movie-tab');
-      if (!btn) return;
+      if (!btn || btn.disabled) return;
       sourceTabs.querySelectorAll('.movie-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      currentMovieSource = btn.dataset.source || 'all';
+      currentMovieSource = btn.dataset.source || 'olamovies';
       if (currentMovieQuery) {
         currentMoviePage = 1;
         executeMovieSearch(currentMovieQuery, currentMoviePage);
@@ -2436,8 +2436,8 @@ function renderMovieResults(items) {
               </button>
             ` : ''}
 
-            ${releaseCount > 1 ? `
-              <button type="button" class="btn btn-secondary btn-sm movie-options-btn" onclick="openMovieReleasesModal(${idx})">
+            ${releaseCount > 0 ? `
+              <button type="button" class="btn ${can1Click ? 'btn-secondary' : 'btn-primary'} btn-sm movie-options-btn" onclick="openMovieReleasesModal(${idx})">
                 <span>📦 Releases (${releaseCount})</span>
               </button>
             ` : ''}
@@ -2547,8 +2547,8 @@ window.openMovieReleasesModal = function(idx) {
             </button>
           ` : ''}
           ${rel.href ? `
-            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open OlaMovies fast link">
-              <span>🔗 Link</span>
+            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm btn-rel-link" title="Open OlaMovies fast link">
+              <span>⚡ Get Link</span>
             </a>
           ` : ''}
         </div>

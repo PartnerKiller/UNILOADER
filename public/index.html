@@ -89,7 +89,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.1.1 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.1.2 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -418,11 +418,11 @@
             <div style="width: 100%;">
               <div class="movie-header-top-row">
                 <div class="badge-tag movie-hub-badge">🎬 High-Bitrate Cinema &amp; Movie Hub</div>
-                <span class="movie-source-pill">OlaMovies &bull; YTS &bull; BitTorrent</span>
+                <span class="movie-source-pill">OlaMovies Exclusive &bull; Testing Mode</span>
               </div>
               <h2 class="section-title">Movie &amp; TV Show Direct Search &amp; Downloader</h2>
               <p class="section-description">
-                Search and download Hollywood blockbusters, Bollywood hits, South Indian cinema, and global TV series in 4K UHD, 1080p BluRay, HEVC 10-bit, and Multi-Audio (Hindi + English) via OlaMovies fast links and high-speed BitTorrent.
+                Search and download Hollywood blockbusters, Bollywood hits, South Indian cinema, and global TV series in 4K UHD, 1080p BluRay, HEVC 10-bit, and Multi-Audio (Hindi + English) exclusively via OlaMovies fast links.
               </p>
             </div>
           </div>
@@ -435,7 +435,7 @@
                   <circle cx="11" cy="11" r="8"></circle>
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input type="text" id="movieSearchInput" class="movie-search-input" placeholder="Search movies or TV shows (e.g. Deadpool & Wolverine, Oppenheimer, Stree 2, Dune, Avatar)..." autocomplete="off" />
+                <input type="text" id="movieSearchInput" class="movie-search-input" placeholder="Search movies or TV shows on OlaMovies (e.g. Deadpool & Wolverine, Oppenheimer, Stree 2, Dune, Avatar)..." autocomplete="off" />
                 <button type="button" class="btn-clear-movie-search" id="btnClearMovieSearch" style="display: none;">&times;</button>
               </div>
               <button type="submit" class="btn btn-primary btn-movie-search-submit" id="btnMovieSearchSubmit">
@@ -447,10 +447,9 @@
             <!-- Filter & Preset Pills -->
             <div class="movie-controls-row">
               <div class="movie-source-tabs" id="movieSourceTabs">
-                <button type="button" class="movie-tab active" data-source="all">All Sources</button>
-                <button type="button" class="movie-tab" data-source="olamovies">OlaMovies (Fast/Multi-Audio)</button>
-                <button type="button" class="movie-tab" data-source="yts">YTS (4K &amp; 1080p)</button>
-                <button type="button" class="movie-tab" data-source="torrents">Torrents (High Seeders)</button>
+                <button type="button" class="movie-tab active" data-source="olamovies">OlaMovies (Active)</button>
+                <button type="button" class="movie-tab disabled-source" data-source="yts" disabled style="opacity: 0.45; cursor: not-allowed;" title="Disabled for testing">YTS (Disabled)</button>
+                <button type="button" class="movie-tab disabled-source" data-source="torrents" disabled style="opacity: 0.45; cursor: not-allowed;" title="Disabled for testing">Torrents (Disabled)</button>
               </div>
 
               <div class="movie-quality-filters" id="movieQualityFilters">
@@ -468,9 +467,6 @@
                 <button type="button" class="movie-quick-chip" data-query="Dune Part Two">Dune 2</button>
                 <button type="button" class="movie-quick-chip" data-query="Stree 2">Stree 2</button>
                 <button type="button" class="movie-quick-chip" data-query="Avatar The Way of Water">Avatar 2</button>
-                <button type="button" class="movie-quick-chip" data-query="Kalki 2898 AD">Kalki 2898 AD</button>
-                <button type="button" class="movie-quick-chip" data-query="Interstellar">Interstellar</button>
-                <button type="button" class="movie-quick-chip" data-query="The Batman">The Batman</button>
               </div>
             </div>
           </div>
@@ -478,7 +474,7 @@
           <!-- Loading State -->
           <div class="movie-loading-state" id="movieLoadingState" style="display: none;">
             <div class="flac-spinner"></div>
-            <p class="movie-loading-text">Searching cinema catalogs across OlaMovies, YTS, and BitTorrent network...</p>
+            <p class="movie-loading-text">Searching cinema catalogs on OlaMovies...</p>
           </div>
 
           <!-- Empty State -->
