@@ -1706,6 +1706,7 @@ function renderFlacReport(report) {
 
 let currentAdultQuery = '';
 let currentAdultSource = 'all'; // 'all', 'tubes', 'jav'
+let currentAdultDuration = 'full'; // 'full' (10m+), 'extended' (20m+), 'all'
 let currentAdultPage = 1;
 let currentAdultResults = [];
 
@@ -1715,6 +1716,7 @@ function initAdultSearch() {
   const clearBtn = document.getElementById('btnClearAdultSearch');
   const submitBtn = document.getElementById('btnAdultSearchSubmit');
   const sourceTabs = document.getElementById('adultSourceTabs');
+  const durationFilters = document.getElementById('adultDurationFilters');
   const quickTags = document.getElementById('adultQuickTags');
   const prevPageBtn = document.getElementById('btnAdultPrevPage');
   const nextPageBtn = document.getElementById('btnAdultNextPage');
@@ -1766,6 +1768,21 @@ function initAdultSearch() {
         sourceTabs.querySelectorAll('.source-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         currentAdultSource = tab.getAttribute('data-type') || 'all';
+        if (currentAdultQuery) {
+          currentAdultPage = 1;
+          executeAdultSearch();
+        }
+      });
+    });
+  }
+
+  // Duration filters (Full 10m+ vs Extended 20m+ vs All)
+  if (durationFilters) {
+    durationFilters.querySelectorAll('.duration-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        durationFilters.querySelectorAll('.duration-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        currentAdultDuration = pill.getAttribute('data-duration') || 'full';
         if (currentAdultQuery) {
           currentAdultPage = 1;
           executeAdultSearch();
@@ -1845,7 +1862,7 @@ async function executeAdultSearch() {
   if (paginationBar) paginationBar.style.display = 'none';
 
   try {
-    const res = await fetch(`/api/adult/search?q=${encodeURIComponent(currentAdultQuery)}&type=${currentAdultSource}&page=${currentAdultPage}`);
+    const res = await fetch(`/api/adult/search?q=${encodeURIComponent(currentAdultQuery)}&type=${currentAdultSource}&duration=${currentAdultDuration}&page=${currentAdultPage}`);
     if (!res.ok) {
       throw new Error(`Server returned HTTP ${res.status}`);
     }
@@ -1857,7 +1874,7 @@ async function executeAdultSearch() {
         emptyState.innerHTML = `
           <div class="empty-icon">🔍</div>
           <h3>No Results Found for "${escapeHtml(currentAdultQuery)}"</h3>
-          <p>Try searching by JAV product code (e.g. SSIS, IPX, MIDV), actress name, or broader keywords.</p>
+          <p>Try switching Duration to "All Lengths", or search by JAV product code (e.g. SSIS, IPX, MIDV), actress name, or broader keywords.</p>
         `;
         emptyState.style.display = 'flex';
       }
@@ -1892,11 +1909,24 @@ function renderAdultResults(items) {
 
   grid.innerHTML = items.map((item, idx) => {
     const isJav = item.type === 'jav';
-    const sourceLabel = isJav ? 'JAV Master' : 'Tube Stream';
-    const badgeClass = isJav ? 'badge-jav' : 'badge-tube';
+    const isTeaser = item.isTeaser;
+
+    let sourceLabel = 'Tube Stream';
+    let badgeClass = 'badge-tube';
+    if (isJav) {
+      sourceLabel = 'JAV Full Master';
+      badgeClass = 'badge-jav';
+    } else if (item.provider === 'pornhub') {
+      sourceLabel = 'Pornhub HD';
+      badgeClass = 'badge-pornhub';
+    } else if (item.provider === 'xvideos') {
+      sourceLabel = 'XVideos HD';
+      badgeClass = 'badge-xvideos';
+    }
+
     const metaTag = isJav 
-      ? `${item.size || 'HD Full'} &bull; ${item.seeders || 0} Seeds`
-      : `${item.duration || 'Video'} &bull; ${item.quality || 'HD'}`;
+      ? `🎬 ${item.size || 'Full Movie'} &bull; ${item.seeders || 0} Seeds`
+      : `⏱️ ${item.duration || 'Full Video'} &bull; ${item.quality || 'HD'}`;
 
     const defaultImg = isJav
       ? 'https://pics.dmm.co.jp/mono/movie/adult/default/defaultpl.jpg'
@@ -1905,7 +1935,7 @@ function renderAdultResults(items) {
     const thumbUrl = item.thumb || defaultImg;
 
     return `
-      <div class="adult-card" data-index="${idx}">
+      <div class="adult-card ${isTeaser ? 'card-teaser' : ''}" data-index="${idx}">
         <div class="adult-card-media">
           <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(item.title)}" class="adult-card-thumb" loading="lazy" onerror="this.src='${defaultImg}'" />
           ${item.previewVideo ? `
@@ -1914,10 +1944,12 @@ function renderAdultResults(items) {
           <div class="adult-card-badges">
             <span class="adult-badge ${badgeClass}">${sourceLabel}</span>
             ${item.code ? `<span class="adult-badge badge-code">${escapeHtml(item.code)}</span>` : ''}
+            ${isTeaser ? `<span class="adult-badge badge-teaser">⚠️ Short Clip</span>` : ''}
+            ${isJav ? `<span class="adult-badge badge-full-movie">Full Movie</span>` : ''}
           </div>
           <span class="adult-card-meta-pill">${escapeHtml(metaTag)}</span>
           ${item.previewVideo ? `
-            <button type="button" class="btn-hover-preview-play" title="Click to open preview player" onclick="openAdultPreview(${idx})">
+            <button type="button" class="btn-hover-preview-play" title="Click to watch preview trailer" onclick="openAdultPreview(${idx})">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
             </button>
           ` : ''}
@@ -1927,7 +1959,7 @@ function renderAdultResults(items) {
           <div class="adult-card-actions">
             <button type="button" class="btn btn-download btn-sm adult-dl-btn" id="btnAdultDl_${idx}" onclick="dispatchAdultDownload(${idx})">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              <span>1-Click Download</span>
+              <span>1-Click Download Full</span>
             </button>
             ${item.previewVideo ? `
               <button type="button" class="btn btn-secondary btn-sm adult-preview-btn" onclick="openAdultPreview(${idx})">
@@ -1973,14 +2005,34 @@ window.openAdultPreview = function(idx) {
   const title = document.getElementById('adultModalTitle');
   const meta = document.getElementById('adultModalMeta');
   const dlBtn = document.getElementById('btnAdultModalDownload');
+  const banner = document.getElementById('adultModalBanner');
+  const dlText = document.getElementById('adultModalDownloadText');
 
   if (!modal || !player) return;
 
   title.textContent = item.title;
-  meta.textContent = `${(item.provider || '').toUpperCase()} &bull; ${item.duration || item.size || ''} &bull; ${item.quality || 'HD'}`;
-  player.src = item.previewVideo || item.url;
+  const isJav = item.type === 'jav';
+  meta.innerHTML = `${(item.provider || '').toUpperCase()} &bull; ${item.duration || item.size || 'HD'} &bull; ${item.quality || (isJav ? 'Studio Master' : 'HD')}`;
+
+  if (dlText) {
+    dlText.textContent = isJav
+      ? `Download Full JAV Movie (${item.size || '1080p'})`
+      : `Download Full Video (${item.quality || '1080p'})`;
+  }
+
+  if (item.previewVideo) {
+    player.src = item.previewVideo;
+    player.style.display = 'block';
+    player.play().catch(() => {});
+    if (banner) banner.style.display = 'block';
+  } else {
+    player.pause();
+    player.src = '';
+    player.style.display = 'none';
+    if (banner) banner.style.display = 'none';
+  }
+
   modal.style.display = 'flex';
-  player.play().catch(() => {});
 
   if (dlBtn) {
     dlBtn.onclick = () => {
@@ -1999,7 +2051,7 @@ window.dispatchAdultDownload = async function(idx) {
   const btn = document.getElementById(`btnAdultDl_${idx}`);
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<span>Starting...</span>`;
+    btn.innerHTML = `<span>Starting Full Download...</span>`;
   }
 
   try {
@@ -2010,7 +2062,7 @@ window.dispatchAdultDownload = async function(idx) {
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      showToast(`Added to Active Downloads: ${item.title.substring(0, 30)}...`, 'success');
+      showToast(`Added to Active Queue: ${item.title.substring(0, 30)}...`, 'success');
       if (btn) {
         btn.innerHTML = `<span>✓ Enqueued</span>`;
         btn.classList.add('btn-success');
@@ -2019,14 +2071,14 @@ window.dispatchAdultDownload = async function(idx) {
       showToast(data.error || 'Failed to dispatch download', 'error');
       if (btn) {
         btn.disabled = false;
-        btn.innerHTML = `<span>1-Click Download</span>`;
+        btn.innerHTML = `<span>1-Click Download Full</span>`;
       }
     }
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error');
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `<span>1-Click Download</span>`;
+      btn.innerHTML = `<span>1-Click Download Full</span>`;
     }
   }
 };

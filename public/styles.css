@@ -3420,6 +3420,46 @@ body {
   color: #fff;
 }
 
+.adult-duration-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px 6px;
+}
+
+.duration-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding-left: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.duration-pill {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.duration-pill:hover {
+  color: var(--text-primary);
+}
+
+.duration-pill.active {
+  background: hsla(220, 90%, 56%, 0.9);
+  color: #ffffff;
+}
+
 .adult-quick-tags {
   display: flex;
   align-items: center;
@@ -3586,6 +3626,32 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.badge-pornhub {
+  background: #ff9000;
+  color: #000;
+  font-weight: 800;
+}
+
+.badge-xvideos {
+  background: #dc2626;
+  color: #fff;
+}
+
+.badge-full-movie {
+  background: hsla(142, 76%, 36%, 0.9);
+  color: #fff;
+}
+
+.badge-teaser {
+  background: hsla(38, 92%, 50%, 0.9);
+  color: #000;
+  font-weight: 800;
+}
+
+.card-teaser {
+  opacity: 0.85;
+}
+
 .badge-code {
   background: rgba(0, 0, 0, 0.75);
   color: #38bdf8;
@@ -3696,6 +3762,18 @@ body {
 .adult-preview-dialog {
   max-width: 680px;
   width: 92%;
+}
+
+.adult-modal-preview-banner {
+  width: 100%;
+  padding: 8px 14px;
+  background: rgba(234, 179, 8, 0.15);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.35);
+  color: #facc15;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 @media (max-width: 640px) {

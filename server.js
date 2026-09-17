@@ -1087,8 +1087,12 @@ function getDmmCoverUrl(code) {
   return `https://pics.dmm.co.jp/mono/movie/adult/${letters}${padded}/${letters}${padded}pl.jpg`;
 }
 
-async function searchXVideos(query, page = 1) {
-  const url = `https://www.xvideos.com/?k=${encodeURIComponent(query)}&p=${page}`;
+async function searchXVideos(query, page = 1, duration = 'full') {
+  let durParam = '';
+  if (duration === 'full') durParam = '&durf=10min_more';
+  else if (duration === 'extended') durParam = '&durf=20min_more';
+
+  const url = `https://www.xvideos.com/?k=${encodeURIComponent(query)}&p=${page}${durParam}`;
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
   });
@@ -1108,6 +1112,12 @@ async function searchXVideos(query, page = 1) {
                        chunk.match(/<p class="title">\s*<a[^>]*>([^<]+)<\/a>/i);
     const title = titleMatch ? titleMatch[1].trim() : 'Untitled Video';
 
+    // When searching for full videos, filter out short studio teaser/trailer uploads
+    const isTeaser = /\b(preview|trailer|teaser)\b/i.test(title);
+    if (duration !== 'all' && isTeaser) {
+      continue;
+    }
+
     const thumbMatch = chunk.match(/data-src="([^"]+)"/i) || chunk.match(/src="([^"]+)"/i);
     const thumb = thumbMatch ? thumbMatch[1] : '';
 
@@ -1115,7 +1125,7 @@ async function searchXVideos(query, page = 1) {
     const previewVideo = previewMatch ? previewMatch[1] : '';
 
     const durMatch = chunk.match(/<span class="duration">([^<]+)<\/span>/i);
-    const duration = durMatch ? durMatch[1].trim() : '';
+    const durStr = durMatch ? durMatch[1].trim() : '';
 
     const qMatch = chunk.match(/<span class="video-(?:hd|sd)-mark">([^<]+)<\/span>/i);
     const quality = qMatch ? qMatch[1].trim() : 'HD';
@@ -1126,13 +1136,59 @@ async function searchXVideos(query, page = 1) {
       url: fullUrl,
       thumb,
       previewVideo,
-      duration,
+      duration: durStr,
       quality,
       provider: 'xvideos',
-      type: 'tube'
+      type: 'tube',
+      isTeaser
     });
   }
   return results;
+}
+
+async function searchPornhub(query, page = 1) {
+  try {
+    const url = `https://www.pornhub.com/video/search?search=${encodeURIComponent(query)}&page=${page}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results = [];
+    const regex = /<li[^>]*data-video-vkey="([^"]+)"[^>]*>([\s\S]*?)<\/li>/gi;
+    let m;
+    while ((m = regex.exec(html)) !== null && results.length < 25) {
+      const vkey = m[1];
+      const block = m[2];
+      const titleMatch = block.match(/title="([^"]+)"/i);
+      const durMatch = block.match(/<var class="duration">([^<]+)<\/var>/i);
+      const imgMatch = block.match(/src="([^"]+)"/i) || block.match(/data-src="([^"]+)"/i);
+      const hdMatch = block.match(/<span class="hd-thumbnail">([^<]+)<\/span>/i);
+      const previewMatch = block.match(/data-mediabook="([^"]+)"/i);
+
+      const title = titleMatch ? titleMatch[1].trim() : 'Pornhub Video';
+      const isTeaser = /\b(preview|trailer|teaser)\b/i.test(title);
+
+      results.push({
+        id: vkey,
+        title,
+        url: `https://www.pornhub.com/view_video.php?viewkey=${vkey}`,
+        thumb: imgMatch ? imgMatch[1] : '',
+        previewVideo: previewMatch ? previewMatch[1] : '',
+        duration: durMatch ? durMatch[1].trim() : '',
+        quality: hdMatch ? 'HD' : '1080p',
+        provider: 'pornhub',
+        type: 'tube',
+        isTeaser
+      });
+    }
+    return results;
+  } catch (e) {
+    console.warn('[AdultSearch] Pornhub search failed:', e.message);
+    return [];
+  }
 }
 
 async function searchSukebeiJAV(query, page = 1) {
@@ -1148,6 +1204,7 @@ async function searchSukebeiJAV(query, page = 1) {
     const javCode = extractJavCode(rawTitle);
     const coverUrl = javCode ? getDmmCoverUrl(javCode) : '';
     const infoHash = match[7].trim();
+    const torrentUrl = match[2].trim();
     items.push({
       id: infoHash,
       title: rawTitle,
@@ -1156,10 +1213,11 @@ async function searchSukebeiJAV(query, page = 1) {
       size: match[8].trim(),
       seeders: parseInt(match[5], 10),
       leechers: parseInt(match[6], 10),
-      torrentUrl: match[2].trim(),
+      torrentUrl,
       magnet: `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(rawTitle)}&tr=http%3A%2F%2Fnyaa.tracker.wf%3A7777%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce`,
       provider: 'sukebei',
-      type: 'jav'
+      type: 'jav',
+      isFullMovie: true
     });
   }
   return items;
@@ -1170,6 +1228,7 @@ app.get('/api/adult/search', async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
     const type = req.query.type || 'all';
+    const duration = req.query.duration || 'full'; // 'full' (10m+), 'extended' (20m+), 'all'
     const page = parseInt(req.query.page, 10) || 1;
 
     if (!q) {
@@ -1180,10 +1239,16 @@ app.get('/api/adult/search', async (req, res) => {
     let javResults = [];
 
     if (type === 'all' || type === 'tubes') {
-      try {
-        tubeResults = await searchXVideos(q, page);
-      } catch (e) {
-        console.warn('[AdultSearch] XVideos error:', e.message);
+      const [xvRes, phRes] = await Promise.allSettled([
+        searchXVideos(q, page, duration),
+        searchPornhub(q, page)
+      ]);
+      const xv = xvRes.status === 'fulfilled' ? xvRes.value : [];
+      const ph = phRes.status === 'fulfilled' ? phRes.value : [];
+      const maxTube = Math.max(xv.length, ph.length);
+      for (let i = 0; i < maxTube; i++) {
+        if (i < xv.length) tubeResults.push(xv[i]);
+        if (i < ph.length) tubeResults.push(ph[i]);
       }
     }
 
@@ -1201,6 +1266,7 @@ app.get('/api/adult/search', async (req, res) => {
     } else if (type === 'jav') {
       combined = javResults;
     } else {
+      // Interleave JAV Full Movies and High-Definition Tube releases
       const maxLen = Math.max(tubeResults.length, javResults.length);
       for (let i = 0; i < maxLen; i++) {
         if (i < javResults.length) combined.push(javResults[i]);
@@ -1212,6 +1278,7 @@ app.get('/api/adult/search', async (req, res) => {
       success: true,
       query: q,
       page,
+      duration,
       count: combined.length,
       results: combined
     });
@@ -1228,9 +1295,9 @@ app.post('/api/adult/download', async (req, res) => {
       return res.status(400).json({ error: 'Valid URL or magnet link is required' });
     }
 
-    const isTorrent = !!(item.magnet || item.torrentUrl || item.type === 'jav');
+    const isTorrent = !!(item.torrentUrl || item.magnet || item.type === 'jav');
     const jobPayload = {
-      url: item.url || item.magnet,
+      url: item.url || item.torrentUrl || item.magnet,
       magnet: item.magnet,
       torrentUrl: item.torrentUrl,
       title: item.title || item.code || 'Adult Media',
@@ -1256,12 +1323,14 @@ app.post('/api/adult/download', async (req, res) => {
 function startTorrentJob(job) {
   job.status = 'downloading';
   job.startTime = Date.now();
-  job.progress.eta = 'Connecting to DHT/Peers...';
-  job.logs.push('Starting BitTorrent engine via aria2c...');
+  job.progress.eta = 'Connecting to peers...';
+  job.logs.push('Starting BitTorrent acceleration engine via aria2c...');
   broadcastJobUpdate(job.id);
 
   const { opts } = job;
-  const target = (opts && (opts.magnet || opts.torrentUrl)) || job.url;
+  // Prioritize direct .torrent URL over raw magnet:
+  // Torrent files bypass slow DHT metadata resolution and connect to peers immediately!
+  const target = (opts && (opts.torrentUrl || opts.magnet)) || job.url;
   if (!target) {
     job.status = 'failed';
     job.error = 'Missing valid magnet link or torrent URL';
@@ -1277,11 +1346,14 @@ function startTorrentJob(job) {
     '--seed-time=0',
     '--max-connection-per-server=16',
     '--split=16',
+    '--bt-max-peers=60',
     '--bt-stop-timeout=600',
     '--summary-interval=1',
     '--enable-dht=true',
     '--bt-enable-lpd=true',
+    '--file-allocation=none',
     '--follow-torrent=mem',
+    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     target
   ];
 
@@ -1298,13 +1370,17 @@ function startTorrentJob(job) {
         job.logs.push(line);
         if (job.logs.length > 100) job.logs.shift();
 
-        const m = line.match(/\[#\w+\s+([\d.]+\w+)\/([\d.]+\w+)\((\d+)%\).*?DL:([\d.]+\w+).*?ETA:([\w\d]+)\]/i);
+        // Robust match for aria2c output with or without ETA / DL speed
+        const m = line.match(/\[#\w+\s+([\d.]+\s*[a-zA-Z]+)\/([\d.]+\s*[a-zA-Z]+)\((\d+)%\)(?:.*?DL:([\d.]+\s*[a-zA-Z]+))?(?:.*?ETA:([\w\d:]+))?/i);
         if (m) {
           job.progress.downloadedSize = m[1];
           job.progress.totalSize = m[2];
           job.progress.percent = parseInt(m[3], 10);
-          job.progress.speed = m[4] + '/s';
-          job.progress.eta = m[5];
+          job.progress.speed = m[4] ? m[4] + '/s' : '0 B/s';
+          job.progress.eta = m[5] || (job.progress.percent === 0 ? 'Connecting...' : 'Calculating...');
+          broadcastJobUpdate(job.id);
+        } else if (line.includes('METADATA')) {
+          job.progress.eta = 'Resolving metadata...';
           broadcastJobUpdate(job.id);
         }
       }
@@ -1319,16 +1395,41 @@ function startTorrentJob(job) {
       job.pid = null;
       if (code === 0) {
         try {
-          const files = fs.readdirSync(outDir);
-          const sorted = files
-            .map(f => ({ name: f, time: fs.statSync(path.join(outDir, f)).mtimeMs, size: fs.statSync(path.join(outDir, f)).size }))
-            .filter(f => !f.name.endsWith('.aria2') && !f.name.startsWith('.'))
-            .sort((a, b) => b.time - a.time);
+          // Recursively find the largest media file in outDir (handles multi-file subdirectories)
+          function findLargestMediaFile(dir) {
+            let largest = null;
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.name.startsWith('.') || entry.name.endsWith('.aria2')) continue;
+              const full = path.join(dir, entry.name);
+              try {
+                if (entry.isDirectory()) {
+                  const nested = findLargestMediaFile(full);
+                  if (nested && (!largest || nested.size > largest.size)) {
+                    largest = nested;
+                  }
+                } else if (entry.isFile()) {
+                  const ext = path.extname(entry.name).toLowerCase();
+                  if (['.mp4', '.mkv', '.avi', '.ts', '.wmv', '.flv', '.mov', '.webm', '.m4v'].includes(ext)) {
+                    const st = fs.statSync(full);
+                    if (!largest || st.size > largest.size) {
+                      largest = { path: full, name: entry.name, size: st.size, mtimeMs: st.mtimeMs };
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
+            return largest;
+          }
 
-          if (sorted.length > 0) {
-            job.filePath = path.join(outDir, sorted[0].name);
-            job.filename = sorted[0].name;
-            job.filesize = (sorted[0].size / (1024 * 1024)).toFixed(1) + ' MB';
+          const largestFile = findLargestMediaFile(outDir);
+          if (largestFile && largestFile.size > 0) {
+            job.filePath = largestFile.path;
+            job.filename = largestFile.name;
+            job.filesize = largestFile.size > (1024 ** 3)
+              ? (largestFile.size / (1024 ** 3)).toFixed(2) + ' GB'
+              : (largestFile.size / (1024 ** 2)).toFixed(1) + ' MB';
+            job.progress.totalSize = job.filesize;
           }
         } catch (e) {}
 
@@ -1337,7 +1438,8 @@ function startTorrentJob(job) {
         job.progress.speed = '0 MB/s';
         job.progress.eta = 'Ready';
         job.completedTime = Date.now();
-        job.logs.push('BitTorrent download completed successfully.');
+        job.logs.push('BitTorrent full movie download completed successfully.');
+        saveJobsHistory();
       } else {
         if (job.status !== 'cancelled' && job.status !== 'paused') {
           job.status = 'failed';

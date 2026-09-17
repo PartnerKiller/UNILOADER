@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.0.6">
+  <link rel="stylesheet" href="styles.css?v=4.0.7">
 </head>
 <body>
   <div class="app-layout">
@@ -85,7 +85,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag">v4.0.6 &bull; PWA Enabled</span>
+        <span class="version-tag">v4.0.7 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -586,8 +586,16 @@
             <div class="adult-controls-row">
               <div class="adult-source-tabs" id="adultSourceTabs">
                 <button type="button" class="source-tab active" data-type="all">All Sources</button>
-                <button type="button" class="source-tab" data-type="tubes">Streaming Tubes (XVideos)</button>
                 <button type="button" class="source-tab" data-type="jav">JAV Full Movies (Sukebei)</button>
+                <button type="button" class="source-tab" data-type="tubes">Streaming Tubes (XVideos + Pornhub)</button>
+              </div>
+
+              <!-- Duration Selector to guarantee Full Length vs Short clips -->
+              <div class="adult-duration-filters" id="adultDurationFilters">
+                <span class="duration-label">Duration:</span>
+                <button type="button" class="duration-pill active" data-duration="full" title="Videos 10 minutes or longer (removes teaser clips)">Full Videos (10m+)</button>
+                <button type="button" class="duration-pill" data-duration="extended" title="Extended movies 20 minutes or longer">Extended (20m+)</button>
+                <button type="button" class="duration-pill" data-duration="all" title="Include all lengths and short clips">All Lengths</button>
               </div>
 
               <div class="adult-quick-tags" id="adultQuickTags">
@@ -606,7 +614,7 @@
           <!-- Loading State -->
           <div class="adult-loading-state" id="adultLoadingState" style="display: none;">
             <div class="flac-spinner"></div>
-            <p class="adult-loading-text">Searching catalogs across XVideos and Sukebei JAV Index...</p>
+            <p class="adult-loading-text">Searching catalogs across Sukebei JAV Index, XVideos, and Pornhub...</p>
           </div>
 
           <!-- Empty State -->
@@ -1021,14 +1029,17 @@
           <h3 class="modal-title" id="adultModalTitle">Video Preview</h3>
           <button class="modal-close" id="closeAdultModalBtn" title="Close">&times;</button>
         </div>
-        <div class="modal-body" style="padding: 0; background: #000; display: flex; justify-content: center; align-items: center; min-height: 280px;">
-          <video id="adultModalPlayer" controls autoplay loop playsinline style="width: 100%; max-height: 480px; object-fit: contain;"></video>
+        <div class="modal-body" style="padding: 0; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 280px; position: relative;">
+          <div class="adult-modal-preview-banner" id="adultModalBanner">
+            <span>🎬 Short Trailer Preview &bull; Click "Download Full Video" below to download the complete HD release</span>
+          </div>
+          <video id="adultModalPlayer" controls controlsList="nodownload" autoplay loop playsinline style="width: 100%; max-height: 480px; object-fit: contain;"></video>
         </div>
         <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 18px;">
           <span class="adult-modal-meta" id="adultModalMeta" style="font-size: 0.82rem; color: var(--text-muted);"></span>
           <button type="button" class="btn btn-download btn-sm" id="btnAdultModalDownload">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            <span>Download</span>
+            <span id="adultModalDownloadText">Download Full Video</span>
           </button>
         </div>
       </div>
@@ -1036,6 +1047,6 @@
 
   </div>
 
-  <script src="app.js?v=4.0.6"></script>
+  <script src="app.js?v=4.0.7"></script>
 </body>
 </html>
