@@ -336,6 +336,7 @@ function switchView(viewName) {
   // 1. Hide all view panels and show target panel
   const panels = {
     downloader: document.getElementById('viewDownloader'),
+    movies: document.getElementById('viewMovies'),
     'flac-checker': document.getElementById('viewFlacChecker'),
     'adult-search': document.getElementById('viewAdultSearch'),
     supported: document.getElementById('viewSupported'),
@@ -2180,9 +2181,388 @@ function setupVersionTapEasterEgg() {
   }
 }
 
+// ==========================================================================
+// MOVIE & TV SHOW HUB CONTROLLER (OlaMovies & Torrents Dual-Pipeline)
+// ==========================================================================
+
+let currentMovieResults = [];
+let currentMoviePage = 1;
+let currentMovieQuery = '';
+let currentMovieSource = 'all';
+let currentMovieQuality = 'all';
+
+function initMoviesView() {
+  const form = document.getElementById('movieSearchForm');
+  const input = document.getElementById('movieSearchInput');
+  const clearBtn = document.getElementById('btnClearMovieSearch');
+  const sourceTabs = document.getElementById('movieSourceTabs');
+  const qualityFilters = document.getElementById('movieQualityFilters');
+  const quickTags = document.getElementById('movieQuickTags');
+  const prevBtn = document.getElementById('btnMoviePrevPage');
+  const nextBtn = document.getElementById('btnMovieNextPage');
+  const modalClose = document.getElementById('btnCloseMovieReleasesModal');
+  const modal = document.getElementById('movieReleasesModal');
+
+  if (modalClose && modal) {
+    modalClose.onclick = () => { modal.style.display = 'none'; };
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+  }
+
+  if (input && clearBtn) {
+    input.addEventListener('input', () => {
+      clearBtn.style.display = input.value.trim() ? 'block' : 'none';
+    });
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      clearBtn.style.display = 'none';
+      input.focus();
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = (input ? input.value : '').trim();
+      if (!q) return;
+      currentMoviePage = 1;
+      executeMovieSearch(q, currentMoviePage);
+    });
+  }
+
+  if (sourceTabs) {
+    sourceTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.movie-tab');
+      if (!btn) return;
+      sourceTabs.querySelectorAll('.movie-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMovieSource = btn.dataset.source || 'all';
+      if (currentMovieQuery) {
+        currentMoviePage = 1;
+        executeMovieSearch(currentMovieQuery, currentMoviePage);
+      }
+    });
+  }
+
+  if (qualityFilters) {
+    qualityFilters.addEventListener('click', (e) => {
+      const btn = e.target.closest('.movie-q-pill');
+      if (!btn) return;
+      qualityFilters.querySelectorAll('.movie-q-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMovieQuality = btn.dataset.quality || 'all';
+      if (currentMovieQuery) {
+        currentMoviePage = 1;
+        executeMovieSearch(currentMovieQuery, currentMoviePage);
+      }
+    });
+  }
+
+  if (quickTags) {
+    quickTags.addEventListener('click', (e) => {
+      const chip = e.target.closest('.movie-quick-chip');
+      if (!chip) return;
+      const q = chip.dataset.query;
+      if (!q) return;
+      if (input) {
+        input.value = q;
+        if (clearBtn) clearBtn.style.display = 'block';
+      }
+      currentMoviePage = 1;
+      executeMovieSearch(q, currentMoviePage);
+    });
+  }
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      if (currentMoviePage > 1 && currentMovieQuery) {
+        currentMoviePage--;
+        executeMovieSearch(currentMovieQuery, currentMoviePage);
+      }
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      if (currentMovieQuery) {
+        currentMoviePage++;
+        executeMovieSearch(currentMovieQuery, currentMoviePage);
+      }
+    });
+  }
+}
+
+async function executeMovieSearch(query, page = 1) {
+  currentMovieQuery = query;
+  currentMoviePage = page;
+
+  const loading = document.getElementById('movieLoadingState');
+  const emptyState = document.getElementById('movieEmptyState');
+  const grid = document.getElementById('movieResultsGrid');
+  const paginationBar = document.getElementById('moviePaginationBar');
+  const pageIndicator = document.getElementById('moviePageIndicator');
+  const prevBtn = document.getElementById('btnMoviePrevPage');
+  const nextBtn = document.getElementById('btnMovieNextPage');
+
+  if (loading) loading.style.display = 'flex';
+  if (emptyState) emptyState.style.display = 'none';
+  if (grid) grid.style.display = 'none';
+  if (paginationBar) paginationBar.style.display = 'none';
+
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      page: String(page),
+      source: currentMovieSource,
+      quality: currentMovieQuality
+    });
+
+    const res = await fetch(`/api/movies/search?${params.toString()}`);
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to fetch movies');
+    }
+
+    currentMovieResults = data.results || [];
+
+    if (currentMovieResults.length === 0) {
+      if (emptyState) {
+        emptyState.innerHTML = `
+          <div class="empty-icon">🔍</div>
+          <h3>No Movies Found</h3>
+          <p>No results found for "<strong>${escapeHtml(query)}</strong>" under the selected filter. Try another keyword or switch source filter to "All Sources".</p>
+        `;
+        emptyState.style.display = 'flex';
+      }
+    } else {
+      renderMovieResults(currentMovieResults);
+      if (grid) grid.style.display = 'grid';
+      if (paginationBar) {
+        paginationBar.style.display = 'flex';
+        if (pageIndicator) pageIndicator.textContent = `Page ${currentMoviePage}`;
+        if (prevBtn) prevBtn.disabled = currentMoviePage <= 1;
+        if (nextBtn) nextBtn.disabled = currentMovieResults.length < 8;
+      }
+    }
+  } catch (err) {
+    showToast(`Movie search failed: ${err.message}`, 'error');
+    if (emptyState) {
+      emptyState.innerHTML = `
+        <div class="empty-icon">⚠️</div>
+        <h3>Search Error</h3>
+        <p>${escapeHtml(err.message)}</p>
+      `;
+      emptyState.style.display = 'flex';
+    }
+  } finally {
+    if (loading) loading.style.display = 'none';
+  }
+}
+
+function renderMovieResults(items) {
+  const grid = document.getElementById('movieResultsGrid');
+  if (!grid) return;
+
+  const defaultPoster = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22300%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%2312151c%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2248%25%22%20fill%3D%22%234a5568%22%20font-size%3D%2242%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E🎬%3C%2Ftext%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2260%25%22%20fill%3D%22%23718096%22%20font-size%3D%2216%22%20text-anchor%3D%22middle%22%20font-family%3D%22sans-serif%22%3ENo%20Poster%3C%2Ftext%3E%3C%2Fsvg%3E';
+
+  grid.innerHTML = items.map((item, idx) => {
+    const isOla = item.provider === 'olamovies';
+    const isYts = item.provider === 'yts';
+    const isTorrent = item.provider === 'torrent';
+
+    let providerBadge = 'OlaMovies';
+    let providerClass = 'badge-provider-ola';
+    if (isYts) {
+      providerBadge = 'YTS 4K';
+      providerClass = 'badge-provider-yts';
+    } else if (isTorrent) {
+      providerBadge = 'BitTorrent';
+      providerClass = 'badge-provider-torrent';
+    }
+
+    const posterUrl = item.poster || defaultPoster;
+    const yearText = item.year ? `${item.year}` : '';
+    const ratingText = item.rating ? `⭐ ${item.rating}` : '';
+
+    const has4K = (item.releases || []).some(r => /4k|2160p/i.test(r.quality || r.label));
+    const has1080p = (item.releases || []).some(r => /1080p/i.test(r.quality || r.label));
+    const has720p = (item.releases || []).some(r => /720p/i.test(r.quality || r.label));
+    const hasMultiAudio = (item.releases || []).some(r => r.isMultiAudio);
+
+    const bestRelease = (item.releases && item.releases[0]) || null;
+    const can1Click = bestRelease && (bestRelease.magnet || bestRelease.torrentUrl || item.torrentFallback);
+    const releaseCount = item.releasesCount || (item.releases ? item.releases.length : 0);
+
+    return `
+      <div class="movie-card" data-index="${idx}">
+        <div class="movie-card-media">
+          <img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(item.title)}" class="movie-card-poster" loading="lazy" onerror="this.src='${defaultPoster}'" />
+          <div class="movie-card-overlay-gradient"></div>
+          
+          <div class="movie-card-top-badges">
+            <span class="movie-badge ${providerClass}">${providerBadge}</span>
+            ${yearText ? `<span class="movie-badge badge-year">${escapeHtml(yearText)}</span>` : ''}
+            ${ratingText ? `<span class="movie-badge badge-rating">${escapeHtml(ratingText)}</span>` : ''}
+          </div>
+
+          <div class="movie-card-quality-row">
+            ${has4K ? `<span class="quality-badge badge-4k">4K UHD</span>` : ''}
+            ${has1080p ? `<span class="quality-badge badge-1080p">1080p</span>` : ''}
+            ${has720p ? `<span class="quality-badge badge-720p">720p</span>` : ''}
+            ${hasMultiAudio ? `<span class="quality-badge badge-multi">Multi-Audio</span>` : ''}
+          </div>
+        </div>
+
+        <div class="movie-card-body">
+          <h4 class="movie-card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h4>
+          
+          <div class="movie-card-meta-line">
+            ${isOla && item.torrentFallback ? `
+              <span class="movie-meta-item meta-fallback" title="High-speed BitTorrent stream available for 1-click download">⚡ Torrent Ready</span>
+            ` : ''}
+            ${bestRelease && bestRelease.size ? `
+              <span class="movie-meta-item meta-size">💾 ${escapeHtml(bestRelease.size)}</span>
+            ` : ''}
+            ${bestRelease && bestRelease.seeders !== undefined ? `
+              <span class="movie-meta-item meta-seeds" title="Active BitTorrent Seeders">🟢 ${bestRelease.seeders} Seeds</span>
+            ` : ''}
+          </div>
+
+          <div class="movie-card-actions">
+            ${can1Click ? `
+              <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="dispatchMovieDownload(${idx})">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>1-Click Download</span>
+              </button>
+            ` : ''}
+
+            ${releaseCount > 1 ? `
+              <button type="button" class="btn btn-secondary btn-sm movie-options-btn" onclick="openMovieReleasesModal(${idx})">
+                <span>📦 Releases (${releaseCount})</span>
+              </button>
+            ` : ''}
+
+            ${isOla && item.link ? `
+              <a href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm movie-link-btn" title="Open OlaMovies page for direct Google Drive / fast links">
+                <span>🔗 Ola Link</span>
+              </a>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.dispatchMovieDownload = async function(idx, releaseIdx = 0) {
+  const item = currentMovieResults[idx];
+  if (!item) return;
+
+  const release = (item.releases && item.releases[releaseIdx]) || item.torrentFallback || {};
+  const isTorrent = !!(release.magnet || release.torrentUrl || item.torrentFallback);
+
+  const payload = {
+    title: release.filename || item.title,
+    poster: item.poster || '',
+    quality: release.quality || 'best',
+    magnet: release.magnet || (item.torrentFallback && item.torrentFallback.magnet),
+    torrentUrl: release.torrentUrl || (item.torrentFallback && item.torrentFallback.torrentUrl),
+    url: release.href || release.magnet || release.torrentUrl,
+    provider: release.provider || item.provider,
+    type: isTorrent ? 'torrent' : 'video'
+  };
+
+  const btn = document.getElementById(`btnMovieDl_${idx}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>Starting Download...</span>`;
+  }
+
+  try {
+    const res = await fetch('/api/movies/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`Added to Download Queue: ${item.title.substring(0, 30)}...`, 'success');
+      if (btn) {
+        btn.innerHTML = `<span>✓ Enqueued</span>`;
+        btn.classList.add('btn-success');
+      }
+      const modal = document.getElementById('movieReleasesModal');
+      if (modal) modal.style.display = 'none';
+    } else {
+      showToast(data.error || 'Failed to start download', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>1-Click Download</span>`;
+      }
+    }
+  } catch (err) {
+    showToast(`Download error: ${err.message}`, 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>1-Click Download</span>`;
+    }
+  }
+};
+
+window.openMovieReleasesModal = function(idx) {
+  const item = currentMovieResults[idx];
+  if (!item) return;
+
+  const modal = document.getElementById('movieReleasesModal');
+  const titleEl = document.getElementById('movieModalTitle');
+  const badgeEl = document.getElementById('movieModalProviderBadge');
+  const listEl = document.getElementById('movieReleasesList');
+  if (!modal || !listEl) return;
+
+  if (titleEl) titleEl.textContent = item.title;
+  if (badgeEl) {
+    badgeEl.textContent = item.provider === 'olamovies' ? 'OlaMovies HD' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
+  }
+
+  listEl.innerHTML = (item.releases || []).map((rel, rIdx) => {
+    return `
+      <div class="movie-release-item">
+        <div class="release-info">
+          <div class="release-primary-row">
+            <span class="release-badge badge-${(rel.quality || '1080p').toLowerCase().replace(/[^a-z0-9]/g, '')}">${escapeHtml(rel.quality || 'HD')}</span>
+            <span class="release-label">${escapeHtml(rel.label || rel.filename)}</span>
+          </div>
+          <div class="release-secondary-row">
+            ${rel.size ? `<span class="release-size">💾 ${escapeHtml(rel.size)}</span>` : ''}
+            ${rel.seeders !== undefined ? `<span class="release-seeds">🟢 ${rel.seeders} Seeds</span>` : ''}
+            ${rel.isMultiAudio ? `<span class="release-tag">Multi-Audio</span>` : ''}
+            ${rel.isHevc ? `<span class="release-tag">HEVC 10-bit</span>` : ''}
+            ${rel.isHdr ? `<span class="release-tag">HDR / DV</span>` : ''}
+          </div>
+        </div>
+        <div class="release-actions">
+          ${rel.magnet || rel.torrentUrl ? `
+            <button type="button" class="btn btn-primary btn-sm btn-rel-dl" onclick="dispatchMovieDownload(${idx}, ${rIdx})">
+              <span>⚡ Download</span>
+            </button>
+          ` : ''}
+          ${rel.href ? `
+            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open OlaMovies fast link">
+              <span>🔗 Link</span>
+            </a>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  modal.style.display = 'flex';
+};
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   initFlacChecker();
   initAdultSearch();
+  initMoviesView();
   setupVersionTapEasterEgg();
 });

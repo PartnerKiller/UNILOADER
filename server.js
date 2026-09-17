@@ -411,6 +411,9 @@ app.get('/api/health', (req, res) => {
       instagramHD: true,
       universalYtdlp: true,
       adultJavHub: true,
+      movieHub: true,
+      olaMovies: true,
+      ytsMovies: true,
       aria2cBitTorrent: true
     },
     downloadDir: TEMP_DIR
@@ -1222,6 +1225,375 @@ async function searchSukebeiJAV(query, page = 1) {
   }
   return items;
 }
+
+// ==========================================================================
+// MOVIE & TV SHOW HUB ENGINE (OlaMovies + BitTorrent Dual Pipeline)
+// ==========================================================================
+
+let cachedOlaDomain = 'https://v5.olamovies.mov';
+let lastOlaDomainCheck = 0;
+
+async function getOlaMoviesDomain() {
+  const now = Date.now();
+  if (now - lastOlaDomainCheck < 1800000 && cachedOlaDomain) {
+    return cachedOlaDomain;
+  }
+  try {
+    const res = await fetch('https://olamovies.dad/current.php?redirect=1', {
+      method: 'HEAD',
+      redirect: 'manual',
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(4000)
+    });
+    const loc = res.headers.get('location');
+    if (loc) {
+      cachedOlaDomain = loc.replace(/\/+$/, '');
+      lastOlaDomainCheck = now;
+      return cachedOlaDomain;
+    }
+  } catch (e) {}
+  lastOlaDomainCheck = now;
+  return cachedOlaDomain || 'https://v5.olamovies.mov';
+}
+
+async function searchOlaMovies(query, page = 1) {
+  try {
+    const domain = await getOlaMoviesDomain();
+    const url = `${domain}/wp-json/wp/v2/posts?search=${encodeURIComponent(query)}&_embed=1&per_page=12&page=${page}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      signal: AbortSignal.timeout(9000)
+    });
+    if (!res.ok) return [];
+    const posts = await res.json();
+    if (!Array.isArray(posts)) return [];
+
+    const items = [];
+    for (const post of posts) {
+      const rawTitle = (post.title && post.title.rendered)
+        ? post.title.rendered.replace(/&#8211;/g, '-').replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&quot;/g, '"').trim()
+        : 'Movie';
+
+      const yearMatch = rawTitle.match(/\b(19\d\d|20\d\d)\b/);
+      const year = yearMatch ? yearMatch[1] : '';
+
+      let poster = '';
+      if (post._embedded && post._embedded['wp:featuredmedia'] && post._embedded['wp:featuredmedia'][0]) {
+        poster = post._embedded['wp:featuredmedia'][0].source_url || '';
+      }
+
+      const content = (post.content && post.content.rendered) || '';
+      const releases = [];
+      const btnRegex = /<a[^>]*href="([^"]+)"[^>]*data-om-name="([^"]+)"[^>]*data-om-size="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+      let m;
+      while ((m = btnRegex.exec(content)) !== null) {
+        const rawLabel = m[4].replace(/<[^>]+>/g, '').trim();
+        const filename = m[2].replace(/&amp;/g, '&');
+        const size = m[3].trim();
+        const href = m[1].trim();
+
+        let quality = '1080p';
+        if (/2160p|4k|uhd/i.test(filename + ' ' + rawLabel)) quality = '4K UHD';
+        else if (/1080p/i.test(filename + ' ' + rawLabel)) quality = '1080p';
+        else if (/720p/i.test(filename + ' ' + rawLabel)) quality = '720p';
+
+        const isHevc = /hevc|x265|h\.265|10bit/i.test(filename);
+        const isMultiAudio = /multi audio|dual audio|hindi|tamil|telugu|kannada|malayalam/i.test(filename);
+        const isHdr = /hdr|dv|dolby|atmos/i.test(filename + ' ' + rawLabel);
+
+        releases.push({
+          label: rawLabel || quality,
+          filename,
+          size,
+          quality,
+          href,
+          provider: 'olamovies',
+          isHevc,
+          isMultiAudio,
+          isHdr
+        });
+      }
+
+      items.push({
+        id: `ola_${post.id}`,
+        title: rawTitle,
+        year,
+        poster,
+        link: post.link,
+        provider: 'olamovies',
+        type: 'movie',
+        releasesCount: releases.length,
+        releases
+      });
+    }
+    return items;
+  } catch (err) {
+    console.warn('[MovieSearch] OlaMovies error:', err.message);
+    return [];
+  }
+}
+
+async function searchYtsMovies(query, page = 1) {
+  const mirrors = [
+    'https://movies-api.accel.li/api/v2/list_movies.json',
+    'https://yts.lt/api/v2/list_movies.json',
+    'https://yts.bz/api/v2/list_movies.json'
+  ];
+
+  for (const mirror of mirrors) {
+    try {
+      const url = `${mirror}?query_term=${encodeURIComponent(query)}&page=${page}&limit=12`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(6000)
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!data || !data.data || !data.data.movies) continue;
+
+      const items = [];
+      for (const m of data.data.movies) {
+        const title = m.title_english || m.title || 'Movie';
+        const year = m.year ? String(m.year) : '';
+        const poster = m.large_cover_image || m.medium_cover_image || '';
+        const rating = m.rating || 0;
+        const genres = m.genres || [];
+        const summary = m.summary || '';
+
+        const releases = (m.torrents || []).map(t => {
+          const q = t.quality === '2160p' ? '4K UHD' : (t.quality || '1080p');
+          const hash = t.hash;
+          const magnet = `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(title)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce`;
+          return {
+            label: `${q} (${(t.type || 'WEB').toUpperCase()}) [${t.size}]`,
+            filename: `${title}.${year}.${t.quality}.${t.type || 'WEB'}.mp4`,
+            quality: q,
+            size: t.size,
+            seeders: t.seeds || 0,
+            peers: t.peers || 0,
+            hash,
+            magnet,
+            torrentUrl: t.url || `https://yts.mx/torrent/download/${hash}`,
+            provider: 'yts'
+          };
+        });
+
+        items.push({
+          id: `yts_${m.id}`,
+          title: `${title} (${year})`,
+          pureTitle: title,
+          year,
+          poster,
+          rating,
+          genres,
+          summary,
+          provider: 'yts',
+          type: 'movie',
+          releasesCount: releases.length,
+          releases
+        });
+      }
+      return items;
+    } catch (e) {}
+  }
+  return [];
+}
+
+async function searchApibayMovies(query) {
+  try {
+    const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}&cat=200`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) return [];
+    const items = await res.json();
+    if (!Array.isArray(items) || items.length === 0 || items[0].name === 'No results returned') return [];
+
+    const activeItems = items.filter(it => parseInt(it.seeders, 10) > 0).slice(0, 15);
+    const results = [];
+    for (const it of activeItems) {
+      const name = it.name;
+      const sizeBytes = parseInt(it.size, 10) || 0;
+      const sizeStr = sizeBytes > (1024 ** 3)
+        ? (sizeBytes / (1024 ** 3)).toFixed(2) + ' GB'
+        : (sizeBytes / (1024 ** 2)).toFixed(1) + ' MB';
+      const hash = it.info_hash;
+      const seeders = parseInt(it.seeders, 10) || 0;
+      const peers = parseInt(it.leechers, 10) || 0;
+
+      let quality = '1080p';
+      if (/2160p|4k|uhd/i.test(name)) quality = '4K UHD';
+      else if (/1080p/i.test(name)) quality = '1080p';
+      else if (/720p/i.test(name)) quality = '720p';
+
+      const yearMatch = name.match(/\b(19\d\d|20\d\d)\b/);
+      const year = yearMatch ? yearMatch[1] : '';
+
+      const magnet = `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce`;
+
+      results.push({
+        id: `tpb_${hash}`,
+        title: name,
+        pureTitle: name.replace(/[\._]/g, ' '),
+        year,
+        poster: '',
+        provider: 'torrent',
+        type: 'movie',
+        releasesCount: 1,
+        releases: [{
+          label: `${quality} [${sizeStr}]`,
+          filename: name,
+          quality,
+          size: sizeStr,
+          seeders,
+          peers,
+          hash,
+          magnet,
+          provider: 'torrent'
+        }]
+      });
+    }
+    return results;
+  } catch (e) {
+    console.warn('[MovieSearch] Apibay error:', e.message);
+    return [];
+  }
+}
+
+// Unified Movie Search API (OlaMovies + YTS + Torrents)
+app.get('/api/movies/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const source = req.query.source || 'all'; // 'all', 'olamovies', 'yts', 'torrents'
+    const qualityFilter = req.query.quality || 'all'; // 'all', '4k', '1080p', '720p'
+    const page = parseInt(req.query.page, 10) || 1;
+
+    if (!q) {
+      return res.json({ success: true, results: [], query: '', total: 0 });
+    }
+
+    const tasks = [];
+    if (source === 'all' || source === 'olamovies') {
+      tasks.push(searchOlaMovies(q, page));
+    } else {
+      tasks.push(Promise.resolve([]));
+    }
+
+    if (source === 'all' || source === 'yts') {
+      tasks.push(searchYtsMovies(q, page));
+    } else {
+      tasks.push(Promise.resolve([]));
+    }
+
+    if (source === 'all' || source === 'torrents') {
+      tasks.push(searchApibayMovies(q));
+    } else {
+      tasks.push(Promise.resolve([]));
+    }
+
+    const [olaRes, ytsRes, tpbRes] = await Promise.allSettled(tasks);
+    const olaItems = olaRes.status === 'fulfilled' ? olaRes.value : [];
+    const ytsItems = ytsRes.status === 'fulfilled' ? ytsRes.value : [];
+    const tpbItems = tpbRes.status === 'fulfilled' ? tpbRes.value : [];
+
+    // Attach torrent fallbacks to OlaMovies items
+    for (const item of olaItems) {
+      const cleanTitleWords = item.title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+      let match = ytsItems.find(y => {
+        const yTitle = (y.pureTitle || y.title).toLowerCase();
+        return cleanTitleWords.slice(0, 2).every(w => yTitle.includes(w));
+      });
+      if (!match) {
+        match = tpbItems.find(t => {
+          const tTitle = t.title.toLowerCase();
+          return cleanTitleWords.slice(0, 2).every(w => tTitle.includes(w));
+        });
+      }
+      if (match && match.releases && match.releases.length > 0) {
+        item.torrentFallback = match.releases[0];
+      }
+    }
+
+    let combined = [];
+    if (source === 'olamovies') {
+      combined = olaItems;
+    } else if (source === 'yts') {
+      combined = ytsItems;
+    } else if (source === 'torrents') {
+      combined = tpbItems;
+    } else {
+      // Prioritize OlaMovies first (user requested: "thy to download it from olamovies, otherwise torrent")
+      // Interleave OlaMovies, YTS, and TPB
+      const maxLen = Math.max(olaItems.length, ytsItems.length, tpbItems.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < olaItems.length) combined.push(olaItems[i]);
+        if (i < ytsItems.length) combined.push(ytsItems[i]);
+        if (i < tpbItems.length) combined.push(tpbItems[i]);
+      }
+    }
+
+    // Apply quality filter if specified
+    if (qualityFilter !== 'all') {
+      combined = combined.filter(it => {
+        if (!it.releases || it.releases.length === 0) return true;
+        if (qualityFilter === '4k') return it.releases.some(r => /4k|2160p/i.test(r.quality || r.label));
+        if (qualityFilter === '1080p') return it.releases.some(r => /1080p/i.test(r.quality || r.label));
+        if (qualityFilter === '720p') return it.releases.some(r => /720p/i.test(r.quality || r.label));
+        return true;
+      });
+    }
+
+    res.json({
+      success: true,
+      query: q,
+      page,
+      source,
+      quality: qualityFilter,
+      count: combined.length,
+      results: combined
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Movie 1-Click Download API
+app.post('/api/movies/download', async (req, res) => {
+  try {
+    const item = req.body || {};
+    if (!item.magnet && !item.torrentUrl && !item.url && !item.href) {
+      return res.status(400).json({ error: 'Valid magnet link or download URL is required' });
+    }
+
+    const isTorrent = !!(item.magnet || item.torrentUrl || item.provider === 'yts' || item.provider === 'torrent' || (item.url && item.url.startsWith('magnet:')));
+    const target = item.magnet || item.torrentUrl || item.url || item.href;
+
+    const jobPayload = {
+      url: target,
+      magnet: item.magnet,
+      torrentUrl: item.torrentUrl,
+      title: item.title || item.filename || 'Movie Media',
+      poster: item.poster || '',
+      code: 'MOVIE',
+      mode: 'video',
+      videoQuality: item.quality || 'best',
+      type: isTorrent ? 'torrent' : 'video'
+    };
+
+    const job = createAndStartJob(jobPayload);
+    res.json({
+      success: true,
+      jobId: job.id,
+      title: job.title,
+      type: jobPayload.type
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Unified Adult Search API
 app.get('/api/adult/search', async (req, res) => {
