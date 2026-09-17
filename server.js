@@ -1244,6 +1244,37 @@ async function searchSukebeiJAV(query, page = 1) {
   return items;
 }
 
+// Lightweight Image Proxy to bypass hotlink protection & CORS on movie/adult posters
+app.get('/api/proxy-image', async (req, res) => {
+  const targetUrl = req.query.url;
+  if (!targetUrl || !targetUrl.startsWith('http')) {
+    return res.status(400).send('Invalid image URL');
+  }
+
+  try {
+    const upstream = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+      },
+      signal: AbortSignal.timeout(8000)
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).send('Failed to fetch upstream image');
+    }
+
+    const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+
+    const buffer = await upstream.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(502).send('Error proxying image');
+  }
+});
+
 // ==========================================================================
 // MOVIE & TV SHOW HUB ENGINE (OlaMovies + BitTorrent Dual Pipeline)
 // ==========================================================================
@@ -1298,11 +1329,23 @@ async function searchOlaMovies(query, page = 1) {
       const year = yearMatch ? yearMatch[1] : '';
 
       let poster = '';
-      if (post._embedded && post._embedded['wp:featuredmedia'] && post._embedded['wp:featuredmedia'][0]) {
+      if (post.yoast_head_json && post.yoast_head_json.og_image && post.yoast_head_json.og_image[0] && post.yoast_head_json.og_image[0].url) {
+        poster = post.yoast_head_json.og_image[0].url;
+      } else if (post.yoast_head_json && post.yoast_head_json.twitter_image) {
+        poster = post.yoast_head_json.twitter_image;
+      } else if (post.jetpack_featured_media_url) {
+        poster = post.jetpack_featured_media_url;
+      } else if (post._embedded && post._embedded['wp:featuredmedia'] && post._embedded['wp:featuredmedia'][0]) {
         poster = post._embedded['wp:featuredmedia'][0].source_url || '';
       }
 
       const content = (post.content && post.content.rendered) || '';
+      if (!poster && content) {
+        const imgMatch = content.match(/<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp))["']/i);
+        if (imgMatch && !imgMatch[1].includes('/emojis/') && !imgMatch[1].includes('/plugins/')) {
+          poster = imgMatch[1];
+        }
+      }
       const releases = [];
       const btnRegex = /<a[^>]*href="([^"]+)"[^>]*data-om-name="([^"]+)"[^>]*data-om-size="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
       let m;
@@ -1524,10 +1567,19 @@ app.get('/api/movies/search', async (req, res) => {
       if (match && match.releases && match.releases.length > 0) {
         item.torrentFallback = match.releases[0];
       }
+      if (!item.poster && match && match.poster) {
+        item.poster = match.poster;
+      }
     }
 
     // Results are strictly 100% OlaMovies cards only
     let combined = olaItems;
+
+    for (const it of combined) {
+      if (it.poster && it.poster.startsWith('http') && !it.poster.startsWith('/api/proxy-image')) {
+        it.poster = `/api/proxy-image?url=${encodeURIComponent(it.poster)}`;
+      }
+    }
 
     // Apply quality filter if specified
     if (qualityFilter !== 'all') {

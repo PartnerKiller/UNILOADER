@@ -1953,7 +1953,7 @@ function renderAdultResults(items) {
     return `
       <div class="adult-card ${isTeaser ? 'card-teaser' : ''}" data-index="${idx}">
         <div class="adult-card-media">
-          <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(item.title)}" class="adult-card-thumb" loading="lazy" onerror="this.src='${defaultImg}'" />
+          <img src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(item.title)}" class="adult-card-thumb" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${defaultImg}'" />
           ${item.previewVideo ? `
             <video class="adult-card-hover-video" muted loop playsinline preload="none" data-src="${escapeHtml(item.previewVideo)}"></video>
           ` : ''}
@@ -2380,7 +2380,10 @@ function renderMovieResults(items) {
       providerClass = 'badge-provider-torrent';
     }
 
-    const posterUrl = item.poster || defaultPoster;
+    let posterUrl = item.poster || defaultPoster;
+    if (posterUrl && posterUrl.startsWith('http') && !posterUrl.startsWith('/api/proxy-image')) {
+      posterUrl = `/api/proxy-image?url=${encodeURIComponent(posterUrl)}`;
+    }
     const yearText = item.year ? `${item.year}` : '';
     const ratingText = item.rating ? `⭐ ${item.rating}` : '';
 
@@ -2396,7 +2399,7 @@ function renderMovieResults(items) {
     return `
       <div class="movie-card" data-index="${idx}">
         <div class="movie-card-media">
-          <img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(item.title)}" class="movie-card-poster" loading="lazy" onerror="this.src='${defaultPoster}'" />
+          <img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(item.title)}" class="movie-card-poster" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${defaultPoster}'" />
           <div class="movie-card-overlay-gradient"></div>
           
           <div class="movie-card-top-badges">
