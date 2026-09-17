@@ -303,13 +303,19 @@ body {
 .sidebar-footer {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   gap: 10px;
   padding-top: 16px;
   border-top: 1px solid var(--border-subtle);
+  width: 100%;
 }
 
 /* Windows Desktop & Local Downloads Card */
 .sidebar-folder-card {
+  width: 100%;
+  text-align: left;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -379,10 +385,13 @@ body {
 }
 
 .version-tag {
+  display: block;
+  width: 100%;
   font-size: 0.7rem;
   color: var(--text-muted);
   text-align: center;
   font-family: var(--font-mono);
+  margin: 0 auto;
 }
 
 /* Mobile Header (Hidden on Desktop) */
@@ -503,10 +512,13 @@ body {
   border: 1px solid hsla(158, 75%, 42%, 0.25);
   padding: 5px 12px;
   border-radius: var(--radius-full);
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   width: fit-content;
+  margin: 0 auto;
+  align-self: center;
 }
 
 /* ==========================================================================
@@ -2716,10 +2728,12 @@ body {
 }
 
 .footer-creators-badge {
+  display: block;
+  width: 100%;
   font-size: 0.68rem;
   color: var(--text-muted);
   text-align: center;
-  margin-top: 4px;
+  margin: 2px auto 0 auto;
 }
 
 .footer-creators-badge strong {
