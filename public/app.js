@@ -318,9 +318,19 @@ function setupEventListeners() {
 }
 
 function switchView(viewName) {
-  // If user tries to open adult hub while it's locked, redirect to downloader
-  if (viewName === 'adult-search' && !isAdultHubUnlocked()) {
-    viewName = 'downloader';
+  // Ephemeral Adult Hub:
+  // If navigating to ANY other option, immediately hide the Adult Hub buttons from the navigation!
+  if (viewName !== 'adult-search') {
+    isAdultHubActive = false;
+    updateAdultHubVisibility(false);
+  } else {
+    // Only allow entering adult-search if explicitly triggered by the 7-tap gesture
+    if (!isAdultHubActive) {
+      viewName = 'downloader';
+      updateAdultHubVisibility(false);
+    } else {
+      updateAdultHubVisibility(true);
+    }
   }
 
   // 1. Hide all view panels and show target panel
@@ -2094,25 +2104,32 @@ window.dispatchAdultDownload = async function(idx) {
 
 let versionTapCount = 0;
 let versionTapTimeout = null;
+let isAdultHubActive = false;
 
 function isAdultHubUnlocked() {
-  return localStorage.getItem('adult_hub_unlocked') === 'true';
+  return isAdultHubActive;
 }
 
-function updateAdultHubVisibility(unlocked) {
+function updateAdultHubVisibility(visible) {
   const sidebarBtn = document.getElementById('navAdultSearch');
   const bottomBtn = document.getElementById('bottomNavAdultSearch');
   if (sidebarBtn) {
-    sidebarBtn.style.display = unlocked ? 'flex' : 'none';
+    sidebarBtn.style.display = visible ? 'flex' : 'none';
   }
   if (bottomBtn) {
-    bottomBtn.style.display = unlocked ? 'flex' : 'none';
+    bottomBtn.style.display = visible ? 'flex' : 'none';
   }
 }
 
 function setupVersionTapEasterEgg() {
-  // Set initial state from localStorage
-  updateAdultHubVisibility(isAdultHubUnlocked());
+  // Purge any lingering localStorage key so it never persists across reloads
+  try {
+    localStorage.removeItem('adult_hub_unlocked');
+  } catch (e) {}
+
+  // Strictly hidden by default on every page load and reload
+  isAdultHubActive = false;
+  updateAdultHubVisibility(false);
 
   const versionTags = document.querySelectorAll('.version-tag');
   versionTags.forEach(tag => {
@@ -2128,16 +2145,15 @@ function setupVersionTapEasterEgg() {
         versionTapCount = 0;
       }, 3500);
 
-      const alreadyUnlocked = isAdultHubUnlocked();
-
       if (versionTapCount >= 7) {
         versionTapCount = 0;
         clearTimeout(versionTapTimeout);
 
-        localStorage.setItem('adult_hub_unlocked', 'true');
+        // Temporarily reveal and open Adult Hub for this session
+        isAdultHubActive = true;
         updateAdultHubVisibility(true);
 
-        showToast(alreadyUnlocked ? '🔞 Adult & JAV Hub Opened!' : '🎉 Secret Unlocked: Adult & JAV Hub is now enabled!', 'success');
+        showToast('🔞 Adult & JAV Hub Opened!', 'success');
         switchView('adult-search');
 
         const navBtn = document.getElementById('navAdultSearch');
@@ -2156,7 +2172,7 @@ function setupVersionTapEasterEgg() {
   const lockBtn = document.getElementById('btnLockAdultHub');
   if (lockBtn) {
     lockBtn.addEventListener('click', () => {
-      localStorage.removeItem('adult_hub_unlocked');
+      isAdultHubActive = false;
       updateAdultHubVisibility(false);
       showToast('Adult & JAV Hub hidden from navigation', 'info');
       switchView('downloader');
