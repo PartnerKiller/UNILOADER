@@ -1493,8 +1493,40 @@ app.get('/api/movies/search', async (req, res) => {
       return res.json({ success: true, results: [], query: '', total: 0 });
     }
 
-    // Testing Mode: Only query OlaMovies (YTS and TPB BitTorrent sources disabled)
+    // 1. Fetch movie & TV catalog strictly from OlaMovies
     const olaItems = await searchOlaMovies(q, page);
+
+    // 2. In parallel, query torrent mirrors for matching streams so that every OlaMovies card has an active Download button!
+    let ytsItems = [];
+    let tpbItems = [];
+    try {
+      const [yRes, tRes] = await Promise.allSettled([
+        searchYtsMovies(q, 1),
+        searchApibayMovies(q)
+      ]);
+      ytsItems = yRes.status === 'fulfilled' ? yRes.value : [];
+      tpbItems = tRes.status === 'fulfilled' ? tRes.value : [];
+    } catch (e) {}
+
+    // 3. Attach matching torrent stream fallback to each OlaMovies item
+    for (const item of olaItems) {
+      const cleanTitleWords = item.title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+      let match = ytsItems.find(y => {
+        const yTitle = (y.pureTitle || y.title).toLowerCase();
+        return cleanTitleWords.slice(0, 2).every(w => yTitle.includes(w));
+      });
+      if (!match) {
+        match = tpbItems.find(t => {
+          const tTitle = t.title.toLowerCase();
+          return cleanTitleWords.slice(0, 2).every(w => tTitle.includes(w));
+        });
+      }
+      if (match && match.releases && match.releases.length > 0) {
+        item.torrentFallback = match.releases[0];
+      }
+    }
+
+    // Results are strictly 100% OlaMovies cards only
     let combined = olaItems;
 
     // Apply quality filter if specified
@@ -1512,7 +1544,7 @@ app.get('/api/movies/search', async (req, res) => {
       success: true,
       query: q,
       page,
-      source,
+      source: 'olamovies',
       quality: qualityFilter,
       count: combined.length,
       results: combined
@@ -1526,17 +1558,69 @@ app.get('/api/movies/search', async (req, res) => {
 app.post('/api/movies/download', async (req, res) => {
   try {
     const item = req.body || {};
-    if (!item.magnet && !item.torrentUrl && !item.url && !item.href) {
-      return res.status(400).json({ error: 'Valid magnet link or download URL is required' });
+    let magnet = item.magnet || '';
+    let torrentUrl = item.torrentUrl || '';
+    let target = item.url || item.href || '';
+
+    // If magnet/torrent not pre-attached, dynamically resolve high-speed torrent stream on-the-fly
+    if (!magnet && !torrentUrl) {
+      let cleanQuery = (item.title || '')
+        .replace(/\b(19\d\d|20\d\d)\b.*$/, '$1')
+        .replace(/\[.*?\]|\(.*?\)/g, ' ')
+        .replace(/[^\w\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!cleanQuery) cleanQuery = (item.title || '').trim();
+
+      try {
+        const [ytsRes, tpbRes] = await Promise.allSettled([
+          searchYtsMovies(cleanQuery, 1),
+          searchApibayMovies(cleanQuery)
+        ]);
+        const yts = ytsRes.status === 'fulfilled' ? ytsRes.value : [];
+        const tpb = tpbRes.status === 'fulfilled' ? tpbRes.value : [];
+
+        const candidates = [];
+        for (const y of yts) {
+          for (const r of y.releases || []) {
+            if (r.magnet || r.torrentUrl) candidates.push(r);
+          }
+        }
+        for (const t of tpb) {
+          for (const r of t.releases || []) {
+            if (r.magnet || r.torrentUrl) candidates.push(r);
+          }
+        }
+
+        if (candidates.length > 0) {
+          const reqQ = (item.quality || '1080p').toLowerCase();
+          let match = candidates.find(c => (c.quality || '').toLowerCase().includes(reqQ));
+          if (!match && reqQ !== '1080p') {
+            match = candidates.find(c => (c.quality || '').toLowerCase().includes('1080p'));
+          }
+          if (!match) match = candidates[0];
+
+          magnet = match.magnet || '';
+          torrentUrl = match.torrentUrl || '';
+          target = magnet || torrentUrl;
+        }
+      } catch (e) {
+        console.warn('[MovieDownload] Dynamic torrent resolution error:', e.message);
+      }
     }
 
-    const isTorrent = !!(item.magnet || item.torrentUrl || item.provider === 'yts' || item.provider === 'torrent' || (item.url && item.url.startsWith('magnet:')));
-    const target = item.magnet || item.torrentUrl || item.url || item.href;
+    if (!magnet && !torrentUrl && !target) {
+      return res.status(400).json({ error: 'Valid download stream could not be resolved for this title.' });
+    }
+
+    const isTorrent = !!(magnet || torrentUrl || (target && target.startsWith('magnet:')));
+    const finalTarget = magnet || torrentUrl || target;
 
     const jobPayload = {
-      url: target,
-      magnet: item.magnet,
-      torrentUrl: item.torrentUrl,
+      url: finalTarget,
+      magnet: magnet,
+      torrentUrl: torrentUrl,
       title: item.title || item.filename || 'Movie Media',
       poster: item.poster || '',
       code: 'MOVIE',

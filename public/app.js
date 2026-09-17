@@ -2390,7 +2390,7 @@ function renderMovieResults(items) {
     const hasMultiAudio = (item.releases || []).some(r => r.isMultiAudio);
 
     const bestRelease = (item.releases && item.releases[0]) || null;
-    const can1Click = bestRelease && (bestRelease.magnet || bestRelease.torrentUrl || item.torrentFallback);
+    const can1Click = true; // Always enable 1-Click Download for movie cards
     const releaseCount = item.releasesCount || (item.releases ? item.releases.length : 0);
 
     return `
@@ -2417,8 +2417,8 @@ function renderMovieResults(items) {
           <h4 class="movie-card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h4>
           
           <div class="movie-card-meta-line">
-            ${isOla && item.torrentFallback ? `
-              <span class="movie-meta-item meta-fallback" title="High-speed BitTorrent stream available for 1-click download">⚡ Torrent Ready</span>
+            ${isOla ? `
+              <span class="movie-meta-item meta-fallback" title="High-speed acceleration stream ready for 1-click download">⚡ Engine Ready</span>
             ` : ''}
             ${bestRelease && bestRelease.size ? `
               <span class="movie-meta-item meta-size">💾 ${escapeHtml(bestRelease.size)}</span>
@@ -2429,15 +2429,13 @@ function renderMovieResults(items) {
           </div>
 
           <div class="movie-card-actions">
-            ${can1Click ? `
-              <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="dispatchMovieDownload(${idx})">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                <span>1-Click Download</span>
-              </button>
-            ` : ''}
+            <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="dispatchMovieDownload(${idx})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>1-Click Download</span>
+            </button>
 
             ${releaseCount > 0 ? `
-              <button type="button" class="btn ${can1Click ? 'btn-secondary' : 'btn-primary'} btn-sm movie-options-btn" onclick="openMovieReleasesModal(${idx})">
+              <button type="button" class="btn btn-secondary btn-sm movie-options-btn" onclick="openMovieReleasesModal(${idx})">
                 <span>📦 Releases (${releaseCount})</span>
               </button>
             ` : ''}
@@ -2459,17 +2457,16 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0) {
   if (!item) return;
 
   const release = (item.releases && item.releases[releaseIdx]) || item.torrentFallback || {};
-  const isTorrent = !!(release.magnet || release.torrentUrl || item.torrentFallback);
 
   const payload = {
     title: release.filename || item.title,
     poster: item.poster || '',
-    quality: release.quality || 'best',
-    magnet: release.magnet || (item.torrentFallback && item.torrentFallback.magnet),
-    torrentUrl: release.torrentUrl || (item.torrentFallback && item.torrentFallback.torrentUrl),
-    url: release.href || release.magnet || release.torrentUrl,
-    provider: release.provider || item.provider,
-    type: isTorrent ? 'torrent' : 'video'
+    quality: release.quality || '1080p',
+    magnet: release.magnet || (item.torrentFallback && item.torrentFallback.magnet) || '',
+    torrentUrl: release.torrentUrl || (item.torrentFallback && item.torrentFallback.torrentUrl) || '',
+    url: release.href || release.magnet || release.torrentUrl || item.link || '',
+    provider: 'olamovies',
+    type: 'torrent'
   };
 
   const btn = document.getElementById(`btnMovieDl_${idx}`);
@@ -2541,14 +2538,12 @@ window.openMovieReleasesModal = function(idx) {
           </div>
         </div>
         <div class="release-actions">
-          ${rel.magnet || rel.torrentUrl ? `
-            <button type="button" class="btn btn-primary btn-sm btn-rel-dl" onclick="dispatchMovieDownload(${idx}, ${rIdx})">
-              <span>⚡ Download</span>
-            </button>
-          ` : ''}
+          <button type="button" class="btn btn-primary btn-sm btn-rel-dl" onclick="dispatchMovieDownload(${idx}, ${rIdx})">
+            <span>⚡ Download</span>
+          </button>
           ${rel.href ? `
-            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm btn-rel-link" title="Open OlaMovies fast link">
-              <span>⚡ Get Link</span>
+            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open OlaMovies fast link">
+              <span>🔗 Link</span>
             </a>
           ` : ''}
         </div>
