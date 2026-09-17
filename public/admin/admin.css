@@ -390,6 +390,25 @@ body {
   background: rgba(244, 63, 94, 0.15);
 }
 
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  border: 1px solid #ef4444;
+  color: #fff;
+  font-weight: 600;
+  transition: all var(--admin-transition);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f87171, #ef4444);
+  border-color: #f87171;
+  color: #fff;
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-warning {
   background: rgba(245, 158, 11, 0.15);
   border: 1px solid rgba(245, 158, 11, 0.35);
@@ -1300,11 +1319,33 @@ body {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.storage-toolbar-left {
+  flex: 1;
+  min-width: 220px;
+}
+
+.storage-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .storage-file-counter {
   font-size: 0.82rem;
   color: var(--admin-text-muted);
+}
+
+.storage-file-checkbox,
+#storageSelectAll {
+  cursor: pointer;
+  accent-color: #ef4444;
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
 }
 
 .admin-table-responsive {

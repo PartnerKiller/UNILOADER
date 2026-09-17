@@ -1194,6 +1194,29 @@ async function loadEngineConfig() {
 // ==========================================================================
 let allStorageFiles = [];
 
+function updateSelectedStorageUI() {
+  const allCheckboxes = document.querySelectorAll('.storage-file-checkbox');
+  const checkedBoxes = document.querySelectorAll('.storage-file-checkbox:checked');
+  const selectAll = document.getElementById('storageSelectAll');
+  const deleteSelectedBtn = document.getElementById('btnStorageDeleteSelected');
+  const countSpan = document.getElementById('selectedFilesCount');
+
+  if (selectAll) {
+    selectAll.checked = allCheckboxes.length > 0 && checkedBoxes.length === allCheckboxes.length;
+    selectAll.indeterminate = checkedBoxes.length > 0 && checkedBoxes.length < allCheckboxes.length;
+  }
+
+  if (deleteSelectedBtn) {
+    if (checkedBoxes.length > 0) {
+      deleteSelectedBtn.style.display = 'inline-flex';
+      if (countSpan) countSpan.textContent = checkedBoxes.length;
+    } else {
+      deleteSelectedBtn.style.display = 'none';
+    }
+  }
+}
+window.updateSelectedStorageUI = updateSelectedStorageUI;
+
 function setupStorageExplorer() {
   const refreshBtn = document.getElementById('btnRefreshStorage');
   if (refreshBtn) refreshBtn.addEventListener('click', loadStorageFiles);
@@ -1212,6 +1235,108 @@ function setupStorageExplorer() {
         loadStorageFiles();
       } catch (e) {
         showToast('Purge failed: ' + e.message, 'error');
+      }
+    });
+  }
+
+  const selectAllCheckbox = document.getElementById('storageSelectAll');
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', () => {
+      const checked = selectAllCheckbox.checked;
+      const checkboxes = document.querySelectorAll('.storage-file-checkbox');
+      checkboxes.forEach(cb => { cb.checked = checked; });
+      updateSelectedStorageUI();
+    });
+  }
+
+  const deleteSelectedBtn = document.getElementById('btnStorageDeleteSelected');
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.addEventListener('click', async () => {
+      const checkboxes = Array.from(document.querySelectorAll('.storage-file-checkbox:checked'));
+      const paths = checkboxes.map(cb => cb.getAttribute('data-path')).filter(Boolean);
+
+      if (paths.length === 0) {
+        showToast('No files selected', 'warning');
+        return;
+      }
+
+      if (!confirm(`Permanently delete ${paths.length} selected files? This action cannot be undone.`)) return;
+
+      deleteSelectedBtn.disabled = true;
+      deleteSelectedBtn.textContent = 'Deleting...';
+
+      try {
+        const res = await fetch('/api/admin/storage/delete-bulk', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({ filePaths: paths })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || `Deleted ${data.deletedCount} files`);
+          loadStorageFiles();
+        } else {
+          showToast(data.error || 'Failed to delete files', 'error');
+        }
+      } catch (e) {
+        showToast('Delete error: ' + e.message, 'error');
+      } finally {
+        deleteSelectedBtn.disabled = false;
+        deleteSelectedBtn.innerHTML = `🗑 Delete Selected (<span id="selectedFilesCount">0</span>)`;
+        updateSelectedStorageUI();
+      }
+    });
+  }
+
+  const deleteAllBtn = document.getElementById('btnStorageDeleteAll');
+  if (deleteAllBtn) {
+    deleteAllBtn.addEventListener('click', async () => {
+      const q = (document.getElementById('storageSearchInput')?.value || '').trim();
+      const filtered = allStorageFiles.filter(f => !q || f.name.toLowerCase().includes(q.toLowerCase()) || (f.ext && f.ext.toLowerCase().includes(q.toLowerCase())));
+
+      if (filtered.length === 0) {
+        showToast('No files to delete', 'warning');
+        return;
+      }
+
+      const isFiltered = !!q && filtered.length < allStorageFiles.length;
+      const msg = isFiltered
+        ? `Permanently delete all ${filtered.length} filtered files matching "${q}"? This action cannot be undone.`
+        : `Permanently delete ALL ${allStorageFiles.length} files from storage? This will remove all downloaded media and temporary files. This action cannot be undone.`;
+
+      if (!confirm(msg)) return;
+
+      deleteAllBtn.disabled = true;
+      deleteAllBtn.textContent = 'Deleting...';
+
+      try {
+        const body = isFiltered
+          ? { filePaths: filtered.map(f => f.fullPath) }
+          : { deleteAll: true };
+
+        const res = await fetch('/api/admin/storage/delete-bulk', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || `Deleted ${data.deletedCount} files`);
+          loadStorageFiles();
+        } else {
+          showToast(data.error || 'Failed to delete files', 'error');
+        }
+      } catch (e) {
+        showToast('Delete error: ' + e.message, 'error');
+      } finally {
+        deleteAllBtn.disabled = false;
+        deleteAllBtn.textContent = '🗑 Delete All';
       }
     });
   }
@@ -1244,13 +1369,25 @@ async function loadStorageFiles() {
 
     renderStorageTable();
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load files: ${escapeHtml(e.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load files: ${escapeHtml(e.message)}</td></tr>`;
   }
 }
 
 function renderStorageTable() {
   const tbody = document.getElementById('storageFilesTbody');
   const countEl = document.getElementById('storageFileCount');
+  const deleteAllBtn = document.getElementById('btnStorageDeleteAll');
+  const selectAll = document.getElementById('storageSelectAll');
+  const deleteSelectedBtn = document.getElementById('btnStorageDeleteSelected');
+
+  if (selectAll) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+  }
+  if (deleteSelectedBtn) {
+    deleteSelectedBtn.style.display = 'none';
+  }
+
   if (!tbody) return;
 
   const q = (document.getElementById('storageSearchInput')?.value || '').toLowerCase();
@@ -1258,8 +1395,18 @@ function renderStorageTable() {
 
   if (countEl) countEl.textContent = `Showing ${filtered.length} of ${allStorageFiles.length} files`;
 
+  if (deleteAllBtn) {
+    if (filtered.length === 0) {
+      deleteAllBtn.disabled = true;
+      deleteAllBtn.textContent = '🗑 Delete All';
+    } else {
+      deleteAllBtn.disabled = false;
+      deleteAllBtn.textContent = q ? `🗑 Delete Filtered (${filtered.length})` : `🗑 Delete All (${allStorageFiles.length})`;
+    }
+  }
+
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center">No matching files found on storage.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center">No matching files found on storage.</td></tr>';
     return;
   }
 
@@ -1270,6 +1417,9 @@ function renderStorageTable() {
 
     return `
       <tr>
+        <td style="text-align: center;">
+          <input type="checkbox" class="storage-file-checkbox" data-path="${escapeHtml(f.fullPath)}" data-name="${escapeHtml(f.name)}" onchange="updateSelectedStorageUI()">
+        </td>
         <td class="file-name-cell" title="${escapeHtml(f.name)}">
           ${isFlac ? '🎵' : (isVideo ? '🎬' : '📄')} ${escapeHtml(f.name)}
         </td>
