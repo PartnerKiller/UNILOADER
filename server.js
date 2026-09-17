@@ -2393,68 +2393,138 @@ app.post('/api/movies/download', async (req, res) => {
     let torrentUrl = item.torrentUrl || '';
     let target = item.url || item.href || '';
 
-    // If magnet/torrent not pre-attached, dynamically resolve high-speed torrent stream on-the-fly
-    if (!magnet && !torrentUrl) {
-      let cleanQuery = (item.title || '')
-        .replace(/\b(19\d\d|20\d\d)\b.*$/, '$1')
-        .replace(/\[.*?\]|\(.*?\)/g, ' ')
-        .replace(/[^\w\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    const rawTitle = item.releaseFilename || item.filename || item.title || '';
+    const pureTitle = item.pureTitle || item.title || '';
+    const releaseLabel = item.releaseLabel || item.label || '';
+    const requestedQuality = (item.quality || '1080p').toLowerCase();
 
-      if (!cleanQuery) cleanQuery = (item.title || '').trim();
-
-      try {
-        const [ytsRes, tpbRes] = await Promise.allSettled([
-          searchYtsMovies(cleanQuery, 1),
-          searchApibayMovies(cleanQuery)
-        ]);
-        const yts = ytsRes.status === 'fulfilled' ? ytsRes.value : [];
-        const tpb = tpbRes.status === 'fulfilled' ? tpbRes.value : [];
-
-        const candidates = [];
-        for (const y of yts) {
-          for (const r of y.releases || []) {
-            if (r.magnet || r.torrentUrl) candidates.push(r);
-          }
-        }
-        for (const t of tpb) {
-          for (const r of t.releases || []) {
-            if (r.magnet || r.torrentUrl) candidates.push(r);
-          }
-        }
-
-        if (candidates.length > 0) {
-          const reqQ = (item.quality || '1080p').toLowerCase();
-          let match = candidates.find(c => (c.quality || '').toLowerCase().includes(reqQ));
-          if (!match && reqQ !== '1080p') {
-            match = candidates.find(c => (c.quality || '').toLowerCase().includes('1080p'));
-          }
-          if (!match) match = candidates[0];
-
-          magnet = match.magnet || '';
-          torrentUrl = match.torrentUrl || '';
-          target = magnet || torrentUrl;
-        }
-      } catch (e) {
-        console.warn('[MovieDownload] Dynamic torrent resolution error:', e.message);
+    // 1. Detect TV Show Episode notation (e.g. S01E01, S02E03, Ep 01, Episode 1)
+    const combinedText = `${rawTitle} ${releaseLabel} ${item.title || ''}`;
+    let seasonEpStr = '';
+    const seMatch = combinedText.match(/\b(S\d\d?E\d\d?)\b/i);
+    if (seMatch) {
+      seasonEpStr = seMatch[1].toUpperCase();
+    } else {
+      const epMatch = combinedText.match(/(?:Season\s*(\d+))?\s*(?:Episode|Ep)\s*(\d+)/i);
+      if (epMatch) {
+        const sNum = epMatch[1] ? String(epMatch[1]).padStart(2, '0') : '01';
+        const eNum = String(epMatch[2]).padStart(2, '0');
+        seasonEpStr = `S${sNum}E${eNum}`;
       }
     }
 
-    if (!magnet && !torrentUrl && !target) {
-      return res.status(400).json({ error: 'Valid download stream could not be resolved for this title.' });
+    // 2. If magnet/torrent not pre-attached, dynamically resolve high-speed torrent stream on-the-fly
+    if (!magnet && !torrentUrl) {
+      // Clean base title for search
+      let cleanTitle = pureTitle || item.title || '';
+      cleanTitle = cleanTitle
+        .replace(/\[.*?\]|\(.*?\)/g, ' ')
+        .replace(/\b(19\d\d|20\d\d)\b.*$/, '')
+        .replace(/\b(Season\s*\d+|S\d\d?E\d\d?|4k|2160p|1080p|720p|bluray|web-?dl|hevc|x265|x264|hindi|english|multi audio)\b.*/i, '')
+        .replace(/[^a-zA-Z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!cleanTitle) {
+        cleanTitle = (pureTitle || item.title || '').replace(/[^a-zA-Z0-9 ]/g, ' ').trim();
+      }
+
+      // Build prioritized search queries
+      const queriesToTry = [];
+      if (seasonEpStr) {
+        queriesToTry.push(`${cleanTitle} ${seasonEpStr}`);
+        queriesToTry.push(`${cleanTitle} ${seasonEpStr.replace(/^S0?(\d+)E0?(\d+)$/i, 'S$1E$2')}`);
+      } else {
+        const year = item.year || (combinedText.match(/\b(19\d\d|20\d\d)\b/) || [])[1] || '';
+        const qTag = requestedQuality.includes('4k') || requestedQuality.includes('2160') ? '2160p' : (requestedQuality.includes('720') ? '720p' : '1080p');
+        if (year) {
+          queriesToTry.push(`${cleanTitle} ${year} ${qTag}`);
+          queriesToTry.push(`${cleanTitle} ${year}`);
+        } else {
+          queriesToTry.push(`${cleanTitle} ${qTag}`);
+        }
+        queriesToTry.push(cleanTitle);
+      }
+
+      const candidates = [];
+      for (const qStr of queriesToTry) {
+        if (candidates.length > 0) break;
+        try {
+          const [tpbRes, ytsRes] = await Promise.allSettled([
+            searchApibayMovies(qStr),
+            (!seasonEpStr) ? searchYtsMovies(qStr, 1) : Promise.resolve([])
+          ]);
+          const tpb = tpbRes.status === 'fulfilled' ? tpbRes.value : [];
+          const yts = ytsRes.status === 'fulfilled' ? ytsRes.value : [];
+
+          for (const t of tpb) {
+            for (const r of t.releases || []) {
+              if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: t.title });
+            }
+          }
+          for (const y of yts) {
+            for (const r of y.releases || []) {
+              if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: y.title });
+            }
+          }
+        } catch (e) {
+          console.warn('[MovieDownload] Error searching torrent streams:', e.message);
+        }
+      }
+
+      if (candidates.length > 0) {
+        const qTag = requestedQuality.includes('4k') || requestedQuality.includes('2160') ? '2160p' : (requestedQuality.includes('720') ? '720p' : '1080p');
+        let matches = candidates.filter(c => {
+          const combined = `${c.quality || ''} ${c.label || ''} ${c.filename || ''}`.toLowerCase();
+          return combined.includes(qTag);
+        });
+        if (matches.length === 0) matches = candidates;
+
+        // Rank by highest active seeders
+        matches.sort((a, b) => (b.seeders || 0) - (a.seeders || 0));
+        const best = matches[0];
+
+        magnet = best.magnet || '';
+        torrentUrl = best.torrentUrl || '';
+        target = magnet || torrentUrl;
+      }
+    }
+
+    // If no torrent was resolved and target is a protected shortener link (links.ol-am.top / olamovies):
+    if (!magnet && !torrentUrl) {
+      if (target && (target.includes('links.ol') || target.includes('olamovies') || target.includes('ol-am'))) {
+        return res.status(404).json({
+          success: false,
+          error: 'No active BitTorrent swarm stream could be resolved for this title. Please click the "🔗 Link" button to open and download directly via Google Drive / Fast Cloud.'
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: 'Valid download stream could not be resolved for this title.'
+      });
     }
 
     const isTorrent = !!(magnet || torrentUrl || (target && target.startsWith('magnet:')));
     const finalTarget = magnet || torrentUrl || target;
 
+    // Construct a clean, human-readable job title for display in the queue
+    let displayJobTitle = item.pureTitle || item.title || 'Movie Media';
+    if (item.pureTitle && item.year) {
+      displayJobTitle = `${item.pureTitle} (${item.year})`;
+    }
+    if (seasonEpStr) {
+      displayJobTitle += ` ${seasonEpStr}`;
+    }
+    const qLabel = requestedQuality.includes('4k') || requestedQuality.includes('2160') ? '4K UHD' : (requestedQuality.includes('720') ? '720p' : '1080p');
+    displayJobTitle += ` [${qLabel}]`;
+
     const jobPayload = {
       url: finalTarget,
       magnet: magnet,
       torrentUrl: torrentUrl,
-      title: item.title || item.filename || 'Movie Media',
+      title: displayJobTitle,
       poster: item.poster || '',
-      code: 'MOVIE',
+      code: seasonEpStr ? 'TV_SERIES' : 'MOVIE',
       mode: 'video',
       videoQuality: item.quality || 'best',
       type: isTorrent ? 'torrent' : 'video'
@@ -2468,7 +2538,7 @@ app.post('/api/movies/download', async (req, res) => {
       type: jobPayload.type
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

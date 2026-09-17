@@ -2547,7 +2547,7 @@ function renderMovieResults(items) {
           </div>
 
           <div class="movie-card-actions">
-            <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="dispatchMovieDownload(${idx})">
+            <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="dispatchMovieDownload(${idx}, 0, event)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               <span>1-Click Download</span>
             </button>
@@ -2570,27 +2570,51 @@ function renderMovieResults(items) {
   }).join('');
 }
 
-window.dispatchMovieDownload = async function(idx, releaseIdx = 0) {
+window.copyMovieReleaseLink = function(text, btnEl) {
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    if (btnEl) {
+      const orig = btnEl.innerHTML;
+      btnEl.innerHTML = '<span>✓ Copied</span>';
+      setTimeout(() => { btnEl.innerHTML = orig; }, 1800);
+    }
+    showToast('Direct link copied to clipboard!', 'success');
+  }).catch(() => {
+    showToast('Failed to copy link to clipboard', 'error');
+  });
+};
+
+window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null) {
   const item = currentMovieResults[idx];
   if (!item) return;
 
-  const release = (item.releases && item.releases[releaseIdx]) || item.torrentFallback || {};
+  const isSpecificRelease = item.releases && item.releases.length > 0 && item.releases[releaseIdx];
+  const release = isSpecificRelease ? item.releases[releaseIdx] : (item.torrentFallback || {});
 
   const payload = {
     title: release.filename || item.title,
+    pureTitle: item.title,
+    year: item.year || '',
+    releaseLabel: release.label || '',
+    releaseFilename: release.filename || '',
     poster: item.poster || '',
     quality: release.quality || '1080p',
-    magnet: release.magnet || (item.torrentFallback && item.torrentFallback.magnet) || '',
-    torrentUrl: release.torrentUrl || (item.torrentFallback && item.torrentFallback.torrentUrl) || '',
+    magnet: release.magnet || (!isSpecificRelease && item.torrentFallback ? item.torrentFallback.magnet : ''),
+    torrentUrl: release.torrentUrl || (!isSpecificRelease && item.torrentFallback ? item.torrentFallback.torrentUrl : ''),
     url: release.href || release.magnet || release.torrentUrl || item.link || '',
-    provider: 'olamovies',
+    provider: item.provider || 'olamovies',
     type: 'torrent'
   };
 
-  const btn = document.getElementById(`btnMovieDl_${idx}`);
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = `<span>Starting Download...</span>`;
+  const clickedBtn = event ? event.currentTarget : null;
+  const mainCardBtn = document.getElementById(`btnMovieDl_${idx}`);
+
+  if (clickedBtn) {
+    clickedBtn.disabled = true;
+    clickedBtn.innerHTML = `<span>⏳ Starting...</span>`;
+  } else if (mainCardBtn) {
+    mainCardBtn.disabled = true;
+    mainCardBtn.innerHTML = `<span>Starting Download...</span>`;
   }
 
   try {
@@ -2601,51 +2625,106 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0) {
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      showToast(`Added to Download Queue: ${item.title.substring(0, 30)}...`, 'success');
-      if (btn) {
-        btn.innerHTML = `<span>✓ Enqueued</span>`;
-        btn.classList.add('btn-success');
+      showToast(`Added to Download Queue: ${payload.title.substring(0, 32)}...`, 'success');
+      
+      if (clickedBtn) {
+        clickedBtn.innerHTML = `<span>✓ Enqueued</span>`;
+        clickedBtn.classList.add('btn-success', 'enqueued');
+        clickedBtn.disabled = true;
       }
+      if (mainCardBtn && !clickedBtn) {
+        mainCardBtn.innerHTML = `<span>✓ Enqueued</span>`;
+        mainCardBtn.classList.add('btn-success');
+      }
+
+      // Keep modal open so user can queue other releases/episodes; update modal footer status
       const modal = document.getElementById('movieReleasesModal');
-      if (modal) modal.style.display = 'none';
+      const footer = document.getElementById('movieModalFooter');
+      const footerText = document.getElementById('movieModalFooterStatusText');
+      const btnGo = document.getElementById('btnGoToDownloads');
+
+      if (modal && footer && footerText) {
+        footer.style.display = 'flex';
+        const displayShortTitle = payload.title.length > 36 ? payload.title.substring(0, 36) + '...' : payload.title;
+        footerText.textContent = `Enqueued: ${displayShortTitle}`;
+        if (btnGo) {
+          btnGo.onclick = () => {
+            modal.style.display = 'none';
+            switchView('downloader');
+          };
+        }
+      }
     } else {
       showToast(data.error || 'Failed to start download', 'error');
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `<span>1-Click Download</span>`;
+      if (clickedBtn) {
+        clickedBtn.disabled = false;
+        clickedBtn.innerHTML = `<span>⚡ Download</span>`;
+      }
+      if (mainCardBtn && !clickedBtn) {
+        mainCardBtn.disabled = false;
+        mainCardBtn.innerHTML = `<span>1-Click Download</span>`;
       }
     }
   } catch (err) {
     showToast(`Download error: ${err.message}`, 'error');
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = `<span>1-Click Download</span>`;
+    if (clickedBtn) {
+      clickedBtn.disabled = false;
+      clickedBtn.innerHTML = `<span>⚡ Download</span>`;
+    }
+    if (mainCardBtn && !clickedBtn) {
+      mainCardBtn.disabled = false;
+      mainCardBtn.innerHTML = `<span>1-Click Download</span>`;
     }
   }
 };
 
-window.openMovieReleasesModal = function(idx) {
-  const item = currentMovieResults[idx];
-  if (!item) return;
+let currentModalItemIdx = -1;
+let currentModalReleases = [];
+let currentModalActiveQuality = 'ALL';
+let currentModalSearchQuery = '';
 
-  const modal = document.getElementById('movieReleasesModal');
-  const titleEl = document.getElementById('movieModalTitle');
-  const badgeEl = document.getElementById('movieModalProviderBadge');
+function renderModalReleasesList() {
   const listEl = document.getElementById('movieReleasesList');
-  if (!modal || !listEl) return;
+  if (!listEl) return;
 
-  if (titleEl) titleEl.textContent = item.title;
-  if (badgeEl) {
-    badgeEl.textContent = item.provider === 'olamovies' ? 'OlaMovies HD' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
+  let filtered = currentModalReleases.map((rel, rIdx) => ({ rel, rIdx }));
+
+  if (currentModalActiveQuality !== 'ALL') {
+    const qLower = currentModalActiveQuality.toLowerCase();
+    filtered = filtered.filter(({ rel }) => {
+      const rq = (rel.quality || '').toLowerCase();
+      if (qLower === '4k' || qLower === '2160p') return rq.includes('4k') || rq.includes('2160');
+      if (qLower === '1080p') return rq.includes('1080');
+      if (qLower === '720p') return rq.includes('720');
+      if (qLower === '480p') return rq.includes('480');
+      return rq.includes(qLower);
+    });
   }
 
-  listEl.innerHTML = (item.releases || []).map((rel, rIdx) => {
+  if (currentModalSearchQuery) {
+    const q = currentModalSearchQuery;
+    filtered = filtered.filter(({ rel }) => {
+      const haystack = `${rel.label || ''} ${rel.filename || ''} ${rel.quality || ''}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `
+      <div style="text-align: center; padding: 28px 14px; color: var(--text-muted); font-size: 0.85rem;">
+        No releases match your filter. Try clearing your search or choosing "All Qualities".
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(({ rel, rIdx }) => {
     return `
-      <div class="movie-release-item">
+      <div class="movie-release-item" data-release-index="${rIdx}">
         <div class="release-info">
           <div class="release-primary-row">
             <span class="release-badge badge-${(rel.quality || '1080p').toLowerCase().replace(/[^a-z0-9]/g, '')}">${escapeHtml(rel.quality || 'HD')}</span>
-            <span class="release-label">${escapeHtml(rel.label || rel.filename)}</span>
+            <span class="release-label">${escapeHtml(rel.label || rel.filename || 'Release')}</span>
           </div>
           <div class="release-secondary-row">
             ${rel.size ? `<span class="release-size">💾 ${escapeHtml(rel.size)}</span>` : ''}
@@ -2656,19 +2735,106 @@ window.openMovieReleasesModal = function(idx) {
           </div>
         </div>
         <div class="release-actions">
-          <button type="button" class="btn btn-primary btn-sm btn-rel-dl" onclick="dispatchMovieDownload(${idx}, ${rIdx})">
+          <button type="button" class="btn btn-primary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)">
             <span>⚡ Download</span>
           </button>
           ${rel.href ? `
-            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open OlaMovies fast link">
+            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open direct link in browser">
               <span>🔗 Link</span>
             </a>
-          ` : ''}
+            <button type="button" class="btn btn-secondary btn-sm btn-rel-copy" onclick="copyMovieReleaseLink('${escapeHtml(rel.href)}', this)" title="Copy direct link to clipboard">
+              <span>📋 Copy</span>
+            </button>
+          ` : (rel.magnet ? `
+            <button type="button" class="btn btn-secondary btn-sm btn-rel-copy" onclick="copyMovieReleaseLink('${escapeHtml(rel.magnet)}', this)" title="Copy magnet link">
+              <span>🧲 Magnet</span>
+            </button>
+          ` : '')}
         </div>
       </div>
     `;
   }).join('');
+}
 
+window.openMovieReleasesModal = function(idx) {
+  const item = currentMovieResults[idx];
+  if (!item) return;
+
+  currentModalItemIdx = idx;
+  currentModalReleases = item.releases || [];
+  currentModalActiveQuality = 'ALL';
+  currentModalSearchQuery = '';
+
+  const modal = document.getElementById('movieReleasesModal');
+  const titleEl = document.getElementById('movieModalTitle');
+  const badgeEl = document.getElementById('movieModalProviderBadge');
+  const filtersEl = document.getElementById('movieModalFilters');
+  const searchInput = document.getElementById('movieModalSearchInput');
+  const footerEl = document.getElementById('movieModalFooter');
+
+  if (!modal) return;
+
+  if (titleEl) titleEl.textContent = item.title;
+  if (badgeEl) {
+    badgeEl.textContent = item.provider === 'olamovies' ? 'OlaMovies HD' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
+  }
+
+  // Reset search input
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.oninput = (e) => {
+      currentModalSearchQuery = e.target.value.trim().toLowerCase();
+      renderModalReleasesList();
+    };
+  }
+
+  // Hide footer on initial modal open
+  if (footerEl) {
+    footerEl.style.display = 'none';
+  }
+
+  // Extract unique qualities
+  const qualitySet = new Set();
+  currentModalReleases.forEach(r => {
+    const q = (r.quality || '').trim().toUpperCase();
+    if (q) qualitySet.add(q);
+  });
+
+  const standardOrder = ['4K', '2160P', '1080P', '720P', '480P'];
+  const sortedQualities = Array.from(qualitySet).sort((a, b) => {
+    let ai = standardOrder.indexOf(a);
+    let bi = standardOrder.indexOf(b);
+    if (ai === -1) ai = 99;
+    if (bi === -1) bi = 99;
+    return ai - bi;
+  });
+
+  if (filtersEl) {
+    if (sortedQualities.length > 1) {
+      filtersEl.innerHTML = [
+        `<button type="button" class="modal-q-chip active" data-quality="ALL">All Qualities (${currentModalReleases.length})</button>`,
+        ...sortedQualities.map(q => {
+          const count = currentModalReleases.filter(r => (r.quality || '').toUpperCase() === q).length;
+          return `<button type="button" class="modal-q-chip" data-quality="${escapeHtml(q)}">${escapeHtml(q)} (${count})</button>`;
+        })
+      ].join('');
+
+      filtersEl.querySelectorAll('.modal-q-chip').forEach(chip => {
+        chip.onclick = () => {
+          filtersEl.querySelectorAll('.modal-q-chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+          currentModalActiveQuality = chip.getAttribute('data-quality');
+          renderModalReleasesList();
+        };
+      });
+      filtersEl.style.display = 'flex';
+    } else {
+      filtersEl.innerHTML = '';
+      filtersEl.style.display = 'none';
+    }
+  }
+
+  renderModalReleasesList();
   modal.style.display = 'flex';
 };
 

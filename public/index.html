@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.3.4">
+  <link rel="stylesheet" href="styles.css?v=4.3.5">
 </head>
 <body>
   <div class="app-layout">
@@ -89,7 +89,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.3.4 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.3.5 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -1145,14 +1145,32 @@
           <button class="modal-close" id="btnCloseMovieReleasesModal" title="Close modal">&times;</button>
         </div>
         <div class="modal-body movie-releases-body">
-          <p class="movie-releases-subtitle" id="movieModalSubtitle">Select a quality release to download directly or grab fast links:</p>
+          <div class="movie-modal-toolbar">
+            <div class="movie-modal-filters" id="movieModalFilters">
+              <!-- Rendered dynamically: All, 4K, 1080p, 720p -->
+            </div>
+            <div class="movie-modal-search-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="movie-modal-search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="movieModalSearchInput" class="movie-modal-search" placeholder="Filter releases or episodes (e.g. S01E01, 1080p, Hindi)..." autocomplete="off" />
+            </div>
+          </div>
           <div class="movie-releases-list" id="movieReleasesList"></div>
+        </div>
+        <div class="modal-footer movie-modal-footer" id="movieModalFooter" style="display: none;">
+          <div class="modal-footer-status" id="movieModalFooterStatus">
+            <span class="status-dot active"></span>
+            <span id="movieModalFooterStatusText">Download enqueued</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" id="btnGoToDownloads">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>View in Downloader</span>
+          </button>
         </div>
       </div>
     </div>
 
   </div>
 
-  <script src="app.js?v=4.3.4"></script>
+  <script src="app.js?v=4.3.5"></script>
 </body>
 </html>
