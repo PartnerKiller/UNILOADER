@@ -1362,6 +1362,13 @@ body {
   border: 1px solid hsla(38, 92%, 50%, 0.35);
 }
 
+.status-resolving_olamovies {
+  background-color: hsla(280, 90%, 60%, 0.18);
+  color: hsl(280, 95%, 75%);
+  border: 1px solid hsla(280, 90%, 60%, 0.4);
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
 /* Progress Bar */
 .progress-container {
   width: 100%;
@@ -4712,5 +4719,50 @@ body {
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
+}
+
+/* OlaMovies Direct Cloud Modal Components */
+.btn-rel-ola {
+  background: linear-gradient(135deg, #7c3aed, #db2777) !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(219, 39, 119, 0.35);
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn-rel-ola:hover {
+  background: linear-gradient(135deg, #6d28d9, #be185d) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(219, 39, 119, 0.45);
+}
+
+.modal-ola-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(219, 39, 119, 0.12));
+  border: 1px solid rgba(219, 39, 119, 0.3);
+  border-radius: 10px;
+  font-size: 0.84rem;
+  color: #f1f5f9;
+  line-height: 1.5;
+}
+
+.modal-ola-banner .banner-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.modal-ola-banner .ola-banner-link {
+  color: #f472b6;
+  text-decoration: underline;
+  font-weight: 700;
+}
+
+.modal-ola-banner .ola-banner-link:hover {
+  color: #fb7185;
 }
 

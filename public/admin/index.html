@@ -57,7 +57,7 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.3.6</span>
+          <span class="badge-tag">Sakura Suite v4.3.7</span>
         </div>
       </div>
 
@@ -403,6 +403,31 @@
                   <option value="5M">5 MB</option>
                 </select>
                 <span class="field-hint">Chunk partition threshold</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- OlaMovies Direct Cloud Engine -->
+          <div class="engine-config-card">
+            <div class="card-head">
+              <h3>☁️ OlaMovies Direct Cloud Engine (Non-Torrent)</h3>
+              <p>Automate links.olamovies.mov slider, ad countdowns, and direct OM Drive workers.dev streaming.</p>
+            </div>
+            <div class="form-grid">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label for="cfgOlaCookie">OlaMovies / PayBase Session Cookie</label>
+                <textarea id="cfgOlaCookie" class="admin-input" rows="2" style="font-family: monospace; font-size: 0.8rem;" placeholder="Optional: Paste session cookies here to bypass Google login in headless mode..."></textarea>
+                <span class="field-hint">Stored securely on Sakura to authenticate headless Playwright requests.</span>
+              </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Zero-Friction Browser Companion Script</label>
+                <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px;">
+                  <a href="/companion/olamovies_companion.user.js" target="_blank" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Install in Tampermonkey / Violentmonkey</span>
+                  </a>
+                  <span style="font-size: 0.82rem; color: var(--text-muted);">Auto-solves sliders, 15s ad timers, and sends cloud links to Sakura with 1 click!</span>
+                </div>
               </div>
             </div>
           </div>

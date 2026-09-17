@@ -809,7 +809,7 @@ function createJobCardElement(job) {
           <span class="job-code">${job.code || 'MEDIA'}</span>
         </div>
         <div class="job-header-right">
-          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : job.status.toUpperCase()}</span>
+          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : (job.status === 'resolving_olamovies' ? 'RESOLVING OLA' : job.status.toUpperCase())}</span>
           <button type="button" class="btn-job-remove" onclick="removeJob('${job.id}')" title="Remove task">&times;</button>
         </div>
       </div>
@@ -905,7 +905,7 @@ function renderJobControls(job) {
         </button>
         <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
       `;
-    } else if (job.status === 'downloading' || job.status === 'queued') {
+    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_olamovies') {
       return `
         <button class="btn btn-warning btn-sm" onclick="pauseJob('${job.id}')" title="Pause download">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
@@ -931,6 +931,7 @@ function renderJobControls(job) {
 function formatEtaDisplay(eta, status) {
   if (status === 'completed') return 'Ready';
   if (status === 'paused') return 'Paused';
+  if (status === 'resolving_olamovies') return eta || 'Resolving Ola...';
   if (!eta || eta === '--' || eta === '0' || eta === '--:--') return '--:--';
   if (typeof eta === 'string' && /^\d+$/.test(eta.trim())) {
     const sec = parseInt(eta.trim(), 10);
@@ -950,7 +951,7 @@ function updateJobCard(job) {
   const badge = document.getElementById(`job-badge-${job.id}`);
   if (badge) {
     badge.className = `job-status-badge status-${job.status}`;
-    badge.textContent = job.status === 'completed' ? 'READY' : job.status.toUpperCase();
+    badge.textContent = job.status === 'completed' ? 'READY' : (job.status === 'resolving_olamovies' ? 'RESOLVING OLA' : job.status.toUpperCase());
   }
 
   const fill = document.getElementById(`job-prog-fill-${job.id}`);
@@ -2678,6 +2679,75 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
   }
 };
 
+window.dispatchOlaDirectDownload = async function(idx, rIdx, event) {
+  const item = currentMovieResults[idx];
+  if (!item) return;
+  const release = (item.releases && item.releases[rIdx]) || {};
+  const link = release.href || release.url || item.link;
+
+  if (!link) {
+    showToast('No direct link found for this release.', 'error');
+    return;
+  }
+
+  const clickedBtn = event ? event.currentTarget : null;
+  if (clickedBtn) {
+    clickedBtn.disabled = true;
+    clickedBtn.innerHTML = `<span>⏳ Starting Solver...</span>`;
+  }
+
+  try {
+    const res = await fetch('/api/movies/resolve-ola', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        link,
+        title: item.title,
+        filename: release.filename || `${item.title} [${release.quality || '1080p'}]`,
+        quality: release.quality || '1080p',
+        poster: item.poster || ''
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`☁️ Started Direct OlaMovies Resolver: ${item.title.substring(0, 30)}... (~1m)`, 'success');
+      if (clickedBtn) {
+        clickedBtn.innerHTML = `<span>✓ Resolving...</span>`;
+        clickedBtn.classList.add('btn-success');
+      }
+
+      const modal = document.getElementById('movieReleasesModal');
+      const footer = document.getElementById('movieModalFooter');
+      const footerText = document.getElementById('movieModalFooterStatusText');
+      const btnGo = document.getElementById('btnGoToDownloads');
+
+      if (modal && footer && footerText) {
+        footer.style.display = 'flex';
+        footerText.textContent = `Resolving Cloud Stream: ${item.title.substring(0, 32)}...`;
+        if (btnGo) {
+          btnGo.onclick = () => {
+            modal.style.display = 'none';
+            switchView('downloader');
+          };
+        }
+      }
+    } else {
+      showToast(data.error || 'Failed to start OlaMovies resolver', 'error');
+      if (clickedBtn) {
+        clickedBtn.disabled = false;
+        clickedBtn.innerHTML = `<span>☁️ Direct Ola (~1m)</span>`;
+      }
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+    if (clickedBtn) {
+      clickedBtn.disabled = false;
+      clickedBtn.innerHTML = `<span>☁️ Direct Ola (~1m)</span>`;
+    }
+  }
+};
+
 let currentModalItemIdx = -1;
 let currentModalReleases = [];
 let currentModalActiveQuality = 'ALL';
@@ -2709,8 +2779,17 @@ function renderModalReleasesList() {
     });
   }
 
+  const curItem = currentModalItemIdx >= 0 ? currentMovieResults[currentModalItemIdx] : null;
+  const isOla = (curItem && curItem.provider === 'olamovies') || currentModalReleases.some(r => r.href && (r.href.includes('links.ol') || r.href.includes('olamovies')));
+  const bannerHtml = isOla ? `
+    <div class="modal-ola-banner">
+      <span class="banner-icon">⚡</span>
+      <span style="flex: 1;"><strong>Direct OlaMovies Engine:</strong> Resolves OM Drive cloud streams directly (~1 min, zero torrents). Or install <a href="/companion/olamovies_companion.user.js" target="_blank" class="ola-banner-link">Sakura Companion Script</a> for 1-click browser auto-hop.</span>
+    </div>
+  ` : '';
+
   if (filtered.length === 0) {
-    listEl.innerHTML = `
+    listEl.innerHTML = bannerHtml + `
       <div style="text-align: center; padding: 28px 14px; color: var(--text-muted); font-size: 0.85rem;">
         No releases match your filter. Try clearing your search or choosing "All Qualities".
       </div>
@@ -2718,7 +2797,7 @@ function renderModalReleasesList() {
     return;
   }
 
-  listEl.innerHTML = filtered.map(({ rel, rIdx }) => {
+  listEl.innerHTML = bannerHtml + filtered.map(({ rel, rIdx }) => {
     return `
       <div class="movie-release-item" data-release-index="${rIdx}">
         <div class="release-info">
@@ -2735,11 +2814,20 @@ function renderModalReleasesList() {
           </div>
         </div>
         <div class="release-actions">
-          <button type="button" class="btn btn-primary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)">
-            <span>⚡ Download</span>
-          </button>
+          ${(rel.href && (rel.href.includes('links.ol') || (curItem && curItem.provider === 'olamovies'))) ? `
+            <button type="button" class="btn btn-primary btn-sm btn-rel-ola" id="btnModalRelOla_${rIdx}" onclick="dispatchOlaDirectDownload(${currentModalItemIdx}, ${rIdx}, event)" title="Resolve & download direct from OlaMovies (~1 min) without torrents">
+              <span>☁️ Direct Ola (~1m)</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)" title="Fallback to BitTorrent swarm">
+              <span>⚡ Torrent</span>
+            </button>
+          ` : `
+            <button type="button" class="btn btn-primary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)">
+              <span>⚡ Download</span>
+            </button>
+          `}
           ${rel.href ? `
-            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open direct link in browser">
+            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open direct link in browser (auto-hopped by companion userscript)">
               <span>🔗 Link</span>
             </a>
             <button type="button" class="btn btn-secondary btn-sm btn-rel-copy" onclick="copyMovieReleaseLink('${escapeHtml(rel.href)}', this)" title="Copy direct link to clipboard">

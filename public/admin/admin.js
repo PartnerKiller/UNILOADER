@@ -1132,6 +1132,7 @@ function setupEngineSettings() {
             httpChunkSize,
             retries,
             aria2cMinSplitSize,
+            olaMoviesCookie: document.getElementById('cfgOlaCookie') ? document.getElementById('cfgOlaCookie').value.trim() : '',
             features
           })
         });
@@ -1167,6 +1168,9 @@ async function loadEngineConfig() {
     if (cfg.httpChunkSize) document.getElementById('cfgChunkSize').value = cfg.httpChunkSize;
     if (cfg.retries) document.getElementById('cfgRetries').value = cfg.retries;
     if (cfg.aria2cMinSplitSize) document.getElementById('cfgMinSplit').value = cfg.aria2cMinSplitSize;
+    if (cfg.olaMoviesCookie && document.getElementById('cfgOlaCookie')) {
+      document.getElementById('cfgOlaCookie').value = cfg.olaMoviesCookie;
+    }
 
     const feat = cfg.features || {};
     if (feat.movieHub !== undefined) document.getElementById('switchMovieHub').checked = !!feat.movieHub;

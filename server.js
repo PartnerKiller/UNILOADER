@@ -52,7 +52,8 @@ const defaultEngineConfig = {
     olamoviesSource: true,
     ytsSource: false,
     torrentsSource: false
-  }
+  },
+  olaMoviesCookie: ''
 };
 let engineConfig = { ...defaultEngineConfig };
 
@@ -446,7 +447,7 @@ setInterval(() => {
 function getActiveDownloadCount() {
   let count = 0;
   for (const job of jobs.values()) {
-    if (job.status === 'downloading' && job.process) count++;
+    if ((job.status === 'downloading' || job.status === 'resolving_olamovies') && job.process) count++;
   }
   return count;
 }
@@ -460,6 +461,10 @@ function processDownloadQueue() {
     if (job.status === 'queued') {
       if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
         startTorrentJob(job);
+      } else if (job.url && (job.url.includes('workers.dev/serve') || job.mode === 'direct_http')) {
+        startDirectHttpJob(job);
+      } else if (job.mode === 'olamovies_direct') {
+        startOlaMoviesResolver(job);
       } else {
         startJobProcess(job);
       }
@@ -1251,10 +1256,47 @@ app.post('/api/admin/engine-config', requireAdmin, (req, res) => {
         ...updates.features
       };
     }
+    if (typeof updates.olaMoviesCookie === 'string') {
+      engineConfig.olaMoviesCookie = updates.olaMoviesCookie.trim();
+      const cookiesPath = path.join(__dirname, 'ola_cookies.json');
+      if (engineConfig.olaMoviesCookie) {
+        fs.writeFileSync(cookiesPath, engineConfig.olaMoviesCookie, 'utf-8');
+      } else if (fs.existsSync(cookiesPath)) {
+        try { fs.unlinkSync(cookiesPath); } catch (e) {}
+      }
+    }
     saveEngineConfig();
     res.json({ success: true, config: engineConfig, message: 'Engine configuration updated and saved' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// OlaMovies Session Cookie Management
+app.get('/api/admin/olamovies/cookie', requireAdmin, (req, res) => {
+  const cookiesPath = path.join(__dirname, 'ola_cookies.json');
+  const hasFile = fs.existsSync(cookiesPath);
+  res.json({
+    success: true,
+    hasCookie: !!(engineConfig.olaMoviesCookie || hasFile),
+    preview: engineConfig.olaMoviesCookie ? (engineConfig.olaMoviesCookie.substring(0, 30) + '...') : ''
+  });
+});
+
+app.post('/api/admin/olamovies/cookie', requireAdmin, (req, res) => {
+  try {
+    const { cookie } = req.body || {};
+    engineConfig.olaMoviesCookie = (cookie || '').trim();
+    const cookiesPath = path.join(__dirname, 'ola_cookies.json');
+    if (engineConfig.olaMoviesCookie) {
+      fs.writeFileSync(cookiesPath, engineConfig.olaMoviesCookie, 'utf-8');
+    } else if (fs.existsSync(cookiesPath)) {
+      try { fs.unlinkSync(cookiesPath); } catch (e) {}
+    }
+    saveEngineConfig();
+    res.json({ success: true, hasCookie: !!engineConfig.olaMoviesCookie });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -2646,6 +2688,58 @@ app.post('/api/movies/download', async (req, res) => {
   }
 });
 
+// Dedicated OlaMovies Direct Cloud Stream Resolver Endpoint (Non-Torrent)
+app.post('/api/movies/resolve-ola', async (req, res) => {
+  try {
+    const { link, title, poster, quality, filename } = req.body || {};
+    if (!link) return res.status(400).json({ success: false, error: 'OlaMovies link is required' });
+
+    let rawTitle = (filename || title || 'Movie Media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    if (!rawTitle.endsWith('.mkv') && !rawTitle.endsWith('.mp4')) {
+      rawTitle += '.mkv';
+    }
+    const jobId = 'job_ola_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+
+    const job = {
+      id: jobId,
+      url: link,
+      title: (filename || title || 'Movie Media').trim(),
+      poster: poster || '',
+      filename: rawTitle,
+      code: 'OLA_DIRECT',
+      mode: 'olamovies_direct',
+      status: 'resolving_olamovies',
+      progress: {
+        percent: 10,
+        speed: 'Bypassing Ads & Captchas',
+        eta: 'Step 1/5: Loading OlaMovies link...',
+        downloadedSize: '',
+        totalSize: ''
+      },
+      logs: [`[OlaMovies] Enqueued direct cloud resolution for: ${rawTitle}`],
+      error: null,
+      startTime: Date.now(),
+      completedTime: null,
+      process: null
+    };
+
+    jobs.set(jobId, job);
+    broadcastJobUpdate(jobId);
+
+    // Launch solver directly
+    startOlaMoviesResolver(job);
+
+    res.json({
+      success: true,
+      jobId: job.id,
+      title: job.title
+    });
+  } catch (err) {
+    console.error('[OlaMovies] Resolve dispatch error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Unified Adult Search API
 app.get('/api/adult/search', async (req, res) => {
   try {
@@ -2910,6 +3004,148 @@ function startTorrentJob(job) {
     child.on('error', err => {
       job.status = 'failed';
       job.error = `Failed to start aria2c: ${err.message}`;
+      broadcastJobUpdate(job.id);
+      processDownloadQueue();
+    });
+  } catch (err) {
+    job.status = 'failed';
+    job.error = err.message;
+    broadcastJobUpdate(job.id);
+    processDownloadQueue();
+  }
+}
+
+function startDirectHttpJob(job) {
+  job.status = 'downloading';
+  job.startTime = Date.now();
+  job.progress.eta = 'Connecting to high-speed cloud stream...';
+  job.progress.speed = '0 MB/s';
+  job.logs.push('Starting Direct Cloud stream acceleration via aria2c (16 connections)...');
+  broadcastJobUpdate(job.id);
+
+  const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
+  const outDir = TEMP_DIR;
+  let rawBase = (job.filename || `${job.title}.mkv`).replace(/[\\/:*?"<>|]/g, '_');
+  if (!rawBase.endsWith('.mkv') && !rawBase.endsWith('.mp4') && !rawBase.endsWith('.webm')) {
+    rawBase += '.mkv';
+  }
+  const targetFilename = `${job.id}_${rawBase}`;
+
+  const args = [
+    '--dir=' + outDir,
+    '--out=' + targetFilename,
+    '--max-connection-per-server=16',
+    '--split=16',
+    '--min-split-size=1M',
+    '--summary-interval=1',
+    '--allow-overwrite=true',
+    '--auto-file-renaming=false',
+    '--file-allocation=none',
+    '--check-certificate=false',
+    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+  ];
+
+  if (job.url && (job.url.includes('workers.dev') || job.url.includes('olamovies') || job.url.includes('omd-'))) {
+    args.push('--header=Referer: https://drive.olamovies.download/');
+  }
+
+  args.push(job.url);
+
+  try {
+    const child = spawn(ariaBin, args, { windowsHide: true });
+    job.process = child;
+    job.pid = child.pid;
+    attachProcessListeners(job, child);
+  } catch (err) {
+    job.status = 'failed';
+    job.error = `Failed to start aria2c: ${err.message}`;
+    broadcastJobUpdate(job.id);
+    processDownloadQueue();
+  }
+}
+
+function startOlaMoviesResolver(job) {
+  job.status = 'resolving_olamovies';
+  job.startTime = Date.now();
+  job.progress.percent = 10;
+  job.progress.eta = 'Step 1/5: Loading OlaMovies link...';
+  job.progress.speed = 'Bypassing Ads';
+  job.logs.push('[OlaMovies] Launching automated Playwright resolver on Sakura...');
+  broadcastJobUpdate(job.id);
+
+  const scriptPath = path.join(__dirname, 'olamovies_solver.py');
+  const cookiesPath = path.join(__dirname, 'ola_cookies.json');
+  const args = [scriptPath, '--url', job.url, '--debug'];
+  if (fs.existsSync(cookiesPath)) {
+    args.push('--cookies', cookiesPath);
+  } else if (engineConfig.olaMoviesCookie) {
+    args.push('--cookies', engineConfig.olaMoviesCookie);
+  }
+
+  try {
+    const pyBin = 'python3';
+    const child = spawn(pyBin, args, { windowsHide: true });
+    job.process = child;
+    job.pid = child.pid;
+
+    child.stdout.on('data', data => {
+      const text = data.toString();
+      const lines = text.split(/\r?\n/);
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line.trim());
+          if (parsed.type === 'progress') {
+            job.progress.percent = parsed.percent || job.progress.percent;
+            job.progress.eta = parsed.message || job.progress.eta;
+            job.logs.push(`[${parsed.step}/${parsed.total}] ${parsed.message}`);
+          } else if (parsed.type === 'log') {
+            job.logs.push(parsed.text);
+          } else if (parsed.type === 'result') {
+            if (parsed.success && parsed.streamUrl) {
+              job.logs.push(`[Success] Resolved direct cloud stream: ${parsed.streamUrl.substring(0, 60)}...`);
+              job.url = parsed.streamUrl;
+              if (parsed.filename) {
+                job.title = parsed.filename;
+                let cleanFn = parsed.filename.replace(/[\\/:*?"<>|]/g, '_');
+                if (!cleanFn.endsWith('.mkv') && !cleanFn.endsWith('.mp4')) cleanFn += '.mkv';
+                job.filename = cleanFn;
+              }
+              // Immediately start direct HTTP download via aria2c
+              startDirectHttpJob(job);
+              return;
+            } else {
+              job.status = 'failed';
+              job.error = parsed.error || 'Failed to resolve cloud stream';
+              job.logs.push(`[Error] ${job.error}`);
+            }
+          }
+        } catch (e) {
+          job.logs.push(`[resolver] ${line}`);
+        }
+      }
+      broadcastJobUpdate(job.id);
+    });
+
+    child.stderr.on('data', data => {
+      const text = data.toString();
+      job.logs.push(`[resolver-err] ${text}`);
+      broadcastJobUpdate(job.id);
+    });
+
+    child.on('close', code => {
+      if (job.status === 'resolving_olamovies') {
+        job.status = 'failed';
+        job.error = `Resolver exited with code ${code}`;
+        job.logs.push(`[Resolver] Process exited with code ${code}`);
+        broadcastJobUpdate(job.id);
+        processDownloadQueue();
+      }
+    });
+
+    child.on('error', err => {
+      job.status = 'failed';
+      job.error = `Failed to launch resolver: ${err.message}`;
       broadcastJobUpdate(job.id);
       processDownloadQueue();
     });
@@ -3545,6 +3781,10 @@ function createAndStartJob(opts) {
   if (getActiveDownloadCount() < getMaxConcurrentDownloads()) {
     if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
       startTorrentJob(job);
+    } else if (job.url && (job.url.includes('workers.dev/serve') || job.mode === 'direct_http')) {
+      startDirectHttpJob(job);
+    } else if (job.mode === 'olamovies_direct' || (job.url && job.url.includes('links.olamovies.mov'))) {
+      startOlaMoviesResolver(job);
     } else {
       startJobProcess(job);
     }
@@ -3564,7 +3804,14 @@ app.post('/api/download', async (req, res) => {
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
-    if (!title) {
+    if (url.includes('workers.dev/serve')) {
+      payload.mode = 'direct_http';
+      payload.type = 'direct_http';
+    } else if (url.includes('links.olamovies.mov')) {
+      payload.mode = 'olamovies_direct';
+    }
+
+    if (!title && !url.includes('workers.dev/serve') && !url.includes('links.olamovies.mov')) {
       try {
         const meta = await extractMetadata(url);
         payload.hlsUrl = meta.hlsUrl;
