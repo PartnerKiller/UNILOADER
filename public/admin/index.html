@@ -79,23 +79,33 @@
     <!-- Navigation Tabs -->
     <nav class="admin-tabs">
       <button class="tab-btn active" data-tab="ui-lab">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="m4.93 4.93 4.24 4.24"></path><path d="m14.83 9.17 4.24-4.24"></path><path d="m14.83 14.83 4.24 4.24"></path><path d="m9.17 14.83-4.24 4.24"></path></svg>
-        <span>🎨 UI/UX Laboratory</span>
+        <span>🎨 UI/UX Lab</span>
+      </button>
+      <button class="tab-btn" data-tab="service">
+        <span>🚀 Service &amp; Logs</span>
+      </button>
+      <button class="tab-btn" data-tab="engine">
+        <span>⚙️ Engine Settings</span>
+      </button>
+      <button class="tab-btn" data-tab="storage">
+        <span>📁 Storage Explorer</span>
+      </button>
+      <button class="tab-btn" data-tab="network">
+        <span>🌐 Network Health</span>
+      </button>
+      <button class="tab-btn" data-tab="terminal">
+        <span>💻 Terminal &amp; Dev</span>
       </button>
       <button class="tab-btn" data-tab="tools">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
-        <span>🛠️ System Tools</span>
+        <span>🛠️ System Diagnostics</span>
       </button>
       <button class="tab-btn" data-tab="creds">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-        <span>🔑 Credentials & Tokens</span>
+        <span>🔑 Credentials</span>
       </button>
       <button class="tab-btn" data-tab="queue">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
         <span>📋 Queue Inspector</span>
       </button>
       <button class="tab-btn" data-tab="flac-lab">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
         <span>🔬 FLAC Analyzer</span>
       </button>
     </nav>
@@ -262,7 +272,315 @@
         </div>
       </section>
 
-      <!-- 2. SYSTEM TOOLS TAB -->
+      <!-- 2. SERVICE & LIVE LOGS TAB -->
+      <section class="tab-panel" id="tab-service">
+        <div class="panel-header">
+          <div>
+            <h2>Service Orchestration &amp; Real-Time Journal Logs</h2>
+            <p>Monitor systemd runtime status, restart the daemon, and inspect live stdout/stderr journal logs.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-danger btn-sm" id="btnRestartService">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span>Restart Service</span>
+            </button>
+            <button class="btn btn-outline btn-sm" id="btnRefreshLogs">↻ Refresh Logs</button>
+          </div>
+        </div>
+
+        <!-- Service Status Card -->
+        <div class="service-status-card" id="serviceStatusCard">
+          <div class="service-status-header">
+            <div class="service-status-main">
+              <span class="status-indicator-dot" id="serviceStatusDot"></span>
+              <div>
+                <h3 id="serviceStatusTitle">jav-downloader.service</h3>
+                <span class="service-status-sub" id="serviceStatusSub">Detecting runtime state...</span>
+              </div>
+            </div>
+            <div class="service-meta-badges">
+              <span class="badge-tag" id="servicePidBadge">PID: --</span>
+              <span class="badge-tag" id="serviceUptimeBadge">Uptime: --</span>
+              <span class="badge-tag" id="serviceNodeBadge">Node: --</span>
+              <span class="badge-tag" id="serviceArchBadge">Arch: --</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Journal Logs Section -->
+        <div class="logs-section">
+          <div class="logs-toolbar">
+            <div class="logs-filter-group">
+              <input type="text" id="logsSearchInput" placeholder="Filter logs by keyword (e.g. error, job_, flac, ytdlp)..." class="admin-input-sm">
+              <div class="logs-quick-filters">
+                <button type="button" class="btn-filter-pill active" data-filter="all">All</button>
+                <button type="button" class="btn-filter-pill" data-filter="error">Errors</button>
+                <button type="button" class="btn-filter-pill" data-filter="warn">Warnings</button>
+                <button type="button" class="btn-filter-pill" data-filter="download">Downloads</button>
+                <button type="button" class="btn-filter-pill" data-filter="flac">FLAC/Audio</button>
+              </div>
+            </div>
+            <div class="logs-actions-group">
+              <label class="toggle-checkbox-label">
+                <input type="checkbox" id="autoRefreshLogsCheckbox" checked>
+                <span>Auto-refresh (3s)</span>
+              </label>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnCopyLogs" title="Copy raw logs to clipboard">📋 Copy</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnClearLogsView" title="Clear console view">Clear</button>
+            </div>
+          </div>
+
+          <div class="terminal-console-window" id="serviceLogsConsole">
+            <div class="terminal-logs-content" id="serviceLogsOutput">Loading journal logs...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. ENGINE SETTINGS TAB -->
+      <section class="tab-panel" id="tab-engine">
+        <div class="panel-header">
+          <div>
+            <h2>Downloader Engine Tuning &amp; Master Killswitches</h2>
+            <p>Fine-tune fragment concurrency, memory buffers, retry limits, and toggle media hub pipelines in real time.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnSaveEngineConfig">
+            <span>💾 Save &amp; Apply Configuration</span>
+          </button>
+        </div>
+
+        <div class="engine-settings-grid">
+          <!-- Concurrency & Network Performance -->
+          <div class="engine-config-card">
+            <div class="card-head">
+              <h3>⚡ Concurrency &amp; Throughput Acceleration</h3>
+              <p>Aria2c multi-thread connections and memory buffer allocations.</p>
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="cfgMaxConcurrent">Max Concurrent Downloads</label>
+                <input type="number" id="cfgMaxConcurrent" min="1" max="10" value="4">
+                <span class="field-hint">Simultaneous active processes (1 - 10)</span>
+              </div>
+              <div class="form-group">
+                <label for="cfgAriaFragments">Aria2c Fragment Threads (-s / -x / -j)</label>
+                <select id="cfgAriaFragments" class="admin-select">
+                  <option value="4">4 Connections (Conservative)</option>
+                  <option value="8">8 Connections (Standard)</option>
+                  <option value="16" selected>16 Connections (High-Speed Turbo)</option>
+                  <option value="32">32 Connections (Extreme Gigabit)</option>
+                </select>
+                <span class="field-hint">Multi-source chunk splitting</span>
+              </div>
+              <div class="form-group">
+                <label for="cfgBufferSize">Stream Buffer Size</label>
+                <select id="cfgBufferSize" class="admin-select">
+                  <option value="4M">4 MB</option>
+                  <option value="8M">8 MB</option>
+                  <option value="16M" selected>16 MB (Recommended)</option>
+                  <option value="32M">32 MB</option>
+                </select>
+                <span class="field-hint">RAM buffer for socket streaming</span>
+              </div>
+              <div class="form-group">
+                <label for="cfgChunkSize">HTTP Chunk Size</label>
+                <select id="cfgChunkSize" class="admin-select">
+                  <option value="5M">5 MB</option>
+                  <option value="10M" selected>10 MB (Recommended)</option>
+                  <option value="20M">20 MB</option>
+                </select>
+                <span class="field-hint">Downloader chunk slice size</span>
+              </div>
+              <div class="form-group">
+                <label for="cfgRetries">Maximum Retries on Drop</label>
+                <input type="number" id="cfgRetries" min="1" max="30" value="10">
+                <span class="field-hint">Automatic re-connection attempts</span>
+              </div>
+              <div class="form-group">
+                <label for="cfgMinSplit">Aria2c Min Split Size</label>
+                <select id="cfgMinSplit" class="admin-select">
+                  <option value="1M" selected>1 MB</option>
+                  <option value="2M">2 MB</option>
+                  <option value="5M">5 MB</option>
+                </select>
+                <span class="field-hint">Chunk partition threshold</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature Killswitches & Pipelines -->
+          <div class="engine-config-card">
+            <div class="card-head">
+              <h3>🛡️ Master Feature Switches &amp; Pipelines</h3>
+              <p>Enable or disable specific subsystems and enforce strict quality guarantees.</p>
+            </div>
+            <div class="switch-list">
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>Movie &amp; TV Show Hub (OlaMovies)</strong>
+                  <span>Enable direct cloud movie releases and quality resolution cards</span>
+                </div>
+                <input type="checkbox" id="switchMovieHub" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>Adult &amp; JAV Hub (7-Tap Safe Mode)</strong>
+                  <span>Allow adult hub queries and Su-kebei full movie torrent scraping</span>
+                </div>
+                <input type="checkbox" id="switchAdultHub" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>BitTorrent Dual-Stream Fallback</strong>
+                  <span>Auto-resolve YTS / ThePirateBay torrents for movie cards</span>
+                </div>
+                <input type="checkbox" id="switchTorrentFallback" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>Soulseek P2P HiFi Engine</strong>
+                  <span>Route lossless music queries to peer-to-peer 24-bit masters</span>
+                </div>
+                <input type="checkbox" id="switchSoulseekP2P" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>Strict Lossless FLAC Enforcer</strong>
+                  <span>Prohibit fake lossy YouTube transcodes to preserve 100% authenticity</span>
+                </div>
+                <input type="checkbox" id="switchStrictLossless" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>Embed Subtitles &amp; Auto-Translate</strong>
+                  <span>Embed all available soft subtitles into output MP4/MKV files</span>
+                </div>
+                <input type="checkbox" id="switchEmbedSubs" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>Embed Video Chapters</strong>
+                  <span>Preserve chapter markers from YouTube and media streaming hosts</span>
+                </div>
+                <input type="checkbox" id="switchEmbedChapters" checked class="admin-toggle">
+              </label>
+              <label class="engine-switch-row">
+                <div class="switch-info">
+                  <strong>SponsorBlock Auto-Removal</strong>
+                  <span>Automatically skip sponsored segments and intros on downloaded videos</span>
+                </div>
+                <input type="checkbox" id="switchSponsorBlock" checked class="admin-toggle">
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. STORAGE EXPLORER TAB -->
+      <section class="tab-panel" id="tab-storage">
+        <div class="panel-header">
+          <div>
+            <h2>Storage Explorer &amp; Media Asset Manager</h2>
+            <p>Browse media stored in server temp folders, download files to your browser, preview video/audio, and clean disk space.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-warning btn-sm" id="btnStoragePurgeIncomplete">🧹 Clean Fragments (.part/.ytdl)</button>
+            <button class="btn btn-outline btn-sm" id="btnRefreshStorage">↻ Refresh Files</button>
+          </div>
+        </div>
+
+        <!-- Disk Partition Bar -->
+        <div class="disk-usage-banner">
+          <div class="disk-usage-info">
+            <span class="disk-label">Root Partition (<code>/</code>) Storage</span>
+            <span class="disk-numbers" id="diskUsageNumbers">Used: -- GB / Total: -- GB (--% used)</span>
+          </div>
+          <div class="disk-bar-track">
+            <div class="disk-bar-fill" id="diskBarFill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- Storage File Table -->
+        <div class="storage-table-container">
+          <div class="storage-table-toolbar">
+            <input type="text" id="storageSearchInput" placeholder="Search files by name or extension..." class="admin-input-sm">
+            <span class="storage-file-counter" id="storageFileCount">Showing 0 files</span>
+          </div>
+          <div class="admin-table-responsive">
+            <table class="admin-data-table" id="storageFilesTable">
+              <thead>
+                <tr>
+                  <th>File Name</th>
+                  <th>Category</th>
+                  <th>Size</th>
+                  <th>Modified Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="storageFilesTbody">
+                <tr><td colspan="5" class="text-center">Loading files from server...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. NETWORK HEALTH TAB -->
+      <section class="tab-panel" id="tab-network">
+        <div class="panel-header">
+          <div>
+            <h2>Network &amp; Upstream API Health Bench</h2>
+            <p>Live latency probes, HTTP response codes, and connectivity metrics to all upstream services and CDNs.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnTestNetworkHealth">⚡ Test All Services Now</button>
+        </div>
+
+        <div class="health-grid" id="networkHealthGrid">
+          <div class="empty-state">Click "Test All Services Now" to probe network latency.</div>
+        </div>
+      </section>
+
+      <!-- 6. TERMINAL CONSOLE TAB -->
+      <section class="tab-panel" id="tab-terminal">
+        <div class="panel-header">
+          <div>
+            <h2>Maintainer Shell &amp; Engineering Console</h2>
+            <p>Run administrative diagnostics, inspect git repository state, pull upstream commits, and monitor processes.</p>
+          </div>
+          <button class="btn btn-outline btn-sm" id="btnClearTerminalBtn">Clear Terminal</button>
+        </div>
+
+        <!-- Preset Diagnostic Quick Buttons -->
+        <div class="quick-terminal-presets">
+          <span class="presets-label">1-Click Presets:</span>
+          <button type="button" class="btn btn-secondary btn-xs btn-preset-cmd" data-cmd="git status">git status</button>
+          <button type="button" class="btn btn-secondary btn-xs btn-preset-cmd" data-cmd="git log -n 5 --oneline">git log -5</button>
+          <button type="button" class="btn btn-secondary btn-xs btn-preset-cmd" data-cmd="git pull origin main">git pull origin main</button>
+          <button type="button" class="btn btn-secondary btn-xs btn-preset-cmd" data-cmd="systemctl status jav-downloader.service --no-pager">systemctl status</button>
+          <button type="button" class="btn btn-secondary btn-xs btn-preset-cmd" data-cmd="free -h &amp;&amp; df -h /">free &amp; df -h</button>
+          <button type="button" class="btn btn-secondary btn-xs btn-preset-cmd" data-cmd="uname -a &amp;&amp; uptime">uname &amp; uptime</button>
+          <button type="button" class="btn btn-secondary btn-xs btn-preset-cmd" data-cmd="which yt-dlp ffmpeg node python3 aria2c freyr">which tools</button>
+        </div>
+
+        <!-- Terminal Output Window -->
+        <div class="terminal-shell-box">
+          <div class="terminal-shell-header">
+            <div class="shell-dots">
+              <span class="shell-dot red"></span>
+              <span class="shell-dot yellow"></span>
+              <span class="shell-dot green"></span>
+            </div>
+            <span class="shell-title">sakura@universal-downloader: ~/jav</span>
+          </div>
+          <pre class="terminal-shell-output" id="terminalShellOutput">Ready. Select a 1-click preset above or enter a custom command below.</pre>
+          <form class="terminal-shell-input-form" id="terminalShellForm">
+            <span class="shell-prompt">$</span>
+            <input type="text" id="terminalShellInput" placeholder="Enter shell command (e.g. ls -la, node -v, cat package.json)..." autocomplete="off" spellcheck="false">
+            <button type="submit" class="btn btn-primary btn-sm" id="btnRunShellCmd">Execute</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- 7. SYSTEM TOOLS TAB -->
       <section class="tab-panel" id="tab-tools">
         <div class="panel-header">
           <div>

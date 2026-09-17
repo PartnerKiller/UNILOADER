@@ -24,13 +24,66 @@ if (fs.existsSync(envPath)) {
 
 const express = require('express');
 const cors = require('cors');
-const { spawn, execSync } = require('child_process');
+const { spawn, exec, execSync } = require('child_process');
 const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 let TEMP_DIR = process.env.TEMP_DIR || path.join(__dirname, 'temp_media');
-const MAX_CONCURRENT_DOWNLOADS = 4;
+
+// Global Dynamic Engine Configuration
+const ENGINE_CONFIG_FILE = path.join(__dirname, 'engine_config.json');
+const defaultEngineConfig = {
+  maxConcurrentJobs: 4,
+  aria2cFragments: 16,
+  aria2cMinSplitSize: '1M',
+  bufferSize: '16M',
+  httpChunkSize: '10M',
+  retries: 10,
+  features: {
+    adultHub: true,
+    movieHub: true,
+    torrentFallback: true,
+    soulseekP2P: true,
+    strictLossless: true,
+    embedSubs: true,
+    embedChapters: true,
+    sponsorBlock: true
+  }
+};
+let engineConfig = { ...defaultEngineConfig };
+
+function loadEngineConfig() {
+  try {
+    if (fs.existsSync(ENGINE_CONFIG_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(ENGINE_CONFIG_FILE, 'utf8'));
+      engineConfig = {
+        ...defaultEngineConfig,
+        ...parsed,
+        features: {
+          ...defaultEngineConfig.features,
+          ...(parsed.features || {})
+        }
+      };
+    }
+  } catch (e) {
+    console.warn('[Config] Failed to load engine_config.json, using defaults:', e.message);
+  }
+}
+
+function saveEngineConfig() {
+  try {
+    fs.writeFileSync(ENGINE_CONFIG_FILE, JSON.stringify(engineConfig, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[Config] Failed to save engine_config.json:', e.message);
+  }
+}
+
+loadEngineConfig();
+
+function getMaxConcurrentDownloads() {
+  return engineConfig.maxConcurrentJobs || 4;
+}
 
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -397,7 +450,8 @@ function getActiveDownloadCount() {
 
 function processDownloadQueue() {
   const active = getActiveDownloadCount();
-  if (active >= MAX_CONCURRENT_DOWNLOADS) return;
+  const maxJobs = getMaxConcurrentDownloads();
+  if (active >= maxJobs) return;
 
   for (const job of jobs.values()) {
     if (job.status === 'queued') {
@@ -406,7 +460,7 @@ function processDownloadQueue() {
       } else {
         startJobProcess(job);
       }
-      if (getActiveDownloadCount() >= MAX_CONCURRENT_DOWNLOADS) break;
+      if (getActiveDownloadCount() >= maxJobs) break;
     }
   }
 }
@@ -416,7 +470,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     activeDownloads: getActiveDownloadCount(),
-    maxConcurrent: MAX_CONCURRENT_DOWNLOADS,
+    maxConcurrent: getMaxConcurrentDownloads(),
     totalJobs: jobs.size,
     platform: process.platform,
     engines: {
@@ -997,6 +1051,338 @@ app.get('/api/ui-settings', (req, res) => {
   res.json({ theme: globalUiSettings.theme, density: globalUiSettings.density });
 });
 
+// ==========================================================================
+// EXPANDED SAKURA ADMIN CONTROL CENTER & MAINTAINER SUITE
+// ==========================================================================
+
+// 11. Service Control & Status
+app.get('/api/admin/service/status', requireAdmin, (req, res) => {
+  try {
+    let systemdOut = 'Systemd not available on this platform';
+    let isActive = true;
+    if (process.platform === 'linux') {
+      try {
+        systemdOut = execSync('systemctl status jav-downloader.service --no-pager', { timeout: 4000 }).toString();
+        isActive = systemdOut.includes('Active: active (running)');
+      } catch (e) {
+        systemdOut = e.stdout ? e.stdout.toString() : (e.message || 'Service check error');
+        isActive = systemdOut.includes('Active: active (running)');
+      }
+    }
+    res.json({
+      success: true,
+      active: isActive,
+      pid: process.pid,
+      uptimeSeconds: Math.floor(process.uptime()),
+      systemUptime: Math.floor(os.uptime()),
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      rawStatus: systemdOut
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restart Service
+app.post('/api/admin/service/restart', requireAdmin, (req, res) => {
+  try {
+    if (process.platform !== 'linux') {
+      return res.json({ success: true, message: 'Restart triggered (simulated in local non-linux mode)' });
+    }
+    res.json({ success: true, message: 'Restart command dispatched to systemd. Service reloading now...' });
+    
+    setTimeout(() => {
+      try {
+        exec("echo 'sakura' | sudo -S -p '' systemctl restart jav-downloader.service");
+      } catch (e) {}
+    }, 500);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Live Service Journal Logs
+app.get('/api/admin/service/logs', requireAdmin, (req, res) => {
+  try {
+    const lines = Math.min(parseInt(req.query.lines, 10) || 150, 500);
+    let logs = '';
+    if (process.platform === 'linux') {
+      try {
+        logs = execSync(`journalctl -u jav-downloader.service -n ${lines} --no-pager`, { timeout: 6000 }).toString();
+      } catch (e) {
+        logs = e.stdout ? e.stdout.toString() : `Failed to read journalctl: ${e.message}`;
+      }
+    } else {
+      logs = `[Local Development Logs]\nHost Platform: ${process.platform} (${process.arch})\nNode PID: ${process.pid}\nNode Uptime: ${Math.floor(process.uptime())}s\nIn-memory Jobs: ${jobs.size}\nTemp Directory: ${TEMP_DIR}`;
+    }
+    res.json({ success: true, lines, logs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 12. Dynamic Engine Configuration
+app.get('/api/admin/engine-config', requireAdmin, (req, res) => {
+  res.json({ success: true, config: engineConfig });
+});
+
+app.post('/api/admin/engine-config', requireAdmin, (req, res) => {
+  try {
+    const updates = req.body || {};
+    if (typeof updates.maxConcurrentJobs === 'number') {
+      engineConfig.maxConcurrentJobs = Math.max(1, Math.min(10, updates.maxConcurrentJobs));
+    }
+    if (typeof updates.aria2cFragments === 'number') {
+      engineConfig.aria2cFragments = Math.max(1, Math.min(32, updates.aria2cFragments));
+    }
+    if (typeof updates.aria2cMinSplitSize === 'string') {
+      engineConfig.aria2cMinSplitSize = updates.aria2cMinSplitSize.trim();
+    }
+    if (typeof updates.bufferSize === 'string') {
+      engineConfig.bufferSize = updates.bufferSize.trim();
+    }
+    if (typeof updates.httpChunkSize === 'string') {
+      engineConfig.httpChunkSize = updates.httpChunkSize.trim();
+    }
+    if (typeof updates.retries === 'number') {
+      engineConfig.retries = Math.max(1, Math.min(30, updates.retries));
+    }
+    if (updates.features && typeof updates.features === 'object') {
+      engineConfig.features = {
+        ...engineConfig.features,
+        ...updates.features
+      };
+    }
+    saveEngineConfig();
+    res.json({ success: true, config: engineConfig, message: 'Engine configuration updated and saved' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 13. Storage Explorer & File Manager
+app.get('/api/admin/storage/files', requireAdmin, (req, res) => {
+  try {
+    let diskStats = { total: '0 GB', used: '0 GB', free: '0 GB', percentUsed: 0 };
+    if (process.platform === 'linux') {
+      try {
+        const df = execSync('df -BG /', { timeout: 3000 }).toString().trim().split('\n');
+        if (df.length >= 2) {
+          const parts = df[1].split(/\s+/);
+          const totalG = parseInt(parts[1], 10) || 0;
+          const usedG = parseInt(parts[2], 10) || 0;
+          const freeG = parseInt(parts[3], 10) || 0;
+          const pct = parseInt(parts[4], 10) || 0;
+          diskStats = { total: `${totalG} GB`, used: `${usedG} GB`, free: `${freeG} GB`, percentUsed: pct };
+        }
+      } catch (e) {}
+    } else {
+      const freeG = (os.freemem() / (1024 ** 3)).toFixed(1);
+      const totalG = (os.totalmem() / (1024 ** 3)).toFixed(1);
+      diskStats = { total: `${totalG} GB`, used: `${(totalG - freeG).toFixed(1)} GB`, free: `${freeG} GB`, percentUsed: Math.round(((totalG - freeG) / totalG) * 100) };
+    }
+
+    const fileList = [];
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+    const targetDirs = [
+      { path: TEMP_DIR, category: 'Temp Media' },
+      { path: path.join(homeDir, 'slskd_downloads'), category: 'Soulseek Downloads' }
+    ];
+
+    for (const td of targetDirs) {
+      if (fs.existsSync(td.path)) {
+        try {
+          const entries = fs.readdirSync(td.path, { withFileTypes: true });
+          for (const ent of entries) {
+            if (ent.isFile() && !ent.name.startsWith('.')) {
+              try {
+                const full = path.join(td.path, ent.name);
+                const st = fs.statSync(full);
+                const ext = path.extname(ent.name).toLowerCase();
+                const isVideo = ['.mp4', '.mkv', '.webm', '.avi', '.ts'].includes(ext);
+                const isAudio = ['.flac', '.mp3', '.m4a', '.wav', '.opus'].includes(ext);
+                const isFragment = ['.part', '.ytdl', '.temp', '.aria2'].includes(ext);
+                
+                const sizeFormatted = st.size > (1024 ** 3)
+                  ? `${(st.size / (1024 ** 3)).toFixed(2)} GB`
+                  : `${(st.size / (1024 ** 2)).toFixed(1)} MB`;
+
+                fileList.push({
+                  name: ent.name,
+                  fullPath: full,
+                  category: td.category,
+                  sizeBytes: st.size,
+                  sizeFormatted,
+                  mtime: st.mtimeMs,
+                  mtimeFormatted: new Date(st.mtimeMs).toLocaleString(),
+                  ext,
+                  isVideo,
+                  isAudio,
+                  isFragment,
+                  downloadUrl: isFragment ? null : `/api/admin/storage/raw-download?file=${encodeURIComponent(full)}`
+                });
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    fileList.sort((a, b) => b.mtime - a.mtime);
+    res.json({ success: true, disk: diskStats, files: fileList.slice(0, 150) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Raw file download for admin
+app.get('/api/admin/storage/raw-download', requireAdmin, (req, res) => {
+  const filePath = req.query.file;
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).send('File not found');
+  }
+  const resolved = path.resolve(filePath);
+  const home = path.resolve(process.env.HOME || process.env.USERPROFILE || '');
+  const temp = path.resolve(TEMP_DIR);
+  if (!resolved.startsWith(temp) && !resolved.startsWith(home)) {
+    return res.status(403).send('Forbidden: Access outside download directories');
+  }
+  res.download(resolved);
+});
+
+// Delete specific file
+app.post('/api/admin/storage/delete', requireAdmin, (req, res) => {
+  try {
+    const { filePath } = req.body || {};
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    const resolved = path.resolve(filePath);
+    const home = path.resolve(process.env.HOME || process.env.USERPROFILE || '');
+    const temp = path.resolve(TEMP_DIR);
+    if (!resolved.startsWith(temp) && !resolved.startsWith(home)) {
+      return res.status(403).json({ error: 'Cannot delete files outside allowed storage' });
+    }
+    fs.unlinkSync(resolved);
+    res.json({ success: true, message: `Deleted ${path.basename(resolved)}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Purge Incomplete Fragments
+app.post('/api/admin/storage/purge-incomplete', requireAdmin, (req, res) => {
+  try {
+    let deletedCount = 0;
+    let freedBytes = 0;
+    if (fs.existsSync(TEMP_DIR)) {
+      const files = fs.readdirSync(TEMP_DIR);
+      for (const f of files) {
+        if (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.endsWith('.aria2')) {
+          try {
+            const p = path.join(TEMP_DIR, f);
+            freedBytes += fs.statSync(p).size;
+            fs.unlinkSync(p);
+            deletedCount++;
+          } catch (e) {}
+        }
+      }
+    }
+    res.json({
+      success: true,
+      deletedCount,
+      freedBytes,
+      freedMB: (freedBytes / (1024 * 1024)).toFixed(2)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 14. Network & API Health Bench
+app.get('/api/admin/health-bench', requireAdmin, async (req, res) => {
+  const targets = [
+    { name: 'Tidal Monochrome API', url: 'https://api.tidal.com/v1/ping', expect: [200, 401, 403] },
+    { name: 'Deezer Core API', url: 'https://api.deezer.com', expect: [200] },
+    { name: 'Local Soulseek Daemon', url: 'http://127.0.0.1:5030/api/v0/application', expect: [200, 401] },
+    { name: 'OlaMovies Domain', url: cachedOlaDomain || 'https://v5.olamovies.mov', expect: [200, 301, 302, 403] },
+    { name: 'YTS Movie API', url: 'https://yts.mx/api/v2/list_movies.json?limit=1', expect: [200] },
+    { name: 'YouTube / Google Core', url: 'https://www.youtube.com', expect: [200, 302] },
+    { name: 'GitHub Upstream API', url: 'https://api.github.com/zen', expect: [200] }
+  ];
+
+  const results = await Promise.all(targets.map(async (t) => {
+    const start = Date.now();
+    try {
+      const resp = await fetch(t.url, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': '*/*'
+        },
+        signal: AbortSignal.timeout(5000)
+      });
+      const latencyMs = Date.now() - start;
+      const isExpected = (t.expect || [200]).includes(resp.status);
+      return {
+        name: t.name,
+        url: t.url,
+        status: resp.status,
+        statusText: resp.statusText || String(resp.status),
+        latencyMs,
+        ok: isExpected,
+        tier: latencyMs < 300 ? 'optimal' : (latencyMs < 800 ? 'fair' : 'slow')
+      };
+    } catch (e) {
+      return {
+        name: t.name,
+        url: t.url,
+        status: 0,
+        statusText: e.message || 'Connection Error',
+        latencyMs: Date.now() - start,
+        ok: false,
+        tier: 'error'
+      };
+    }
+  }));
+
+  res.json({ success: true, timestamp: Date.now(), results });
+});
+
+// 15. Maintainer Terminal Command Runner
+app.post('/api/admin/terminal/exec', requireAdmin, (req, res) => {
+  const { command } = req.body || {};
+  if (!command || typeof command !== 'string') {
+    return res.status(400).json({ error: 'Command string is required' });
+  }
+
+  const trimmed = command.trim();
+  if (trimmed.includes('rm -rf /') || trimmed.includes('mkfs') || trimmed.includes(':(){ :|:& };:')) {
+    return res.status(400).json({ error: 'Forbidden dangerous command pattern' });
+  }
+
+  try {
+    const cwd = __dirname;
+    const out = execSync(trimmed, {
+      cwd,
+      timeout: 25000,
+      maxBuffer: 1024 * 1024 * 2,
+      shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/bash'
+    });
+    res.json({ success: true, exitCode: 0, output: out.toString() });
+  } catch (err) {
+    const stdout = err.stdout ? err.stdout.toString() : '';
+    const stderr = err.stderr ? err.stderr.toString() : (err.message || 'Execution error');
+    res.json({
+      success: false,
+      exitCode: err.status || 1,
+      output: (stdout ? stdout + '\n' : '') + stderr
+    });
+  }
+});
+
 // ==========================================
 // Inbuilt FLAC Checker & Lossless Endpoints
 // ==========================================
@@ -1527,6 +1913,10 @@ async function searchApibayMovies(query) {
 // Unified Movie Search API (OlaMovies + YTS + Torrents)
 app.get('/api/movies/search', async (req, res) => {
   try {
+    if (engineConfig.features && engineConfig.features.movieHub === false) {
+      return res.json({ success: true, results: [], query: '', total: 0, disabled: true, message: 'Movie & TV Hub is currently disabled by administrator in Admin Settings.' });
+    }
+
     const q = (req.query.q || '').trim();
     const source = req.query.source || 'all'; // 'all', 'olamovies', 'yts', 'torrents'
     const qualityFilter = req.query.quality || 'all'; // 'all', '4k', '1080p', '720p'
@@ -1696,6 +2086,10 @@ app.post('/api/movies/download', async (req, res) => {
 // Unified Adult Search API
 app.get('/api/adult/search', async (req, res) => {
   try {
+    if (engineConfig.features && engineConfig.features.adultHub === false) {
+      return res.json({ success: true, results: [], query: '', total: 0, disabled: true, message: 'Adult & JAV Hub is currently disabled by administrator in Admin Settings.' });
+    }
+
     const q = (req.query.q || '').trim();
     const type = req.query.type || 'all';
     const duration = req.query.duration || 'full'; // 'full' (10m+), 'extended' (20m+), 'all'
@@ -2146,15 +2540,15 @@ function startJobProcess(job) {
     job.process = child;
     attachProcessListeners(job, child);
   } else {
-    const concurrentFragments = parseInt(opts.concurrentFragments, 10) || 16;
+    const concurrentFragments = parseInt(opts.concurrentFragments, 10) || engineConfig.aria2cFragments || 16;
     const outputTemplate = path.join(TEMP_DIR, `${job.id}_${job.title}.%(ext)s`);
     const args = [
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
-      '--buffer-size', '16M',
-      '--http-chunk-size', '10M',
-      '--retries', '10',
-      '--fragment-retries', '10',
+      '--buffer-size', engineConfig.bufferSize || '16M',
+      '--http-chunk-size', engineConfig.httpChunkSize || '10M',
+      '--retries', String(engineConfig.retries || 10),
+      '--fragment-retries', String(engineConfig.retries || 10),
       '--newline',
       '--ignore-errors',
       '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
@@ -2164,8 +2558,10 @@ function startJobProcess(job) {
     if (process.platform === 'linux') {
       try {
         execSync('which aria2c', { stdio: 'ignore' });
+        const frag = engineConfig.aria2cFragments || 16;
+        const split = engineConfig.aria2cMinSplitSize || '1M';
         args.push('--downloader', 'http,https:aria2c');
-        args.push('--downloader-args', 'aria2c:-s 16 -x 16 -k 1M -j 16 --min-split-size=1M --summary-interval=1');
+        args.push('--downloader-args', `aria2c:-s ${frag} -x ${frag} -k 1M -j ${frag} --min-split-size=${split} --summary-interval=1`);
       } catch (e) {}
     } else if (process.platform === 'win32') {
       args.push('--impersonate', 'chrome');
@@ -2583,7 +2979,7 @@ function createAndStartJob(opts) {
   jobs.set(jobId, job);
 
   // Check if we can start immediately or queue
-  if (getActiveDownloadCount() < MAX_CONCURRENT_DOWNLOADS) {
+  if (getActiveDownloadCount() < getMaxConcurrentDownloads()) {
     if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
       startTorrentJob(job);
     } else {
@@ -2814,7 +3210,7 @@ function resumeJob(job) {
 
   // If process was terminated, socket closed, or on Windows
   job.isSuspended = false;
-  if (getActiveDownloadCount() < MAX_CONCURRENT_DOWNLOADS) {
+  if (getActiveDownloadCount() < getMaxConcurrentDownloads()) {
     startJobProcess(job);
   } else {
     job.status = 'queued';

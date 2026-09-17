@@ -19,6 +19,11 @@ document.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
   setupEyeToggles();
   setupUiLab();
+  setupServiceAndLogs();
+  setupEngineSettings();
+  setupStorageExplorer();
+  setupNetworkHealth();
+  setupTerminalConsole();
   setupTools();
   setupCreds();
   setupQueue();
@@ -125,13 +130,25 @@ function setupNavigation() {
         if (p.id === targetId) p.classList.add('active');
       });
 
-      if (btn.getAttribute('data-tab') === 'queue') {
+      const tabName = btn.getAttribute('data-tab');
+      if (tabName === 'service') {
+        loadServiceStatus();
+        loadServiceLogs();
+      } else if (tabName === 'engine') {
+        loadEngineConfig();
+      } else if (tabName === 'storage') {
+        loadStorageFiles();
+      } else if (tabName === 'network') {
+        loadNetworkHealth();
+      } else if (tabName === 'terminal') {
+        focusTerminalInput();
+      } else if (tabName === 'queue') {
         loadQueueData();
-      } else if (btn.getAttribute('data-tab') === 'tools') {
+      } else if (tabName === 'tools') {
         loadSystemMetrics();
-      } else if (btn.getAttribute('data-tab') === 'creds') {
+      } else if (tabName === 'creds') {
         loadCredsData();
-      } else if (btn.getAttribute('data-tab') === 'flac-lab') {
+      } else if (tabName === 'flac-lab') {
         loadRecentFlacFiles();
       }
     });
@@ -139,6 +156,8 @@ function setupNavigation() {
 }
 
 function loadAllAdminData() {
+  loadServiceStatus();
+  loadEngineConfig();
   loadSystemMetrics();
   loadCredsData();
   loadRecentFlacFiles();
@@ -847,6 +866,543 @@ async function runFlacAnalysis() {
     if (runBtn) {
       runBtn.disabled = false;
       runBtn.innerHTML = 'Analyze Spectrum';
+    }
+  }
+}
+
+// ==========================================================================
+// 6. SERVICE & LIVE LOGS CONTROLLER
+// ==========================================================================
+let logsAutoRefreshTimer = null;
+let rawLogsBuffer = '';
+let currentLogFilter = 'all';
+
+function setupServiceAndLogs() {
+  const restartBtn = document.getElementById('btnRestartService');
+  if (restartBtn) {
+    restartBtn.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to restart the JAV Downloader system service? Active downloads may be interrupted.')) {
+        return;
+      }
+      restartBtn.disabled = true;
+      restartBtn.innerHTML = '<span>Restarting...</span>';
+      try {
+        const res = await fetch('/api/admin/service/restart', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        showToast(data.message || 'Service restart initiated', 'info');
+        setTimeout(() => {
+          loadServiceStatus();
+          loadServiceLogs();
+        }, 2000);
+      } catch (e) {
+        showToast('Restart failed: ' + e.message, 'error');
+      } finally {
+        setTimeout(() => {
+          restartBtn.disabled = false;
+          restartBtn.innerHTML = '<span>Restart Service</span>';
+        }, 3000);
+      }
+    });
+  }
+
+  const refreshLogsBtn = document.getElementById('btnRefreshLogs');
+  if (refreshLogsBtn) {
+    refreshLogsBtn.addEventListener('click', loadServiceLogs);
+  }
+
+  const copyLogsBtn = document.getElementById('btnCopyLogs');
+  if (copyLogsBtn) {
+    copyLogsBtn.addEventListener('click', () => {
+      if (rawLogsBuffer) {
+        navigator.clipboard.writeText(rawLogsBuffer).then(() => {
+          showToast('Journal logs copied to clipboard!');
+        }).catch(() => {
+          showToast('Failed to copy to clipboard', 'error');
+        });
+      }
+    });
+  }
+
+  const clearLogsBtn = document.getElementById('btnClearLogsView');
+  if (clearLogsBtn) {
+    clearLogsBtn.addEventListener('click', () => {
+      const out = document.getElementById('serviceLogsOutput');
+      if (out) out.textContent = '[Console logs cleared from view]';
+    });
+  }
+
+  const searchInput = document.getElementById('logsSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', renderFilteredLogs);
+  }
+
+  document.querySelectorAll('.btn-filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.btn-filter-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      currentLogFilter = pill.getAttribute('data-filter') || 'all';
+      renderFilteredLogs();
+    });
+  });
+
+  const autoRefreshCheckbox = document.getElementById('autoRefreshLogsCheckbox');
+  if (autoRefreshCheckbox) {
+    autoRefreshCheckbox.addEventListener('change', () => {
+      if (autoRefreshCheckbox.checked) {
+        startLogsAutoRefresh();
+      } else {
+        stopLogsAutoRefresh();
+      }
+    });
+  }
+}
+
+function startLogsAutoRefresh() {
+  stopLogsAutoRefresh();
+  logsAutoRefreshTimer = setInterval(() => {
+    const activeTab = document.querySelector('.admin-tabs .tab-btn.active');
+    if (activeTab && activeTab.getAttribute('data-tab') === 'service') {
+      loadServiceLogs(true);
+      loadServiceStatus();
+    }
+  }, 3000);
+}
+
+function stopLogsAutoRefresh() {
+  if (logsAutoRefreshTimer) {
+    clearInterval(logsAutoRefreshTimer);
+    logsAutoRefreshTimer = null;
+  }
+}
+
+async function loadServiceStatus() {
+  try {
+    const res = await fetch('/api/admin/service/status', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const dot = document.getElementById('serviceStatusDot');
+    const sub = document.getElementById('serviceStatusSub');
+    const pidBadge = document.getElementById('servicePidBadge');
+    const uptimeBadge = document.getElementById('serviceUptimeBadge');
+    const nodeBadge = document.getElementById('serviceNodeBadge');
+    const archBadge = document.getElementById('serviceArchBadge');
+    const headerUptime = document.getElementById('headerUptime');
+
+    if (dot) {
+      if (data.active) {
+        dot.className = 'status-indicator-dot';
+      } else {
+        dot.className = 'status-indicator-dot inactive';
+      }
+    }
+
+    if (sub) sub.textContent = data.active ? 'Active (Running) & Healthy' : 'Service Inactive / Reloading';
+    if (pidBadge) pidBadge.textContent = `PID: ${data.pid || '--'}`;
+    
+    const upH = Math.floor((data.uptimeSeconds || 0) / 3600);
+    const upM = Math.floor(((data.uptimeSeconds || 0) % 3600) / 60);
+    if (uptimeBadge) uptimeBadge.textContent = `Uptime: ${upH}h ${upM}m`;
+    if (headerUptime) headerUptime.textContent = `Uptime: ${upH}h ${upM}m`;
+    if (nodeBadge) nodeBadge.textContent = `Node: ${data.nodeVersion || '--'}`;
+    if (archBadge) archBadge.textContent = `${data.platform || 'linux'} (${data.arch || 'x64'})`;
+  } catch (e) {}
+}
+
+async function loadServiceLogs(silent = false) {
+  const out = document.getElementById('serviceLogsOutput');
+  try {
+    const res = await fetch('/api/admin/service/logs?lines=200', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    rawLogsBuffer = data.logs || '';
+    renderFilteredLogs();
+  } catch (e) {
+    if (!silent && out) out.textContent = 'Error loading logs: ' + e.message;
+  }
+}
+
+function renderFilteredLogs() {
+  const out = document.getElementById('serviceLogsOutput');
+  if (!out) return;
+  const keyword = (document.getElementById('logsSearchInput')?.value || '').toLowerCase();
+  
+  if (!rawLogsBuffer) {
+    out.textContent = 'No log entries available.';
+    return;
+  }
+
+  const lines = rawLogsBuffer.split('\n');
+  const filtered = lines.filter(line => {
+    const lower = line.toLowerCase();
+    if (keyword && !lower.includes(keyword)) return false;
+    if (currentLogFilter === 'error') return lower.includes('error') || lower.includes('err') || lower.includes('fail');
+    if (currentLogFilter === 'warn') return lower.includes('warn');
+    if (currentLogFilter === 'download') return lower.includes('download') || lower.includes('job_') || lower.includes('progress');
+    if (currentLogFilter === 'flac') return lower.includes('flac') || lower.includes('audio') || lower.includes('soulseek');
+    return true;
+  });
+
+  out.textContent = filtered.join('\n') || '[No log entries matched your filter]';
+  const consoleWin = document.getElementById('serviceLogsConsole');
+  if (consoleWin && !keyword) {
+    consoleWin.scrollTop = consoleWin.scrollHeight;
+  }
+}
+
+// ==========================================================================
+// 7. ENGINE SETTINGS CONTROLLER
+// ==========================================================================
+function setupEngineSettings() {
+  const saveBtn = document.getElementById('btnSaveEngineConfig');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span>Saving...</span>';
+
+      const maxConcurrentJobs = parseInt(document.getElementById('cfgMaxConcurrent').value, 10) || 4;
+      const aria2cFragments = parseInt(document.getElementById('cfgAriaFragments').value, 10) || 16;
+      const bufferSize = document.getElementById('cfgBufferSize').value || '16M';
+      const httpChunkSize = document.getElementById('cfgChunkSize').value || '10M';
+      const retries = parseInt(document.getElementById('cfgRetries').value, 10) || 10;
+      const aria2cMinSplitSize = document.getElementById('cfgMinSplit').value || '1M';
+
+      const features = {
+        movieHub: document.getElementById('switchMovieHub').checked,
+        adultHub: document.getElementById('switchAdultHub').checked,
+        torrentFallback: document.getElementById('switchTorrentFallback').checked,
+        soulseekP2P: document.getElementById('switchSoulseekP2P').checked,
+        strictLossless: document.getElementById('switchStrictLossless').checked,
+        embedSubs: document.getElementById('switchEmbedSubs').checked,
+        embedChapters: document.getElementById('switchEmbedChapters').checked,
+        sponsorBlock: document.getElementById('switchSponsorBlock').checked
+      };
+
+      try {
+        const res = await fetch('/api/admin/engine-config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({
+            maxConcurrentJobs,
+            aria2cFragments,
+            bufferSize,
+            httpChunkSize,
+            retries,
+            aria2cMinSplitSize,
+            features
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast('Engine configuration saved and active!');
+        } else {
+          showToast(data.error || 'Failed to save configuration', 'error');
+        }
+      } catch (err) {
+        showToast('Error saving configuration: ' + err.message, 'error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<span>💾 Save &amp; Apply Configuration</span>';
+      }
+    });
+  }
+}
+
+async function loadEngineConfig() {
+  try {
+    const res = await fetch('/api/admin/engine-config', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const cfg = data.config || {};
+
+    if (cfg.maxConcurrentJobs) document.getElementById('cfgMaxConcurrent').value = cfg.maxConcurrentJobs;
+    if (cfg.aria2cFragments) document.getElementById('cfgAriaFragments').value = cfg.aria2cFragments;
+    if (cfg.bufferSize) document.getElementById('cfgBufferSize').value = cfg.bufferSize;
+    if (cfg.httpChunkSize) document.getElementById('cfgChunkSize').value = cfg.httpChunkSize;
+    if (cfg.retries) document.getElementById('cfgRetries').value = cfg.retries;
+    if (cfg.aria2cMinSplitSize) document.getElementById('cfgMinSplit').value = cfg.aria2cMinSplitSize;
+
+    const feat = cfg.features || {};
+    if (feat.movieHub !== undefined) document.getElementById('switchMovieHub').checked = !!feat.movieHub;
+    if (feat.adultHub !== undefined) document.getElementById('switchAdultHub').checked = !!feat.adultHub;
+    if (feat.torrentFallback !== undefined) document.getElementById('switchTorrentFallback').checked = !!feat.torrentFallback;
+    if (feat.soulseekP2P !== undefined) document.getElementById('switchSoulseekP2P').checked = !!feat.soulseekP2P;
+    if (feat.strictLossless !== undefined) document.getElementById('switchStrictLossless').checked = !!feat.strictLossless;
+    if (feat.embedSubs !== undefined) document.getElementById('switchEmbedSubs').checked = !!feat.embedSubs;
+    if (feat.embedChapters !== undefined) document.getElementById('switchEmbedChapters').checked = !!feat.embedChapters;
+    if (feat.sponsorBlock !== undefined) document.getElementById('switchSponsorBlock').checked = !!feat.sponsorBlock;
+  } catch (e) {}
+}
+
+// ==========================================================================
+// 8. STORAGE EXPLORER & FILE MANAGER CONTROLLER
+// ==========================================================================
+let allStorageFiles = [];
+
+function setupStorageExplorer() {
+  const refreshBtn = document.getElementById('btnRefreshStorage');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadStorageFiles);
+
+  const purgeIncompleteBtn = document.getElementById('btnStoragePurgeIncomplete');
+  if (purgeIncompleteBtn) {
+    purgeIncompleteBtn.addEventListener('click', async () => {
+      if (!confirm('Purge all temporary fragment files (.part, .ytdl, .aria2)?')) return;
+      try {
+        const res = await fetch('/api/admin/storage/purge-incomplete', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const data = await res.json();
+        showToast(`Purged ${data.deletedCount} fragments, freed ${data.freedMB} MB!`);
+        loadStorageFiles();
+      } catch (e) {
+        showToast('Purge failed: ' + e.message, 'error');
+      }
+    });
+  }
+
+  const searchInput = document.getElementById('storageSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', renderStorageTable);
+  }
+}
+
+async function loadStorageFiles() {
+  const tbody = document.getElementById('storageFilesTbody');
+  try {
+    const res = await fetch('/api/admin/storage/files', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    allStorageFiles = data.files || [];
+
+    // Update disk bar
+    const disk = data.disk || {};
+    const numbers = document.getElementById('diskUsageNumbers');
+    const barFill = document.getElementById('diskBarFill');
+    if (numbers) numbers.textContent = `Used: ${disk.used || '--'} / Total: ${disk.total || '--'} (${disk.percentUsed || 0}% used)`;
+    if (barFill) {
+      barFill.style.width = `${Math.min(100, Math.max(0, disk.percentUsed || 0))}%`;
+      if (disk.percentUsed > 85) barFill.style.background = '#f43f5e';
+    }
+
+    renderStorageTable();
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load files: ${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+function renderStorageTable() {
+  const tbody = document.getElementById('storageFilesTbody');
+  const countEl = document.getElementById('storageFileCount');
+  if (!tbody) return;
+
+  const q = (document.getElementById('storageSearchInput')?.value || '').toLowerCase();
+  const filtered = allStorageFiles.filter(f => !q || f.name.toLowerCase().includes(q) || (f.ext && f.ext.includes(q)));
+
+  if (countEl) countEl.textContent = `Showing ${filtered.length} of ${allStorageFiles.length} files`;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center">No matching files found on storage.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(f => {
+    const isFlac = f.ext === '.flac';
+    const isVideo = f.isVideo;
+    let badgeType = f.isFragment ? '<span class="badge-tag" style="background:#f59e0b20;color:#f59e0b">Fragment</span>' : '<span class="badge-tag">Completed</span>';
+
+    return `
+      <tr>
+        <td class="file-name-cell" title="${escapeHtml(f.name)}">
+          ${isFlac ? '🎵' : (isVideo ? '🎬' : '📄')} ${escapeHtml(f.name)}
+        </td>
+        <td><span class="badge-tag">${escapeHtml(f.category)}</span></td>
+        <td><strong>${escapeHtml(f.sizeFormatted)}</strong></td>
+        <td style="font-size: 0.78rem; color: var(--admin-text-muted);">${escapeHtml(f.mtimeFormatted)}</td>
+        <td>
+          <div class="table-actions-cell">
+            ${f.downloadUrl ? `
+              <a href="${f.downloadUrl}&admin_token=${encodeURIComponent(adminToken)}" class="btn btn-primary btn-xs" download title="Download to local device">⬇ Save</a>
+            ` : ''}
+            ${isFlac ? `
+              <button type="button" class="btn btn-outline btn-xs" onclick="sendToFlacLab('${escapeHtml(f.fullPath)}')" title="Inspect spectrum in FLAC Analyzer">🔬 Analyze</button>
+            ` : ''}
+            <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteStorageFile('${escapeHtml(f.fullPath)}')" title="Delete file">🗑 Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.deleteStorageFile = async function(filePath) {
+  if (!confirm(`Permanently delete file: ${filePath}?`)) return;
+  try {
+    const res = await fetch('/api/admin/storage/delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ filePath })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message || 'File deleted');
+      loadStorageFiles();
+    } else {
+      showToast(data.error || 'Failed to delete file', 'error');
+    }
+  } catch (e) {
+    showToast('Delete error: ' + e.message, 'error');
+  }
+};
+
+window.sendToFlacLab = function(filePath) {
+  const tabBtn = document.querySelector('.admin-tabs button[data-tab="flac-lab"]');
+  if (tabBtn) tabBtn.click();
+  const input = document.getElementById('flacFilePath');
+  if (input) {
+    input.value = filePath;
+    const runBtn = document.getElementById('runFlacTestBtn');
+    if (runBtn) runBtn.click();
+  }
+};
+
+// ==========================================================================
+// 9. NETWORK HEALTH BENCH CONTROLLER
+// ==========================================================================
+function setupNetworkHealth() {
+  const btn = document.getElementById('btnTestNetworkHealth');
+  if (btn) btn.addEventListener('click', loadNetworkHealth);
+}
+
+async function loadNetworkHealth() {
+  const grid = document.getElementById('networkHealthGrid');
+  const btn = document.getElementById('btnTestNetworkHealth');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = 'Probing APIs...';
+  }
+  if (grid) grid.innerHTML = '<div class="empty-state">Running live latency probes to all 7 upstream services...</div>';
+
+  try {
+    const res = await fetch('/api/admin/health-bench', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const results = data.results || [];
+
+    if (grid) {
+      grid.innerHTML = results.map(r => `
+        <div class="health-card">
+          <div class="health-card-top">
+            <span class="health-name">${escapeHtml(r.name)}</span>
+            <span class="latency-badge ${r.tier}">${r.ok ? `${r.latencyMs} ms` : 'FAILED'}</span>
+          </div>
+          <span class="health-url">${escapeHtml(r.url)}</span>
+          <div class="health-status-text">
+            <span>Status: <strong>${r.status || 'ERR'} (${escapeHtml(r.statusText)})</strong></span>
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch (e) {
+    if (grid) grid.innerHTML = `<div class="empty-state text-danger">Health probe failed: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '⚡ Test All Services Now';
+    }
+  }
+}
+
+// ==========================================================================
+// 10. TERMINAL CONSOLE & MAINTAINER SHELL CONTROLLER
+// ==========================================================================
+function setupTerminalConsole() {
+  const form = document.getElementById('terminalShellForm');
+  const input = document.getElementById('terminalShellInput');
+  const clearBtn = document.getElementById('btnClearTerminalBtn');
+
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const cmd = (input?.value || '').trim();
+      if (cmd) {
+        runTerminalCommand(cmd);
+        if (input) input.value = '';
+      }
+    });
+  }
+
+  document.querySelectorAll('.btn-preset-cmd').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cmd = btn.getAttribute('data-cmd');
+      if (cmd) runTerminalCommand(cmd);
+    });
+  });
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      const out = document.getElementById('terminalShellOutput');
+      if (out) out.textContent = 'Ready. Select a 1-click preset above or enter a custom command below.';
+    });
+  }
+}
+
+function focusTerminalInput() {
+  setTimeout(() => {
+    const input = document.getElementById('terminalShellInput');
+    if (input) input.focus();
+  }, 100);
+}
+
+async function runTerminalCommand(command) {
+  const out = document.getElementById('terminalShellOutput');
+  const btn = document.getElementById('btnRunShellCmd');
+  if (out) out.textContent = `$ ${command}\nExecuting command on server...`;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = 'Running...';
+  }
+
+  try {
+    const res = await fetch('/api/admin/terminal/exec', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ command })
+    });
+
+    const data = await res.json();
+    if (out) {
+      out.textContent = `$ ${command}\n[Exit Code: ${data.exitCode}]\n\n${data.output || '(No output)'}`;
+      out.scrollTop = out.scrollHeight;
+    }
+  } catch (err) {
+    if (out) out.textContent = `$ ${command}\nExecution error: ${err.message}`;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Execute';
     }
   }
 }
