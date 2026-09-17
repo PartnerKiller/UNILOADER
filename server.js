@@ -228,7 +228,42 @@ function findMediaFileByJobId(jobId) {
     return { filePath: job.filePath, filename: job.filename || path.basename(job.filePath), job };
   }
 
-  // 2. Scan TEMP_DIR
+  // 2. Check dedicated job folder in TEMP_DIR (e.g. for torrents or isolated downloads)
+  try {
+    const jobDir = path.join(TEMP_DIR, jobId);
+    if (fs.existsSync(jobDir) && fs.statSync(jobDir).isDirectory()) {
+      function scanDirForLargestMedia(dir) {
+        let largest = null;
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.name.startsWith('.') || entry.name.endsWith('.aria2') || entry.name.endsWith('.txt') || entry.name.endsWith('.nfo')) continue;
+          const full = path.join(dir, entry.name);
+          try {
+            if (entry.isDirectory()) {
+              const nested = scanDirForLargestMedia(full);
+              if (nested && (!largest || nested.size > largest.size)) largest = nested;
+            } else if (entry.isFile()) {
+              const ext = path.extname(entry.name).toLowerCase();
+              const isMedia = ['.mp4', '.mkv', '.avi', '.ts', '.wmv', '.flv', '.mov', '.webm', '.m4v', '.mp3', '.flac', '.m4a', '.wav'].includes(ext);
+              const st = fs.statSync(full);
+              if (isMedia || !largest) {
+                if (!largest || st.size > largest.size) {
+                  largest = { path: full, name: entry.name, size: st.size };
+                }
+              }
+            }
+          } catch (e) {}
+        }
+        return largest;
+      }
+      const found = scanDirForLargestMedia(jobDir);
+      if (found) {
+        return { filePath: found.path, filename: (job && job.filename) || found.name, job };
+      }
+    }
+  } catch (e) {}
+
+  // 3. Scan TEMP_DIR for prefixed files
   try {
     const files = fs.readdirSync(TEMP_DIR).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl'));
 
@@ -238,28 +273,10 @@ function findMediaFileByJobId(jobId) {
       return { filePath: fullPath, filename: matched.replace(`${jobId}_`, ''), job };
     }
 
-    matched = files.find(f => f.includes(jobId));
+    matched = files.find(f => f === jobId || f.startsWith(`${jobId}.`));
     if (matched) {
       const fullPath = path.join(TEMP_DIR, matched);
       return { filePath: fullPath, filename: matched, job };
-    }
-
-    for (const j of jobs.values()) {
-      if (j.filePath && fs.existsSync(j.filePath)) {
-        if (j.id === jobId || (j.title && jobId.toLowerCase().includes(j.title.toLowerCase().substring(0, 10)))) {
-          return { filePath: j.filePath, filename: j.filename || path.basename(j.filePath), job: j };
-        }
-      }
-    }
-
-    const mediaFiles = files
-      .filter(f => ['.mp4', '.mkv', '.webm', '.mp3', '.flac', '.m4a', '.opus', '.wav'].includes(path.extname(f).toLowerCase()))
-      .map(f => ({ name: f, time: fs.statSync(path.join(TEMP_DIR, f)).mtimeMs }))
-      .sort((a, b) => b.time - a.time);
-
-    if (mediaFiles.length > 0) {
-      const best = path.join(TEMP_DIR, mediaFiles[0].name);
-      return { filePath: best, filename: mediaFiles[0].name, job };
     }
   } catch (e) {}
 
@@ -1712,7 +1729,10 @@ function startTorrentJob(job) {
   }
 
   const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
-  const outDir = TEMP_DIR;
+  const outDir = path.join(TEMP_DIR, job.id);
+  if (!fs.existsSync(outDir)) {
+    fs.mkdirSync(outDir, { recursive: true });
+  }
   const args = [
     '--dir=' + outDir,
     '--seed-time=0',
@@ -1767,9 +1787,10 @@ function startTorrentJob(job) {
       job.pid = null;
       if (code === 0) {
         try {
-          // Recursively find the largest media file in outDir (handles multi-file subdirectories)
+          // Recursively find the largest media file strictly in outDir (handles multi-file subdirectories)
           function findLargestMediaFile(dir) {
             let largest = null;
+            if (!fs.existsSync(dir)) return null;
             const entries = fs.readdirSync(dir, { withFileTypes: true });
             for (const entry of entries) {
               if (entry.name.startsWith('.') || entry.name.endsWith('.aria2')) continue;
@@ -1782,7 +1803,7 @@ function startTorrentJob(job) {
                   }
                 } else if (entry.isFile()) {
                   const ext = path.extname(entry.name).toLowerCase();
-                  if (['.mp4', '.mkv', '.avi', '.ts', '.wmv', '.flv', '.mov', '.webm', '.m4v'].includes(ext)) {
+                  if (['.mp4', '.mkv', '.avi', '.ts', '.wmv', '.flv', '.mov', '.webm', '.m4v', '.mp3', '.flac', '.m4a', '.wav'].includes(ext)) {
                     const st = fs.statSync(full);
                     if (!largest || st.size > largest.size) {
                       largest = { path: full, name: entry.name, size: st.size, mtimeMs: st.mtimeMs };
@@ -1794,10 +1815,36 @@ function startTorrentJob(job) {
             return largest;
           }
 
-          const largestFile = findLargestMediaFile(outDir);
+          function findAnyLargestFile(dir) {
+            let largest = null;
+            if (!fs.existsSync(dir)) return null;
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.name.startsWith('.') || entry.name.endsWith('.aria2') || entry.name.endsWith('.txt') || entry.name.endsWith('.nfo')) continue;
+              const full = path.join(dir, entry.name);
+              try {
+                if (entry.isDirectory()) {
+                  const nested = findAnyLargestFile(full);
+                  if (nested && (!largest || nested.size > largest.size)) largest = nested;
+                } else if (entry.isFile()) {
+                  const st = fs.statSync(full);
+                  if (!largest || st.size > largest.size) {
+                    largest = { path: full, name: entry.name, size: st.size, mtimeMs: st.mtimeMs };
+                  }
+                }
+              } catch (e) {}
+            }
+            return largest;
+          }
+
+          let largestFile = findLargestMediaFile(outDir);
+          if (!largestFile) {
+            largestFile = findAnyLargestFile(outDir);
+          }
+
           if (largestFile && largestFile.size > 0) {
             job.filePath = largestFile.path;
-            job.filename = largestFile.name;
+            job.filename = (job.opts && job.opts.customFilename) || largestFile.name;
             job.filesize = largestFile.size > (1024 ** 3)
               ? (largestFile.size / (1024 ** 3)).toFixed(2) + ' GB'
               : (largestFile.size / (1024 ** 2)).toFixed(1) + ' MB';
@@ -1810,7 +1857,7 @@ function startTorrentJob(job) {
         job.progress.speed = '0 MB/s';
         job.progress.eta = 'Ready';
         job.completedTime = Date.now();
-        job.logs.push('BitTorrent full movie download completed successfully.');
+        job.logs.push('BitTorrent download completed successfully.');
         saveJobsHistory();
       } else {
         if (job.status !== 'cancelled' && job.status !== 'paused') {
@@ -2807,10 +2854,26 @@ app.delete('/api/jobs/:id', (req, res) => {
     }
   }
 
+  // 1. Remove isolated job directory if exists
+  try {
+    const jobDir = path.join(TEMP_DIR, jobId);
+    if (fs.existsSync(jobDir)) {
+      fs.rmSync(jobDir, { recursive: true, force: true });
+    }
+  } catch (e) {}
+
+  // 2. Remove specific job.filePath if exists
+  try {
+    if (job && job.filePath && fs.existsSync(job.filePath)) {
+      fs.rmSync(job.filePath, { recursive: true, force: true });
+    }
+  } catch (e) {}
+
+  // 3. Remove any prefixed files in TEMP_DIR
   try {
     const files = fs.readdirSync(TEMP_DIR);
     for (const f of files) {
-      if (f.startsWith(`${jobId}_`)) {
+      if (f.startsWith(`${jobId}_`) || f.startsWith(`${jobId}.`) || f === jobId) {
         const fullPath = path.join(TEMP_DIR, f);
         if (fs.lstatSync(fullPath).isDirectory()) {
           fs.rmSync(fullPath, { recursive: true, force: true });
@@ -2832,9 +2895,16 @@ app.delete('/api/jobs', (req, res) => {
   for (const [id, job] of jobs.entries()) {
     if (job.status !== 'downloading' && job.status !== 'queued' && job.status !== 'paused') {
       try {
+        const jobDir = path.join(TEMP_DIR, id);
+        if (fs.existsSync(jobDir)) {
+          fs.rmSync(jobDir, { recursive: true, force: true });
+        }
+        if (job.filePath && fs.existsSync(job.filePath)) {
+          fs.rmSync(job.filePath, { recursive: true, force: true });
+        }
         const files = fs.readdirSync(TEMP_DIR);
         for (const f of files) {
-          if (f.startsWith(`${id}_`)) {
+          if (f.startsWith(`${id}_`) || f.startsWith(`${id}.`) || f === id) {
             const fullPath = path.join(TEMP_DIR, f);
             if (fs.lstatSync(fullPath).isDirectory()) {
               fs.rmSync(fullPath, { recursive: true, force: true });
