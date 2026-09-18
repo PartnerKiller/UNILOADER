@@ -315,9 +315,53 @@ function setupEventListeners() {
       switchView(view);
     });
   });
+
+  // Mobile Navigation Drawer Listeners
+  initMobileDrawer();
+}
+
+function openMobileDrawer() {
+  const backdrop = document.getElementById('mobileDrawerBackdrop');
+  if (backdrop) {
+    backdrop.style.display = 'block';
+    setTimeout(() => backdrop.classList.add('open'), 10);
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeMobileDrawer() {
+  const backdrop = document.getElementById('mobileDrawerBackdrop');
+  if (backdrop && (backdrop.classList.contains('open') || backdrop.style.display !== 'none')) {
+    backdrop.classList.remove('open');
+    document.body.style.overflow = '';
+    setTimeout(() => {
+      if (!backdrop.classList.contains('open')) {
+        backdrop.style.display = 'none';
+      }
+    }, 250);
+  }
+}
+
+function initMobileDrawer() {
+  const openBtn = document.getElementById('mobileMenuBtn');
+  const moreBtn = document.getElementById('bottomNavMoreBtn');
+  const closeBtn = document.getElementById('closeMobileDrawerBtn');
+  const backdrop = document.getElementById('mobileDrawerBackdrop');
+
+  if (openBtn) openBtn.addEventListener('click', openMobileDrawer);
+  if (moreBtn) moreBtn.addEventListener('click', openMobileDrawer);
+  if (closeBtn) closeBtn.addEventListener('click', closeMobileDrawer);
+  if (backdrop) {
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) closeMobileDrawer();
+    });
+  }
 }
 
 function switchView(viewName) {
+  // Close mobile drawer if open
+  closeMobileDrawer();
+
   // Close any lingering overlay modals on view switch
   const movieReleasesModal = document.getElementById('movieReleasesModal');
   if (movieReleasesModal) movieReleasesModal.style.display = 'none';
@@ -1238,9 +1282,10 @@ if ('serviceWorker' in navigator) {
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  if (btnInstallApp) {
-    btnInstallApp.style.display = 'flex';
-    btnInstallApp.addEventListener('click', async () => {
+  const installButtons = document.querySelectorAll('.btn-install-app');
+  installButtons.forEach(btn => {
+    btn.style.display = 'flex';
+    btn.onclick = async () => {
       if (deferredInstallPrompt) {
         deferredInstallPrompt.prompt();
         const choiceResult = await deferredInstallPrompt.userChoice;
@@ -1248,10 +1293,10 @@ window.addEventListener('beforeinstallprompt', (e) => {
           showToast('Universal Downloader installed successfully!', 'success');
         }
         deferredInstallPrompt = null;
-        btnInstallApp.style.display = 'none';
+        installButtons.forEach(b => b.style.display = 'none');
       }
-    });
-  }
+    };
+  });
 });
 
 // Handle incoming Web Share Target parameters (?url=... or ?text=...)
@@ -2151,11 +2196,15 @@ function isAdultHubUnlocked() {
 function updateAdultHubVisibility(visible) {
   const sidebarBtn = document.getElementById('navAdultSearch');
   const bottomBtn = document.getElementById('bottomNavAdultSearch');
+  const drawerBtn = document.getElementById('drawerNavAdultSearch');
   if (sidebarBtn) {
     sidebarBtn.style.display = visible ? 'flex' : 'none';
   }
   if (bottomBtn) {
     bottomBtn.style.display = visible ? 'flex' : 'none';
+  }
+  if (drawerBtn) {
+    drawerBtn.style.display = visible ? 'flex' : 'none';
   }
 }
 
@@ -2169,7 +2218,7 @@ function setupVersionTapEasterEgg() {
   isAdultHubActive = false;
   updateAdultHubVisibility(false);
 
-  const versionTags = document.querySelectorAll('.version-tag');
+  const versionTags = document.querySelectorAll('.version-tag, #mobileBrandTitle');
   versionTags.forEach(tag => {
     tag.style.cursor = 'pointer';
     tag.style.userSelect = 'none';
