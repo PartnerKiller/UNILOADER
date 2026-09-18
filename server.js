@@ -1452,6 +1452,11 @@ app.post('/api/admin/creds', requireAdmin, (req, res) => {
     }
     if (adminPass) {
       process.env.ADMIN_PASS = adminPass.trim();
+      const currentToken = req.headers['authorization']?.replace('Bearer ', '').trim() || req.headers['x-admin-token'];
+      for (const t of adminSessions.keys()) {
+        if (t !== currentToken) adminSessions.delete(t);
+      }
+      saveAdminSessions();
     }
     ensureOwnerAccount();
 
