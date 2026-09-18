@@ -41,6 +41,19 @@ document.addEventListener('DOMContentLoaded', () => {
 function showLogin() {
   loginModal.style.display = 'flex';
   adminApp.style.display = 'none';
+  const rememberedAdmin = localStorage.getItem('sakura_admin_remembered_user');
+  const userInp = document.getElementById('adminUser');
+  const passInp = document.getElementById('adminPass');
+  const rememberCheckbox = document.getElementById('adminRememberMe');
+  if (rememberCheckbox) {
+    rememberCheckbox.checked = localStorage.getItem('sakura_admin_remember_me') !== 'false';
+  }
+  if (userInp && rememberedAdmin) {
+    userInp.value = rememberedAdmin;
+    if (passInp) setTimeout(() => passInp.focus(), 60);
+  } else if (userInp) {
+    setTimeout(() => userInp.focus(), 60);
+  }
 }
 
 function showApp() {
@@ -75,19 +88,29 @@ loginForm.addEventListener('submit', async (e) => {
 
   const username = document.getElementById('adminUser').value.trim();
   const password = document.getElementById('adminPass').value;
+  const rememberCheckbox = document.getElementById('adminRememberMe');
+  const rememberMe = rememberCheckbox ? rememberCheckbox.checked : true;
 
   try {
     const res = await fetch('/api/admin/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, rememberMe })
     });
 
     const data = await res.json();
     if (res.ok && data.success) {
       adminToken = data.token;
       sessionStorage.setItem('sakura_admin_token', adminToken);
-      localStorage.setItem('sakura_admin_token', adminToken);
+      if (rememberMe) {
+        localStorage.setItem('sakura_admin_token', adminToken);
+        localStorage.setItem('sakura_admin_remembered_user', username);
+        localStorage.setItem('sakura_admin_remember_me', 'true');
+      } else {
+        localStorage.removeItem('sakura_admin_token');
+        localStorage.removeItem('sakura_admin_remembered_user');
+        localStorage.setItem('sakura_admin_remember_me', 'false');
+      }
       showApp();
     } else {
       loginError.textContent = data.error || 'Authentication failed';
@@ -154,6 +177,7 @@ function setupNavigation() {
       } else if (tabName === 'users') {
         loadAdminUsers();
         loadAccessRequests();
+        loadRolePermissions();
       }
     });
   });
@@ -167,6 +191,7 @@ function loadAllAdminData() {
   loadRecentFlacFiles();
   loadAdminUsers();
   loadAccessRequests();
+  loadRolePermissions();
   updateSandboxIframe();
 }
 
@@ -1659,10 +1684,21 @@ function setupUsersTab() {
     btnRefresh.addEventListener('click', () => {
       loadAdminUsers();
       loadAccessRequests();
+      loadRolePermissions();
     });
   }
 
   initFolderAllocationModal();
+
+  const btnSavePerms = document.getElementById('btnSavePermissions');
+  if (btnSavePerms) {
+    btnSavePerms.addEventListener('click', saveRolePermissions);
+  }
+
+  const btnResetPerms = document.getElementById('btnResetPermissions');
+  if (btnResetPerms) {
+    btnResetPerms.addEventListener('click', resetRolePermissions);
+  }
 
   const modal = document.getElementById('createUserModal');
   const btnOpen = document.getElementById('btnOpenCreateUserModal');
@@ -2493,3 +2529,173 @@ window.removeAllocatedFolder = function(folderPath) {
     if (cb.dataset.path === folderPath) cb.checked = false;
   });
 };
+
+// Dynamic Role Permissions & Feature Access Matrix Logic
+// ==========================================================================
+let currentPermissionsMatrix = null;
+let currentFeaturesList = [];
+
+async function loadRolePermissions() {
+  const tbody = document.getElementById('rolePermissionsTableBody');
+  try {
+    const res = await fetch('/api/admin/role-permissions', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.success) {
+      currentPermissionsMatrix = data.permissions;
+      currentFeaturesList = data.features || [];
+      renderRolePermissionsTable(currentFeaturesList, currentPermissionsMatrix);
+    }
+  } catch (err) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #f87171; padding: 20px;">Failed to load permissions matrix: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+}
+
+function renderRolePermissionsTable(features, permissions) {
+  const tbody = document.getElementById('rolePermissionsTableBody');
+  if (!tbody) return;
+
+  if (!features || features.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">No features defined.</td></tr>`;
+    return;
+  }
+
+  const roles = [
+    { key: 'guest', label: 'Guest Visitor' },
+    { key: 'user', label: 'Standard Member' },
+    { key: 'premium', label: 'Premium Member' }
+  ];
+
+  tbody.innerHTML = features.map(feat => {
+    const roleCheckboxes = roles.map(r => {
+      const isChecked = permissions[r.key] && permissions[r.key][feat.key] === true;
+      return `
+        <td style="padding: 10px 14px; text-align: center;">
+          <label style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 4px;">
+            <input type="checkbox" 
+                   data-role="${r.key}" 
+                   data-feature="${feat.key}" 
+                   class="role-perm-checkbox"
+                   ${isChecked ? 'checked' : ''}
+                   style="width: 17px; height: 17px; accent-color: #3b82f6; cursor: pointer;">
+          </label>
+        </td>
+      `;
+    }).join('');
+
+    const ownerCell = `
+      <td style="padding: 10px 14px; text-align: center;">
+        <span title="Owner/Admin has full permanent access to all platform features" style="display: inline-flex; align-items: center; gap: 4px; color: #fbbf24; font-size: 0.8rem; font-weight: 600; background: rgba(245, 158, 11, 0.12); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.25);">
+          ✓ 🔒
+        </span>
+      </td>
+    `;
+
+    return `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+        <td style="padding: 12px 14px;">
+          <div style="font-weight: 600; color: #f1f5f9; font-size: 0.88rem;">${escapeHtml(feat.label)}</div>
+          <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(feat.description)}</div>
+          <code style="font-size: 0.68rem; color: #64748b; background: rgba(0,0,0,0.25); padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 3px;">${escapeHtml(feat.key)}</code>
+        </td>
+        ${roleCheckboxes}
+        ${ownerCell}
+      </tr>
+    `;
+  }).join('');
+}
+
+async function saveRolePermissions() {
+  const btn = document.getElementById('btnSavePermissions');
+  const alertEl = document.getElementById('rolePermissionsAlert');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+  }
+
+  const updated = {
+    guest: {},
+    user: {},
+    premium: {}
+  };
+
+  document.querySelectorAll('.role-perm-checkbox').forEach(cb => {
+    const role = cb.getAttribute('data-role');
+    const feat = cb.getAttribute('data-feature');
+    if (role && feat && updated[role]) {
+      updated[role][feat] = cb.checked;
+    }
+  });
+
+  try {
+    const res = await fetch('/api/admin/role-permissions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ permissions: updated })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      currentPermissionsMatrix = data.permissions;
+      showToast('Role permissions saved successfully', 'success');
+      if (alertEl) {
+        alertEl.style.display = 'block';
+        alertEl.style.background = 'rgba(16, 185, 129, 0.15)';
+        alertEl.style.color = '#34d399';
+        alertEl.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+        alertEl.textContent = '✓ Role permissions saved to disk and active across all endpoints.';
+        setTimeout(() => { alertEl.style.display = 'none'; }, 4000);
+      }
+    } else {
+      showToast(data.error || 'Failed to save permissions', 'error');
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '💾 Save Permissions';
+    }
+  }
+}
+
+async function resetRolePermissions() {
+  if (!confirm('Reset all role permissions to factory defaults?')) return;
+  const btn = document.getElementById('btnResetPermissions');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+  }
+
+  try {
+    const res = await fetch('/api/admin/role-permissions/reset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      currentPermissionsMatrix = data.permissions;
+      renderRolePermissionsTable(currentFeaturesList, currentPermissionsMatrix);
+      showToast('Role permissions reset to factory defaults', 'info');
+    } else {
+      showToast(data.error || 'Failed to reset permissions', 'error');
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '↺ Reset Defaults';
+    }
+  }
+}

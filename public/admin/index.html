@@ -931,6 +931,44 @@
           </div>
         </div>
 
+        <!-- ROLE PERMISSIONS & FEATURE ACCESS MATRIX CARD -->
+        <div class="admin-card" style="background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                <span>🛡️ Role-Based Feature Access Control Matrix</span>
+                <span class="badge-tag" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;">Dynamic Enforcement</span>
+              </h3>
+              <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: var(--text-muted);">
+                Assign and toggle platform features and tool access per membership role. Changes are persisted on disk and dynamically update client access.
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-outline btn-sm" id="btnResetPermissions" title="Reset all roles to factory defaults">↺ Reset Defaults</button>
+              <button class="btn btn-primary btn-sm" id="btnSavePermissions">💾 Save Permissions</button>
+            </div>
+          </div>
+          <div id="rolePermissionsAlert" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 14px;"></div>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;" id="rolePermissionsTable">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--admin-border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
+                  <th style="padding: 10px 14px; width: 38%;">Feature / Capability</th>
+                  <th style="padding: 10px 14px; text-align: center; width: 15%;">Guest Visitor</th>
+                  <th style="padding: 10px 14px; text-align: center; width: 15%;">Standard Member</th>
+                  <th style="padding: 10px 14px; text-align: center; width: 15%;">Premium Member</th>
+                  <th style="padding: 10px 14px; text-align: center; width: 17%;">Owner / Admin</th>
+                </tr>
+              </thead>
+              <tbody id="rolePermissionsTableBody">
+                <tr>
+                  <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading access control matrix...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- REGISTERED USERS CARD -->
         <div class="admin-card" style="background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: 12px; padding: 20px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">

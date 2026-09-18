@@ -13,6 +13,7 @@ config.json
 .users.json
 .user_sessions.json
 .access_requests.json
+.role_permissions.json
 *.key
 *.pem
 *.p12

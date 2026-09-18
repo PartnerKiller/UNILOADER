@@ -201,8 +201,24 @@ const modalDownloadDeviceBtn = document.getElementById('modalDownloadDeviceBtn')
 // ==========================================================================
 // User Authentication, Premium Features & Guest State Manager
 // ==========================================================================
-let currentUser = null; // { id, username, role, isPremium }
+let currentUser = null; // { id, username, role, isPremium, features }
 let userAuthToken = localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || '';
+
+function canAccess(featureKey) {
+  if (!currentUser) {
+    return featureKey === 'downloader';
+  }
+  if (currentUser.isOwner || currentUser.role === 'owner' || currentUser.role === 'admin' || currentUser.username?.toLowerCase() === 'sakura') {
+    return true;
+  }
+  if (currentUser.features && typeof currentUser.features[featureKey] !== 'undefined') {
+    return !!currentUser.features[featureKey];
+  }
+  if (currentUser.role === 'guest') {
+    return featureKey === 'downloader';
+  }
+  return true;
+}
 
 // Transparent API Authorization Interceptor
 const originalFetch = window.fetch;
@@ -294,11 +310,7 @@ function updateAuthUI(user, limits) {
     }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account';
 
-    // Reveal all member-accessible features across navigation (Movies, Music, FLAC, Adult Hub)
     document.body.classList.add('authenticated-user');
-    document.querySelectorAll('.user-only-nav').forEach(el => {
-      el.style.display = 'flex';
-    });
     document.querySelectorAll('.guest-only-nav').forEach(el => {
       el.style.display = 'none';
     });
@@ -317,20 +329,11 @@ function updateAuthUI(user, limits) {
       applyMemberRoleBadge.className = badgeClass;
     }
   } else {
-    // Guest User: Hide user-accessible features completely from navigation
+    // Guest User
     document.body.classList.remove('authenticated-user');
-    document.querySelectorAll('.user-only-nav').forEach(el => {
-      el.style.display = 'none';
-    });
     document.querySelectorAll('.guest-only-nav').forEach(el => {
       el.style.display = 'flex';
     });
-
-    // If guest is currently viewing any restricted member panel, redirect to downloader
-    const activeRestricted = document.querySelector('.view-panel.active');
-    if (activeRestricted && ['viewMovies', 'viewMusic', 'viewFlacChecker', 'viewAdultSearch'].includes(activeRestricted.id)) {
-      switchView('downloader');
-    }
 
     if (sidebarUserName) sidebarUserName.textContent = 'Guest Visitor';
     if (sidebarUserRole) {
@@ -360,6 +363,34 @@ function updateAuthUI(user, limits) {
     if (applyGuestBox) applyGuestBox.style.display = 'block';
     if (applyMemberBox) applyMemberBox.style.display = 'none';
   }
+
+  // Dynamic navigation item visibility based on assigned role permissions
+  const navFeatureMap = [
+    { feat: 'movies', selectors: ['#navMovies', '#drawerNavMovies'] },
+    { feat: 'music', selectors: ['#navMusic', '#drawerNavMusic'] },
+    { feat: 'flac_checker', selectors: ['#navFlacChecker', '#drawerNavFlacChecker'] },
+    { feat: 'adult', selectors: ['#navAdultSearch', '#drawerNavAdultSearch', '#bottomNavAdultSearch'] }
+  ];
+
+  navFeatureMap.forEach(item => {
+    const isAllowed = canAccess(item.feat);
+    item.selectors.forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el) el.style.display = isAllowed ? 'flex' : 'none';
+    });
+  });
+
+  // If user is currently viewing any restricted panel they don't have access to, redirect to downloader
+  const activeRestricted = document.querySelector('.view-panel.active');
+  const panelToFeature = {
+    viewMovies: 'movies',
+    viewMusic: 'music',
+    viewFlacChecker: 'flac_checker',
+    viewAdultSearch: 'adult'
+  };
+  if (activeRestricted && panelToFeature[activeRestricted.id] && !canAccess(panelToFeature[activeRestricted.id])) {
+    switchView('downloader');
+  }
 }
 
 async function checkUserSession() {
@@ -368,15 +399,17 @@ async function checkUserSession() {
     if (res.ok) {
       const data = await res.json();
       if (data.authenticated && data.user) {
-        updateAuthUI(data.user, data.limits);
+        const u = Object.assign({}, data.user, { features: data.features || {} });
+        updateAuthUI(u, data.limits);
       } else {
-        updateAuthUI(null, data.limits);
+        const guestUser = { role: 'guest', username: 'Guest', features: data.features || {} };
+        updateAuthUI(guestUser, data.limits);
       }
     } else {
-      updateAuthUI(null, null);
+      updateAuthUI({ role: 'guest', username: 'Guest', features: {} }, null);
     }
   } catch (e) {
-    updateAuthUI(null, null);
+    updateAuthUI({ role: 'guest', username: 'Guest', features: {} }, null);
   }
 }
 
@@ -762,8 +795,8 @@ function setupAuthModalEvents() {
   if (videoQualitySelect) {
     videoQualitySelect.addEventListener('change', (e) => {
       const val = String(e.target.value).toLowerCase();
-      if (['2160', '1440', '1080'].includes(val) && (!currentUser || !currentUser.isPremium)) {
-        showToast('👑 4K & Full HD resolutions require Premium. Sign in or register to unlock full quality.', 'info');
+      if (['2160', '1440', '1080'].includes(val) && !canAccess('quality_4k')) {
+        showToast('👑 4K & Full HD resolutions are restricted for your role. Please sign in or upgrade.', 'info');
       }
     });
   }
@@ -772,8 +805,8 @@ function setupAuthModalEvents() {
   if (audioFormatSelect) {
     audioFormatSelect.addEventListener('change', (e) => {
       const val = String(e.target.value).toLowerCase();
-      if ((val === 'flac' || val === 'wav') && (!currentUser || !currentUser.isPremium)) {
-        showToast('👑 Lossless Studio Master FLAC is a Premium feature. Sign in or register to unlock.', 'info');
+      if ((val === 'flac' || val === 'wav') && !canAccess('audiophile_flac')) {
+        showToast('👑 Lossless Studio Master FLAC is restricted for your role. Please sign in or upgrade.', 'info');
       }
     });
   }
@@ -945,16 +978,15 @@ function switchView(viewName) {
   // Close mobile drawer if open
   closeMobileDrawer();
 
-  // Tool Gating: Registered members can access all tools; guests can only access downloader, supported, and about.
-  const restrictedViews = {
-    movies: 'Movie & TV Hub',
-    music: 'Music Hub',
-    'flac-checker': 'FLAC Spectral Checker',
-    'adult-search': 'Adult & JAV Hub'
+  // Role Permissions Feature Gating
+  const viewToFeature = {
+    movies: 'movies',
+    music: 'music',
+    'flac-checker': 'flac_checker',
+    'adult-search': 'adult'
   };
 
-  const isGuest = !currentUser || currentUser.role === 'guest';
-  if (isGuest && restrictedViews[viewName]) {
+  if (viewToFeature[viewName] && !canAccess(viewToFeature[viewName])) {
     switchView('downloader');
     return;
   }
@@ -2785,22 +2817,22 @@ window.dispatchAdultDownload = async function(idx) {
 // ==========================================================================
 
 function isAdultHubUnlocked() {
-  return Boolean(currentUser && currentUser.role !== 'guest');
+  return canAccess('adult');
 }
 
 function updateAdultHubVisibility(visible) {
-  const isMember = visible !== undefined ? visible : (currentUser && currentUser.role !== 'guest');
+  const isAllowed = visible !== undefined ? visible : canAccess('adult');
   const sidebarBtn = document.getElementById('navAdultSearch');
   const bottomBtn = document.getElementById('bottomNavAdultSearch');
   const drawerBtn = document.getElementById('drawerNavAdultSearch');
   if (sidebarBtn) {
-    sidebarBtn.style.display = isMember ? 'flex' : 'none';
+    sidebarBtn.style.display = isAllowed ? 'flex' : 'none';
   }
   if (bottomBtn) {
-    bottomBtn.style.display = isMember ? 'flex' : 'none';
+    bottomBtn.style.display = isAllowed ? 'flex' : 'none';
   }
   if (drawerBtn) {
-    drawerBtn.style.display = isMember ? 'flex' : 'none';
+    drawerBtn.style.display = isAllowed ? 'flex' : 'none';
   }
 }
 

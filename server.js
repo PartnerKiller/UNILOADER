@@ -713,6 +713,131 @@ const userSessions = new Map(); // token -> { userId, username, role, createdAt 
 const accessRequests = new Map(); // id -> { id, username, contact, note, ip, status, createdAt, updatedAt, assignedPassword }
 const guestDailyUsage = new Map(); // ip/guestId -> { date: 'YYYY-MM-DD', count: N }
 
+// ==========================================================================
+// Dynamic Role Permissions & Feature Access Control Matrix
+// ==========================================================================
+const ROLE_PERMISSIONS_FILE = path.join(__dirname, '.role_permissions.json');
+
+const FEATURE_METADATA = [
+  { key: 'downloader', label: 'Single Downloader', description: 'Core single URL media extraction (YouTube, TikTok, Twitter, Instagram, etc.)' },
+  { key: 'batch', label: 'Batch Downloader', description: 'Bulk & multi-link concurrent task enqueueing' },
+  { key: 'movies', label: 'Movie & TV Hub', description: 'Search, stream resolvers, and Direct DDL downloads for cinema & shows' },
+  { key: 'music', label: 'Music Hub (Lossy)', description: 'Search and direct MP3/M4A/Opus downloads for tracks and albums' },
+  { key: 'audiophile_flac', label: 'Audiophile FLAC (24-bit/Hi-Res)', description: 'Lossless Studio Masters via Tidal Monochrome, SLSKD P2P, and Deezer HiFi' },
+  { key: 'flac_checker', label: 'FLAC Authenticity Checker', description: 'Audio spectral Nyquist cutoff analysis and counterfeit detection' },
+  { key: 'adult', label: 'Adult & JAV Hub', description: 'Censored & Uncensored JAV streams, Rule34Video, and Tube engine' },
+  { key: 'quality_4k', label: '4K & 8K Ultra HD', description: 'Unclamped 2160p and 4320p maximum resolution streaming' },
+  { key: 'unlimited_concurrency', label: 'Unlimited Concurrency', description: 'Download multiple active tasks concurrently without queue throttling' },
+  { key: 'custom_storage', label: 'Dedicated Folder Storage', description: 'User-assigned persistent destination folder routing' }
+];
+
+const DEFAULT_ROLE_PERMISSIONS = {
+  guest: {
+    downloader: true,
+    batch: false,
+    movies: false,
+    music: false,
+    audiophile_flac: false,
+    flac_checker: false,
+    adult: false,
+    quality_4k: false,
+    unlimited_concurrency: false,
+    custom_storage: false
+  },
+  user: {
+    downloader: true,
+    batch: true,
+    movies: true,
+    music: true,
+    audiophile_flac: true,
+    flac_checker: true,
+    adult: true,
+    quality_4k: true,
+    unlimited_concurrency: true,
+    custom_storage: true
+  },
+  premium: {
+    downloader: true,
+    batch: true,
+    movies: true,
+    music: true,
+    audiophile_flac: true,
+    flac_checker: true,
+    adult: true,
+    quality_4k: true,
+    unlimited_concurrency: true,
+    custom_storage: true
+  }
+};
+
+let rolePermissions = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
+
+function loadRolePermissions() {
+  try {
+    if (fs.existsSync(ROLE_PERMISSIONS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(ROLE_PERMISSIONS_FILE, 'utf8'));
+      if (data && typeof data === 'object') {
+        for (const role of ['guest', 'user', 'premium']) {
+          if (data[role] && typeof data[role] === 'object') {
+            rolePermissions[role] = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role], data[role]);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[RolePermissions] Failed to load role permissions:', err.message);
+  }
+}
+
+function saveRolePermissions() {
+  try {
+    fs.writeFileSync(ROLE_PERMISSIONS_FILE, JSON.stringify(rolePermissions, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[RolePermissions] Failed to save role permissions:', err.message);
+  }
+}
+
+function isFeatureAllowed(userOrRole, featureKey) {
+  if (!userOrRole) return false;
+  let role = 'guest';
+  let isOwner = false;
+  if (typeof userOrRole === 'string') {
+    role = userOrRole.toLowerCase();
+    if (role === 'owner' || role === 'admin' || role === 'sakura') isOwner = true;
+  } else if (typeof userOrRole === 'object') {
+    role = (userOrRole.role || 'guest').toLowerCase();
+    if (userOrRole.isOwner || userOrRole.username?.toLowerCase() === 'sakura' || role === 'owner' || role === 'admin') {
+      isOwner = true;
+    }
+  }
+  // Sakura / Admin / Owner has universal unconstrained access to all features
+  if (isOwner) {
+    return true;
+  }
+  const perms = rolePermissions[role] || rolePermissions['guest'] || DEFAULT_ROLE_PERMISSIONS.guest;
+  return perms[featureKey] === true;
+}
+
+function getRolePermissions(userOrRole) {
+  let role = 'guest';
+  let isOwner = false;
+  if (typeof userOrRole === 'string') {
+    role = userOrRole.toLowerCase();
+    if (role === 'owner' || role === 'admin' || role === 'sakura') isOwner = true;
+  } else if (userOrRole && typeof userOrRole === 'object') {
+    role = (userOrRole.role || 'guest').toLowerCase();
+    if (userOrRole.isOwner || userOrRole.username?.toLowerCase() === 'sakura' || role === 'owner' || role === 'admin') {
+      isOwner = true;
+    }
+  }
+
+  const result = {};
+  for (const item of FEATURE_METADATA) {
+    result[item.key] = isOwner ? true : isFeatureAllowed(role, item.key);
+  }
+  return result;
+}
+
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
 }
@@ -838,6 +963,7 @@ loadUsers();
 ensureOwnerAccount();
 loadUserSessions();
 loadAccessRequests();
+loadRolePermissions();
 
 function getUserDownloadFolder(userOrId) {
   if (!userOrId) return null;
@@ -869,7 +995,7 @@ function getUserDownloadFolder(userOrId) {
 
   if (user && user.downloadFolder && typeof user.downloadFolder === 'string') {
     const trimmed = user.downloadFolder.trim();
-    if (trimmed) return trimmed;
+    if (trimmed && isFeatureAllowed(user, 'custom_storage')) return trimmed;
   }
   return null;
 }
@@ -1144,7 +1270,8 @@ app.post('/api/auth/login', (req, res) => {
         username: process.env.ADMIN_USER || 'sakura',
         role: 'owner',
         isPremium: true,
-        isOwner: true
+        isOwner: true,
+        features: getRolePermissions('owner')
       }
     });
   }
@@ -1161,15 +1288,17 @@ app.post('/api/auth/login', (req, res) => {
 
   const isOwner = user.role === 'owner' || lowerUser === 'sakura';
   const token = generateUserSession(user, isRemember);
+  const effectiveRole = isOwner ? 'owner' : (user.role || 'premium');
   res.json({
     success: true,
     token,
     user: {
       id: user.id,
       username: user.username,
-      role: isOwner ? 'owner' : (user.role || 'premium'),
+      role: effectiveRole,
       isPremium: isOwner || user.role === 'premium' || user.role === 'admin',
-      isOwner: isOwner
+      isOwner: isOwner,
+      features: getRolePermissions(effectiveRole)
     }
   });
 });
@@ -1204,6 +1333,7 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
       downloadFolder: userFolder || (Array.isArray(u.allowedFolders) && u.allowedFolders.length > 0 ? u.allowedFolders[0] : ''),
       allowedFolders: u.allowedFolders || []
     },
+    features: getRolePermissions(u),
     limits: {
       isPremium: u.isPremium,
       isOwner: u.isOwner || u.role === 'owner',
@@ -1215,6 +1345,52 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
       allowedResolutions: u.isPremium ? ['best', '2160', '1440', '1080', '720', '480', '360'] : ['720', '480', '360'],
       allowedAudioFormats: u.isPremium ? ['mp3', 'flac', 'm4a', 'opus', 'wav'] : ['mp3', 'm4a', 'opus']
     }
+  });
+});
+
+// Admin Role-Based Feature Permissions Endpoints
+app.get('/api/admin/role-permissions', requireAdmin, (req, res) => {
+  res.json({
+    success: true,
+    features: FEATURE_METADATA,
+    permissions: rolePermissions
+  });
+});
+
+app.post('/api/admin/role-permissions', requireAdmin, (req, res) => {
+  const { permissions } = req.body || {};
+  if (!permissions || typeof permissions !== 'object') {
+    return res.status(400).json({ error: 'Valid permissions object required' });
+  }
+
+  const validRoles = ['guest', 'user', 'premium'];
+  const validKeys = FEATURE_METADATA.map(f => f.key);
+
+  for (const r of validRoles) {
+    if (permissions[r] && typeof permissions[r] === 'object') {
+      for (const k of validKeys) {
+        if (typeof permissions[r][k] === 'boolean') {
+          rolePermissions[r][k] = permissions[r][k];
+        }
+      }
+    }
+  }
+
+  saveRolePermissions();
+  res.json({
+    success: true,
+    message: 'Role permissions successfully updated and saved',
+    permissions: rolePermissions
+  });
+});
+
+app.post('/api/admin/role-permissions/reset', requireAdmin, (req, res) => {
+  rolePermissions = JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMISSIONS));
+  saveRolePermissions();
+  res.json({
+    success: true,
+    message: 'Role permissions reset to factory defaults',
+    permissions: rolePermissions
   });
 });
 
@@ -2814,8 +2990,11 @@ app.post('/api/admin/terminal/exec', requireAdmin, (req, res) => {
 // ==========================================
 
 // List recent FLAC files for quick inspection
-app.get('/api/flac-check/recent', (req, res) => {
+app.get('/api/flac-check/recent', identifyUser, (req, res) => {
   try {
+    if (!isFeatureAllowed(req.currentUser, 'flac_checker')) {
+      return res.status(403).json({ error: 'FLAC Checker is restricted for your role.', requireAuth: req.currentUser.role === 'guest' });
+    }
     const results = scanFlacFiles();
     res.json(results.slice(0, 35));
   } catch (err) {
@@ -2824,8 +3003,11 @@ app.get('/api/flac-check/recent', (req, res) => {
 });
 
 // Purge / Clear Recent Downloaded FLAC files from server storage
-app.post('/api/flac-check/clear-recent', (req, res) => {
+app.post('/api/flac-check/clear-recent', identifyUser, (req, res) => {
   try {
+    if (!isFeatureAllowed(req.currentUser, 'flac_checker')) {
+      return res.status(403).json({ error: 'FLAC Checker is restricted for your role.', requireAuth: req.currentUser.role === 'guest' });
+    }
     const stats = purgeFlacFiles();
     res.json({ success: true, ...stats });
   } catch (err) {
@@ -2839,10 +3021,10 @@ app.post('/api/flac-check', identifyUser, async (req, res) => {
   let isTempFile = false;
 
   try {
-    if (req.currentUser.role === 'guest') {
+    if (!isFeatureAllowed(req.currentUser, 'flac_checker')) {
       return res.status(403).json({
-        error: 'FLAC Checker is restricted to registered members. Guests can only access the Downloader tool. Please sign in or apply for user access under About & Privacy.',
-        requireAuth: true
+        error: 'FLAC Checker is restricted for your role. Please contact the administrator.',
+        requireAuth: req.currentUser.role === 'guest'
       });
     }
 
@@ -3613,8 +3795,18 @@ app.get('/api/movie-sources', (req, res) => {
 });
 
 // Unified Movie Search API (Direct DDL + YTS + Torrents)
-app.get('/api/movies/search', async (req, res) => {
+app.get('/api/movies/search', identifyUser, async (req, res) => {
   try {
+    if (!isFeatureAllowed(req.currentUser, 'movies')) {
+      return res.status(403).json({
+        success: false,
+        results: [],
+        total: 0,
+        error: 'Movie & TV Hub is restricted for your role.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
+
     if (engineConfig.features && engineConfig.features.movieHub === false) {
       return res.json({ success: true, results: [], query: '', total: 0, disabled: true, message: 'Movie & TV Hub is currently disabled by administrator in Admin Settings.' });
     }
@@ -3750,12 +3942,12 @@ app.post('/api/movies/download', identifyUser, async (req, res) => {
     const releaseLabel = item.releaseLabel || item.label || '';
     const requestedQuality = (item.quality || '1080p').toLowerCase();
 
-    // Guest enforcement: Movie & TV Hub is restricted to registered members
-    if (req.currentUser.role === 'guest') {
+    // Role-based feature enforcement for Movie & TV Hub
+    if (!isFeatureAllowed(req.currentUser, 'movies')) {
       return res.status(403).json({
         success: false,
-        error: 'Movie & TV Hub downloads are reserved for registered users. Guests can only access the Downloader tool. Please sign in or apply for user access under About & Privacy.',
-        requireAuth: true
+        error: 'Movie & TV Hub downloads are restricted for your role. Please contact the administrator.',
+        requireAuth: req.currentUser.role === 'guest'
       });
     }
 
@@ -3906,12 +4098,12 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
     const { link, url, title, pureTitle, year, poster, quality, filename, imdbId } = req.body || {};
     if (!title && !filename) return res.status(400).json({ success: false, error: 'Title or filename is required' });
 
-    // Guest enforcement: Movie & TV Hub is restricted to registered members
-    if (req.currentUser.role === 'guest') {
+    // Role-based feature enforcement for Movie & TV Hub DDL streaming
+    if (!isFeatureAllowed(req.currentUser, 'movies')) {
       return res.status(403).json({
         success: false,
-        error: 'Movie & TV Hub DDL streaming is reserved for registered users. Guests can only access the Downloader tool.',
-        requireAuth: true
+        error: 'Movie & TV Hub DDL streaming is restricted for your role.',
+        requireAuth: req.currentUser.role === 'guest'
       });
     }
 
@@ -4095,8 +4287,18 @@ async function searchMusicTorrents(query) {
 }
 
 // Unified Music Search API
-app.get('/api/music/search', async (req, res) => {
+app.get('/api/music/search', identifyUser, async (req, res) => {
   try {
+    if (!isFeatureAllowed(req.currentUser, 'music') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
+      return res.status(403).json({
+        success: false,
+        results: [],
+        total: 0,
+        error: 'Music Hub is restricted for your role.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
+
     const q = (req.query.q || '').trim();
     const source = req.query.source || 'direct'; // 'direct' or 'albums'
     const format = req.query.format || 'all';
@@ -4148,12 +4350,19 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
     const requestedQuality = (quality || '320k').toLowerCase();
     const isFlac = requestedFormat === 'flac';
 
-    // Guest enforcement: Music Hub is restricted to registered members
-    if (req.currentUser.role === 'guest') {
+    // Role-based feature enforcement for Music Hub & Audiophile FLAC
+    if (isFlac && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
       return res.status(403).json({
         success: false,
-        error: 'Music Hub downloads are reserved for registered users. Guests can only access the Downloader tool. Please sign in or apply for user access under About & Privacy.',
-        requireAuth: true
+        error: 'Lossless Audiophile FLAC downloads are restricted for your role. Please contact administrator.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
+    if (!isFeatureAllowed(req.currentUser, 'music')) {
+      return res.status(403).json({
+        success: false,
+        error: 'Music Hub downloads are restricted for your role.',
+        requireAuth: req.currentUser.role === 'guest'
       });
     }
 
@@ -4220,8 +4429,18 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
 });
 
 // Unified Adult Search API
-app.get('/api/adult/search', async (req, res) => {
+app.get('/api/adult/search', identifyUser, async (req, res) => {
   try {
+    if (!isFeatureAllowed(req.currentUser, 'adult')) {
+      return res.status(403).json({
+        success: false,
+        results: [],
+        total: 0,
+        error: 'Adult & JAV Hub is restricted for your role.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
+
     if (engineConfig.features && engineConfig.features.adultHub === false) {
       return res.json({ success: true, results: [], query: '', total: 0, disabled: true, message: 'Adult & JAV Hub is currently disabled by administrator in Admin Settings.' });
     }
@@ -4291,10 +4510,10 @@ app.get('/api/adult/search', async (req, res) => {
 app.post('/api/adult/download', identifyUser, async (req, res) => {
   try {
     const item = req.body || {};
-    if (!req.currentUser.isPremium) {
+    if (!isFeatureAllowed(req.currentUser, 'adult')) {
       return res.status(403).json({
-        error: 'Adult & JAV Hub downloads require an authenticated user account. Please sign in or register.',
-        requireAuth: true
+        error: 'Adult & JAV Hub downloads are restricted for your role.',
+        requireAuth: req.currentUser.role === 'guest'
       });
     }
 
@@ -5405,25 +5624,35 @@ app.post('/api/download', identifyUser, async (req, res) => {
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
-    // Guest vs Premium Enforcement
-    if (!req.currentUser.isPremium) {
-      // 1. Audio check: FLAC / WAV
-      const audioFmt = (payload.audioFormat || '').toLowerCase();
-      if (audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') {
-        return res.status(403).json({
-          error: 'Lossless Studio Master FLAC and Uncompressed WAV are Premium features. Sign in or register to unlock lossless audio downloads.',
-          requireAuth: true
-        });
-      }
+    // Role-based feature checks
+    if (!isFeatureAllowed(req.currentUser, 'downloader')) {
+      return res.status(403).json({
+        error: 'Media Downloader is disabled for your role. Please contact administrator.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
 
-      // 2. Video quality clamp: 2160 (4K), 1440 (2K), 1080 -> 720p HD
-      const vidQ = String(payload.videoQuality || '').toLowerCase();
-      if (['2160', '1440', '1080', 'best'].includes(vidQ)) {
-        payload.videoQuality = '720';
-        payload.qualityNotice = 'Resolution capped at 720p HD for Guest. Sign in to download in Full HD & 4K Ultra HD.';
-      }
+    // 1. Lossless Audio check: FLAC / WAV
+    const audioFmt = (payload.audioFormat || '').toLowerCase();
+    if ((audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
+      return res.status(403).json({
+        error: 'Lossless Studio Master FLAC and Uncompressed WAV are restricted for your role. Please upgrade or contact administrator.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
 
-      // 3. Concurrency check: max 1 active download for guests
+    // 2. Video quality check: 4K & 8K vs 1080p / 720p
+    const vidQ = String(payload.videoQuality || '').toLowerCase();
+    if (['2160', '1440', 'best'].includes(vidQ) && !isFeatureAllowed(req.currentUser, 'quality_4k')) {
+      payload.videoQuality = req.currentUser.role === 'guest' ? '720' : '1080';
+      payload.qualityNotice = `Resolution capped at ${payload.videoQuality}p for your role. 4K Ultra HD is restricted.`;
+    } else if (req.currentUser.role === 'guest' && ['1080', 'best'].includes(vidQ)) {
+      payload.videoQuality = '720';
+      payload.qualityNotice = 'Resolution capped at 720p HD for Guest. Sign in to download in Full HD & 4K Ultra HD.';
+    }
+
+    // 3. Concurrency check: max 1 active download if unlimited_concurrency is not allowed
+    if (!isFeatureAllowed(req.currentUser, 'unlimited_concurrency')) {
       let activeGuestJobs = 0;
       for (const j of jobs.values()) {
         if (['downloading', 'processing', 'resolving', 'queued'].includes(j.status) && j.ownerId === req.currentUser.userId) {
@@ -5432,12 +5661,14 @@ app.post('/api/download', identifyUser, async (req, res) => {
       }
       if (activeGuestJobs >= 1) {
         return res.status(429).json({
-          error: 'Guest limit reached: only 1 active download at a time is permitted. Sign in for unlimited concurrent downloads.',
-          requireAuth: true
+          error: 'Concurrency limit reached: only 1 active download at a time is permitted for your role.',
+          requireAuth: req.currentUser.role === 'guest'
         });
       }
+    }
 
-      // 4. Daily quota check (10 downloads)
+    // 4. Daily quota check for guests (10 downloads)
+    if (req.currentUser.role === 'guest') {
       const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
       if (dailyCount >= 10) {
         return res.status(429).json({
@@ -5445,7 +5676,6 @@ app.post('/api/download', identifyUser, async (req, res) => {
           requireAuth: true
         });
       }
-
       incrementGuestDailyDownloads(req.currentUser.ip);
     }
 
@@ -5493,22 +5723,34 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
       return res.status(400).json({ error: 'No URLs provided' });
     }
 
+    if (!isFeatureAllowed(req.currentUser, 'batch')) {
+      return res.status(403).json({
+        error: 'Batch Downloader is disabled for your role. Please contact administrator.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
+
     let cappedNotice = null;
-    if (!req.currentUser.isPremium) {
-      if (urls.length > 2) {
-        urls = urls.slice(0, 2);
-        cappedNotice = 'Guest batch download capped at 2 URLs. Sign in to process unlimited links at once.';
-      }
-      const audioFmt = (opts.audioFormat || '').toLowerCase();
-      if (audioFmt === 'flac' || audioFmt === 'wav' || opts.mode === 'audiophile_flac') {
-        return res.status(403).json({
-          error: 'Lossless Studio FLAC batch downloads are a Premium feature. Please sign in or register.',
-          requireAuth: true
-        });
-      }
-      if (['2160', '1440', '1080', 'best'].includes(String(opts.videoQuality || '').toLowerCase())) {
-        opts.videoQuality = '720';
-      }
+    if (req.currentUser.role === 'guest' && urls.length > 2) {
+      urls = urls.slice(0, 2);
+      cappedNotice = 'Guest batch download capped at 2 URLs. Sign in to process unlimited links at once.';
+    }
+
+    const audioFmt = (opts.audioFormat || '').toLowerCase();
+    if ((audioFmt === 'flac' || audioFmt === 'wav' || opts.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
+      return res.status(403).json({
+        error: 'Lossless Studio FLAC batch downloads are restricted for your role. Please upgrade or contact administrator.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
+
+    if (['2160', '1440', 'best'].includes(String(opts.videoQuality || '').toLowerCase()) && !isFeatureAllowed(req.currentUser, 'quality_4k')) {
+      opts.videoQuality = req.currentUser.role === 'guest' ? '720' : '1080';
+    } else if (req.currentUser.role === 'guest' && ['1080', 'best'].includes(String(opts.videoQuality || '').toLowerCase())) {
+      opts.videoQuality = '720';
+    }
+
+    if (req.currentUser.role === 'guest') {
       incrementGuestDailyDownloads(req.currentUser.ip);
     }
 
