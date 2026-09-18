@@ -2654,14 +2654,17 @@ function renderAdultResults(items) {
     }
 
     const metaTag = isJav 
-      ? `🎬 ${item.size || 'Full Movie'} &bull; ${item.seeders || 0} Seeds`
-      : `⏱️ ${item.duration || 'Full Video'} &bull; ${item.quality || 'HD'}`;
+      ? `🎬 ${item.size || 'Full Movie'} • ${item.seeders || 0} Seeds`
+      : `⏱️ ${item.duration || 'Full Video'} • ${item.quality || 'HD'}`;
 
     const defaultImg = isJav
       ? 'https://pics.dmm.co.jp/mono/movie/adult/default/defaultpl.jpg'
       : 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22400%22%20height%3D%22260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%23111%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20fill%3D%22%23555%22%20font-size%3D%2224%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3ENo%20Cover%3C%2Ftext%3E%3C%2Fsvg%3E';
 
-    const thumbUrl = item.thumb || defaultImg;
+    let thumbUrl = item.thumb || defaultImg;
+    if (thumbUrl && thumbUrl.startsWith('http') && !thumbUrl.startsWith('/api/proxy-image')) {
+      thumbUrl = `/api/proxy-image?url=${encodeURIComponent(thumbUrl)}`;
+    }
 
     return `
       <div class="adult-card ${isTeaser ? 'card-teaser' : ''}" data-index="${idx}">
@@ -2741,7 +2744,7 @@ window.openAdultPreview = function(idx) {
 
   title.textContent = item.title;
   const isJav = item.type === 'jav';
-  meta.innerHTML = `${(item.provider || '').toUpperCase()} &bull; ${item.duration || item.size || 'HD'} &bull; ${item.quality || (isJav ? 'Studio Master' : 'HD')}`;
+  meta.innerHTML = `${escapeHtml((item.provider || '').toUpperCase())} • ${escapeHtml(item.duration || item.size || 'HD')} • ${escapeHtml(item.quality || (isJav ? 'Studio Master' : 'HD'))}`;
 
   if (dlText) {
     dlText.textContent = isJav

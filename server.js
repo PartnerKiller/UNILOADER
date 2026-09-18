@@ -3140,8 +3140,26 @@ async function searchXVideos(query, page = 1, duration = 'full') {
       continue;
     }
 
-    const thumbMatch = chunk.match(/data-src="([^"]+)"/i) || chunk.match(/src="([^"]+)"/i);
-    const thumb = thumbMatch ? thumbMatch[1] : '';
+    let thumb = '';
+    const imgTagMatch = chunk.match(/<img[^>]+>/i);
+    if (imgTagMatch) {
+      const imgTag = imgTagMatch[0];
+      const candidates = [
+        (imgTag.match(/data-src="([^"]+)"/i) || [])[1],
+        (imgTag.match(/data-image="([^"]+)"/i) || [])[1],
+        (imgTag.match(/src="([^"]+)"/i) || [])[1]
+      ];
+      for (const c of candidates) {
+        if (c && c.startsWith('http') && !c.includes('blank.gif') && !c.includes('placeholder')) {
+          thumb = c;
+          break;
+        }
+      }
+    }
+    if (!thumb) {
+      const fallback = chunk.match(/https:\/\/[^"'\s]*(?:xvideos-cdn|xv-cdn)[^"'\s]*\.(?:jpg|jpeg|webp|png)[^"'\s]*/i);
+      if (fallback) thumb = fallback[0];
+    }
 
     const previewMatch = chunk.match(/data-pvv="([^"]+)"/i);
     const previewVideo = previewMatch ? previewMatch[1] : '';
@@ -3156,7 +3174,8 @@ async function searchXVideos(query, page = 1, duration = 'full') {
       id: href,
       title,
       url: fullUrl,
-      thumb,
+      thumb: thumb ? `/api/proxy-image?url=${encodeURIComponent(thumb)}` : '',
+      rawThumb: thumb,
       previewVideo,
       duration: durStr,
       quality,
@@ -3186,9 +3205,31 @@ async function searchPornhub(query, page = 1) {
       const block = m[2];
       const titleMatch = block.match(/title="([^"]+)"/i);
       const durMatch = block.match(/<var class="duration">([^<]+)<\/var>/i);
-      const imgMatch = block.match(/src="([^"]+)"/i) || block.match(/data-src="([^"]+)"/i);
       const hdMatch = block.match(/<span class="hd-thumbnail">([^<]+)<\/span>/i);
       const previewMatch = block.match(/data-mediabook="([^"]+)"/i);
+
+      let thumb = '';
+      const imgTagMatch = block.match(/<img[^>]+class="[^"]*(?:thumb|videoThumb|rotating)[^"]*"[^>]*>/i) || block.match(/<img[^>]+>/i);
+      if (imgTagMatch) {
+        const imgTag = imgTagMatch[0];
+        const candidates = [
+          (imgTag.match(/data-image="([^"]+)"/i) || [])[1],
+          (imgTag.match(/data-mediumthumb="([^"]+)"/i) || [])[1],
+          (imgTag.match(/data-thumb_url="([^"]+)"/i) || [])[1],
+          (imgTag.match(/data-src="([^"]+)"/i) || [])[1],
+          (imgTag.match(/src="([^"]+)"/i) || [])[1]
+        ];
+        for (const c of candidates) {
+          if (c && c.startsWith('http') && !c.includes('blank.gif') && !c.includes('placeholder')) {
+            thumb = c;
+            break;
+          }
+        }
+      }
+      if (!thumb) {
+        const fallback = block.match(/https:\/\/[^"'\s]+\.phncdn\.com\/[^"'\s]+\.(?:jpg|jpeg|webp|png)[^"'\s]*/i);
+        if (fallback) thumb = fallback[0];
+      }
 
       const title = titleMatch ? titleMatch[1].trim() : 'Pornhub Video';
       const isTeaser = /\b(preview|trailer|teaser)\b/i.test(title);
@@ -3197,7 +3238,8 @@ async function searchPornhub(query, page = 1) {
         id: vkey,
         title,
         url: `https://www.pornhub.com/view_video.php?viewkey=${vkey}`,
-        thumb: imgMatch ? imgMatch[1] : '',
+        thumb: thumb ? `/api/proxy-image?url=${encodeURIComponent(thumb)}` : '',
+        rawThumb: thumb,
         previewVideo: previewMatch ? previewMatch[1] : '',
         duration: durMatch ? durMatch[1].trim() : '',
         quality: hdMatch ? 'HD' : '1080p',
@@ -3231,7 +3273,8 @@ async function searchSukebeiJAV(query, page = 1) {
       id: infoHash,
       title: rawTitle,
       code: javCode || '',
-      thumb: coverUrl,
+      thumb: coverUrl ? `/api/proxy-image?url=${encodeURIComponent(coverUrl)}` : '',
+      rawThumb: coverUrl,
       size: match[8].trim(),
       seeders: parseInt(match[5], 10),
       leechers: parseInt(match[6], 10),
@@ -3247,18 +3290,28 @@ async function searchSukebeiJAV(query, page = 1) {
 
 // Lightweight Image Proxy to bypass hotlink protection & CORS on movie/adult posters
 app.get('/api/proxy-image', async (req, res) => {
-  const targetUrl = req.query.url;
-  if (!targetUrl || !targetUrl.startsWith('http')) {
+  let targetUrl = req.query.url;
+  if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
     return res.status(400).send('Invalid image URL');
+  }
+  targetUrl = targetUrl.replace(/&amp;/g, '&');
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+  };
+  if (targetUrl.includes('phncdn.com') || targetUrl.includes('pornhub')) {
+    headers['Referer'] = 'https://www.pornhub.com/';
+  } else if (targetUrl.includes('xvideos')) {
+    headers['Referer'] = 'https://www.xvideos.com/';
+  } else if (targetUrl.includes('dmm.co.jp')) {
+    headers['Referer'] = 'https://www.dmm.co.jp/';
   }
 
   try {
     const upstream = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-      },
-      signal: AbortSignal.timeout(8000)
+      headers,
+      signal: AbortSignal.timeout(10000)
     });
 
     if (!upstream.ok) {
@@ -4490,6 +4543,12 @@ app.get('/api/adult/search', identifyUser, async (req, res) => {
       for (let i = 0; i < maxLen; i++) {
         if (i < javResults.length) combined.push(javResults[i]);
         if (i < tubeResults.length) combined.push(tubeResults[i]);
+      }
+    }
+
+    for (const item of combined) {
+      if (item.thumb && item.thumb.startsWith('http') && !item.thumb.startsWith('/api/proxy-image')) {
+        item.thumb = `/api/proxy-image?url=${encodeURIComponent(item.thumb)}`;
       }
     }
 
