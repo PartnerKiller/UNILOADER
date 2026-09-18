@@ -3943,6 +3943,18 @@ body {
   font-weight: 800;
 }
 
+.badge-redtube {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  color: #fff;
+  font-weight: 800;
+}
+
+.badge-hqporner {
+  background: linear-gradient(135deg, #f59e0b, #ea580c);
+  color: #fff;
+  font-weight: 800;
+}
+
 .badge-full-movie {
   background: hsla(142, 76%, 36%, 0.9);
   color: #fff;

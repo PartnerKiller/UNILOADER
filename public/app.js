@@ -2681,6 +2681,12 @@ function renderAdultResults(items) {
     } else if (item.provider === 'eporner') {
       sourceLabel = 'Eporner 4K';
       badgeClass = 'badge-eporner';
+    } else if (item.provider === 'redtube') {
+      sourceLabel = 'RedTube HD';
+      badgeClass = 'badge-redtube';
+    } else if (item.provider === 'hqporner') {
+      sourceLabel = 'HQPorner 4K';
+      badgeClass = 'badge-hqporner';
     }
 
     const metaTag = isJav 

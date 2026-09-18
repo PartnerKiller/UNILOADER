@@ -3287,6 +3287,89 @@ async function searchEporner(query, page = 1) {
   }
 }
 
+async function searchRedTube(query, page = 1) {
+  try {
+    const url = `https://api.redtube.com/?data=redtube.Videos.searchVideos&output=json&search=${encodeURIComponent(query)}&page=${page}&thumbsize=big`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const list = data.videos || [];
+    return list.map(item => {
+      const v = item.video || item;
+      const thumb = v.default_thumb || v.thumb || (v.thumbs && v.thumbs[0] && v.thumbs[0].src) || '';
+      return {
+        id: String(v.video_id || v.id || ''),
+        title: v.title || 'RedTube Video',
+        url: v.url || `https://www.redtube.com/${v.video_id}`,
+        thumb: thumb ? `/api/proxy-image?url=${encodeURIComponent(thumb)}` : '',
+        rawThumb: thumb,
+        previewVideo: '',
+        duration: v.duration || '',
+        quality: '1080p HD',
+        provider: 'redtube',
+        type: 'tube',
+        isTeaser: false
+      };
+    });
+  } catch (e) {
+    console.warn('[AdultSearch] RedTube search error:', e.message);
+    return [];
+  }
+}
+
+async function searchHQPorner(query, page = 1) {
+  try {
+    const url = `https://hqporner.com/?q=${encodeURIComponent(query)}&p=${page}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://hqporner.com/' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results = [];
+    const cardRegex = /<section class="box feature">([\s\S]*?)<\/section>/gi;
+    let m;
+    while ((m = cardRegex.exec(html)) !== null && results.length < 25) {
+      const block = m[1];
+      const linkMatch = block.match(/href="(\/hdporn\/[^"]+)"/i);
+      if (!linkMatch) continue;
+      const href = linkMatch[1];
+      const fullUrl = `https://hqporner.com${href}`;
+
+      const titleMatch = block.match(/class="click-trigger"[^>]*>([^<]+)<\/a>/i) || block.match(/alt="([^"]+)"/i);
+      const title = titleMatch ? titleMatch[1].trim() : 'HQPorner Video';
+
+      const durMatch = block.match(/class="icon fa-clock-o meta-data">([^<]+)<\/span>/i);
+      const duration = durMatch ? durMatch[1].trim() : '';
+
+      const imgMatch = block.match(/<img[^>]+src=["']([^"']+)["']/i);
+      let thumb = imgMatch ? imgMatch[1] : '';
+      if (thumb.startsWith('//')) thumb = 'https:' + thumb;
+
+      results.push({
+        id: href,
+        title,
+        url: fullUrl,
+        thumb: thumb ? `/api/proxy-image?url=${encodeURIComponent(thumb)}` : '',
+        rawThumb: thumb,
+        previewVideo: '',
+        duration,
+        quality: '4K / 1080p',
+        provider: 'hqporner',
+        type: 'tube',
+        isTeaser: false
+      });
+    }
+    return results;
+  } catch (e) {
+    console.warn('[AdultSearch] HQPorner search error:', e.message);
+    return [];
+  }
+}
+
 async function searchSukebeiJAV(query, page = 1) {
   const url = `https://sukebei.nyaa.si/?f=0&c=2_2&q=${encodeURIComponent(query)}&p=${page}&page=rss`;
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -4543,19 +4626,25 @@ app.get('/api/adult/search', identifyUser, async (req, res) => {
     let javResults = [];
 
     if (type === 'all' || type === 'tubes') {
-      const [xvRes, phRes, epRes] = await Promise.allSettled([
+      const [xvRes, phRes, epRes, rtRes, hqRes] = await Promise.allSettled([
         searchXVideos(q, page, duration),
         searchPornhub(q, page),
-        searchEporner(q, page)
+        searchEporner(q, page),
+        searchRedTube(q, page),
+        searchHQPorner(q, page)
       ]);
       const xv = xvRes.status === 'fulfilled' ? xvRes.value : [];
       const ph = phRes.status === 'fulfilled' ? phRes.value : [];
       const ep = epRes.status === 'fulfilled' ? epRes.value : [];
-      const maxTube = Math.max(xv.length, ph.length, ep.length);
+      const rt = rtRes.status === 'fulfilled' ? rtRes.value : [];
+      const hq = hqRes.status === 'fulfilled' ? hqRes.value : [];
+      const maxTube = Math.max(xv.length, ph.length, ep.length, rt.length, hq.length);
       for (let i = 0; i < maxTube; i++) {
         if (i < xv.length) tubeResults.push(xv[i]);
         if (i < ph.length) tubeResults.push(ph[i]);
         if (i < ep.length) tubeResults.push(ep[i]);
+        if (i < rt.length) tubeResults.push(rt[i]);
+        if (i < hq.length) tubeResults.push(hq[i]);
       }
     }
 
@@ -5287,6 +5376,12 @@ function startJobProcess(job) {
       args.push('--add-header', 'Referer: https://www.eporner.com/');
     } else if (url && (url.includes('netflav.com') || rawTarget.includes('netflav.com'))) {
       args.push('--add-header', 'Referer: https://netflav.com/');
+    } else if (url && (url.includes('redtube.com') || rawTarget.includes('redtube.com') || rawTarget.includes('rdtcdn.com'))) {
+      args.push('--add-header', 'Referer: https://www.redtube.com/');
+    } else if (url && (url.includes('hqporner.com') || rawTarget.includes('hqporner.com') || rawTarget.includes('mydaddy.cc') || rawTarget.includes('bigcdn.cc'))) {
+      args.push('--add-header', 'Referer: https://mydaddy.cc/');
+    } else if (url && (url.includes('beeg.com') || rawTarget.includes('beeg.com'))) {
+      args.push('--add-header', 'Referer: https://beeg.com/');
     }
 
     // Mode options

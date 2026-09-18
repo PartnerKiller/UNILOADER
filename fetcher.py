@@ -1203,7 +1203,101 @@ def extract_all(url):
         }
 
     # -------------------------------------------------------------
-    # 13. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
+    # 13. HQPorner (hqporner.com & mydaddy.cc) - 1080p / 4K Ultra HD
+    # -------------------------------------------------------------
+    if 'hqporner.com' in url or 'mydaddy.cc' in url:
+        try:
+            headers['Referer'] = 'https://hqporner.com/'
+            if 'mydaddy.cc' in url:
+                e_res = session.get(url, headers={'Referer': 'https://hqporner.com/'}, timeout=15)
+                e_html = e_res.text
+                mp4s = re.findall(r'//[a-zA-Z0-9_-]+\.bigcdn\.cc/pubs/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\.mp4', e_html)
+                stream_url = ''
+                for q in ['1080.mp4', '720.mp4', '360.mp4']:
+                    for m in mp4s:
+                        if q in m:
+                            stream_url = 'https:' + m if m.startswith('//') else m
+                            break
+                    if stream_url:
+                        break
+                if not stream_url and mp4s:
+                    stream_url = 'https:' + mp4s[0] if mp4s[0].startswith('//') else mp4s[0]
+
+                return {
+                    'title': 'HQPorner Video',
+                    'code': 'HQPORNER',
+                    'poster': '',
+                    'hlsUrl': stream_url,
+                    'downloadTargetUrl': stream_url or url,
+                    'tags': ['HQPorner', '1080p'],
+                    'model': '',
+                    'duration': '',
+                    'extractor': 'HQPorner',
+                    'sourceUrl': url
+                }
+            else:
+                r = session.get(url, headers=headers, timeout=20)
+                html = r.text
+                soup = BeautifulSoup(html, 'html.parser')
+
+                raw_title = soup.title.string.strip() if soup.title else 'HQPorner Video'
+                title = re.sub(r'\s*-\s*HQporner.*$', '', raw_title, flags=re.IGNORECASE).strip()
+
+                id_m = re.search(r'/hdporn/(\d+)', url)
+                code = f"HQP-{id_m.group(1)}" if id_m else 'HQPORNER'
+
+                poster = ''
+                og_img = soup.find('meta', property='og:image')
+                if og_img and og_img.get('content'):
+                    poster = og_img.get('content')
+                    if poster.startswith('//'):
+                        poster = 'https:' + poster
+
+                dur_el = soup.find('span', class_=re.compile(r'fa-clock-o'))
+                duration = dur_el.text.strip() if dur_el else ''
+
+                tags = [a.text.strip() for a in soup.find_all('a', href=re.compile(r'/(tag|category|actress)/')) if a.text.strip()]
+
+                stream_url = ''
+                native_matches = re.findall(r"url:\s*['\"](/blocks/(?:nativeplayer|altplayer)\.php\?i=[^'\"]+)['\"]", html)
+                if native_matches:
+                    native_url = urllib.parse.urljoin('https://hqporner.com', native_matches[0])
+                    n_res = session.get(native_url, headers={'Referer': url}, timeout=12)
+                    iframe_src = re.findall(r'<iframe[^>]+src=["\']([^"\']+)["\']', n_res.text)
+                    if iframe_src:
+                        embed_url = iframe_src[0]
+                        if embed_url.startswith('//'):
+                            embed_url = 'https:' + embed_url
+                        e_res = session.get(embed_url, headers={'Referer': 'https://hqporner.com/'}, timeout=15)
+                        e_html = e_res.text
+                        mp4s = re.findall(r'//[a-zA-Z0-9_-]+\.bigcdn\.cc/pubs/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\.mp4', e_html)
+                        for q in ['1080.mp4', '720.mp4', '360.mp4']:
+                            for m in mp4s:
+                                if q in m:
+                                    stream_url = 'https:' + m if m.startswith('//') else m
+                                    break
+                            if stream_url:
+                                break
+                        if not stream_url and mp4s:
+                            stream_url = 'https:' + mp4s[0] if mp4s[0].startswith('//') else mp4s[0]
+
+                return {
+                    'title': title,
+                    'code': code,
+                    'poster': poster,
+                    'hlsUrl': stream_url,
+                    'downloadTargetUrl': stream_url or url,
+                    'tags': tags[:10] or ['HQPorner', '1080p Full HD'],
+                    'model': '',
+                    'duration': duration,
+                    'extractor': 'HQPorner',
+                    'sourceUrl': url
+                }
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------
+    # 14. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
     # -------------------------------------------------------------
     try:
         r = session.get(url, headers=headers, timeout=20)
