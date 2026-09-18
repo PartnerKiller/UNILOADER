@@ -321,6 +321,16 @@ function switchView(viewName) {
   // Close any lingering overlay modals on view switch
   const movieReleasesModal = document.getElementById('movieReleasesModal');
   if (movieReleasesModal) movieReleasesModal.style.display = 'none';
+  const musicFormatsModal = document.getElementById('musicFormatsModal');
+  if (musicFormatsModal) musicFormatsModal.style.display = 'none';
+
+  // Stop any active preview audio
+  if (currentAudioPreview) {
+    currentAudioPreview.pause();
+    currentAudioPreview = null;
+    currentPreviewTrackId = null;
+    document.querySelectorAll('.music-preview-btn').forEach(b => b.classList.remove('playing'));
+  }
 
   // Ephemeral Adult Hub:
   // If navigating to ANY other option, immediately hide the Adult Hub buttons from the navigation!
@@ -341,6 +351,7 @@ function switchView(viewName) {
   const panels = {
     downloader: document.getElementById('viewDownloader'),
     movies: document.getElementById('viewMovies'),
+    music: document.getElementById('viewMusic'),
     'flac-checker': document.getElementById('viewFlacChecker'),
     'adult-search': document.getElementById('viewAdultSearch'),
     supported: document.getElementById('viewSupported'),
@@ -1162,6 +1173,8 @@ window.playMedia = function(streamUrl, title, downloadUrl) {
   // Immediately close any other open dialogs so they never cover or obscure the video player
   const movieReleasesModal = document.getElementById('movieReleasesModal');
   if (movieReleasesModal) movieReleasesModal.style.display = 'none';
+  const musicFormatsModal = document.getElementById('musicFormatsModal');
+  if (musicFormatsModal) musicFormatsModal.style.display = 'none';
   const readyModal = document.getElementById('readyModal');
   if (readyModal) readyModal.style.display = 'none';
   const adultPreviewModal = document.getElementById('adultPreviewModal');
@@ -3008,10 +3021,607 @@ window.openMovieReleasesModal = function(idx) {
   modal.style.display = 'flex';
 };
 
+// ==========================================================================
+// MUSIC & ALBUM HUB CONTROLLER (Multi-Format, Multi-Codec, Audiophile Studio)
+// ==========================================================================
+let currentMusicResults = [];
+let currentMusicPage = 1;
+let currentMusicQuery = '';
+let currentMusicSource = 'direct'; // 'direct' or 'albums'
+let currentMusicFormat = 'all'; // 'all', 'flac', 'mp3', 'm4a', 'opus'
+let currentAudioPreview = null;
+let currentPreviewTrackId = null;
+
+function formatMusicDuration(seconds) {
+  if (!seconds || isNaN(seconds)) return '03:30';
+  const sec = Math.round(Number(seconds));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
+window.toggleAudioPreview = function(previewUrl, trackId, btnEl) {
+  if (currentAudioPreview && currentPreviewTrackId === trackId) {
+    currentAudioPreview.pause();
+    currentAudioPreview = null;
+    currentPreviewTrackId = null;
+    if (btnEl) {
+      btnEl.classList.remove('playing');
+      const playIcon = btnEl.querySelector('.icon-play');
+      const pauseIcon = btnEl.querySelector('.icon-pause');
+      if (playIcon) playIcon.style.display = 'block';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+    }
+    return;
+  }
+
+  if (currentAudioPreview) {
+    currentAudioPreview.pause();
+    document.querySelectorAll('.music-preview-btn').forEach(b => {
+      b.classList.remove('playing');
+      const playIcon = b.querySelector('.icon-play');
+      const pauseIcon = b.querySelector('.icon-pause');
+      if (playIcon) playIcon.style.display = 'block';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+    });
+  }
+
+  if (!previewUrl) {
+    showToast('Audio sample preview not available for this track', 'info');
+    return;
+  }
+
+  currentAudioPreview = new Audio(previewUrl);
+  currentPreviewTrackId = trackId;
+  if (btnEl) {
+    btnEl.classList.add('playing');
+    const playIcon = btnEl.querySelector('.icon-play');
+    const pauseIcon = btnEl.querySelector('.icon-pause');
+    if (playIcon) playIcon.style.display = 'none';
+    if (pauseIcon) pauseIcon.style.display = 'block';
+  }
+
+  currentAudioPreview.play().catch(e => {
+    console.warn('Audio preview playback error:', e);
+    if (btnEl) {
+      btnEl.classList.remove('playing');
+      const playIcon = btnEl.querySelector('.icon-play');
+      const pauseIcon = btnEl.querySelector('.icon-pause');
+      if (playIcon) playIcon.style.display = 'block';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+    }
+  });
+
+  currentAudioPreview.onended = () => {
+    if (btnEl) {
+      btnEl.classList.remove('playing');
+      const playIcon = btnEl.querySelector('.icon-play');
+      const pauseIcon = btnEl.querySelector('.icon-pause');
+      if (playIcon) playIcon.style.display = 'block';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+    }
+    currentAudioPreview = null;
+    currentPreviewTrackId = null;
+  };
+};
+
+async function executeMusicSearch(query, page = 1) {
+  const loading = document.getElementById('musicLoadingState');
+  const empty = document.getElementById('musicEmptyState');
+  const grid = document.getElementById('musicResultsGrid');
+  const pagBar = document.getElementById('musicPaginationBar');
+  const prevBtn = document.getElementById('btnMusicPrevPage');
+  const nextBtn = document.getElementById('btnMusicNextPage');
+  const pageIndicator = document.getElementById('musicPageIndicator');
+
+  if (!query) return;
+  currentMusicQuery = query;
+  currentMusicPage = page;
+
+  // Stop any active preview
+  if (currentAudioPreview) {
+    currentAudioPreview.pause();
+    currentAudioPreview = null;
+    currentPreviewTrackId = null;
+    document.querySelectorAll('.music-preview-btn').forEach(b => b.classList.remove('playing'));
+  }
+
+  if (loading) loading.style.display = 'flex';
+  if (empty) empty.style.display = 'none';
+  if (grid) grid.style.display = 'none';
+  if (pagBar) pagBar.style.display = 'none';
+
+  try {
+    const url = `/api/music/search?q=${encodeURIComponent(query)}&source=${currentMusicSource}&format=${currentMusicFormat}&page=${page}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (loading) loading.style.display = 'none';
+
+    if (!res.ok || !data.success || !data.results || data.results.length === 0) {
+      if (empty) {
+        empty.style.display = 'flex';
+        empty.querySelector('h3').textContent = 'No Music Tracks Found';
+        empty.querySelector('p').textContent = `No tracks found for "${query}". Try searching with different song or artist keywords.`;
+      }
+      currentMusicResults = [];
+      return;
+    }
+
+    currentMusicResults = data.results;
+    renderMusicResults(currentMusicResults);
+
+    if (grid) grid.style.display = 'grid';
+    if (pagBar) {
+      pagBar.style.display = 'flex';
+      if (pageIndicator) pageIndicator.textContent = `Page ${page}`;
+      if (prevBtn) prevBtn.disabled = page <= 1;
+      if (nextBtn) nextBtn.disabled = currentMusicResults.length < 15;
+    }
+  } catch (err) {
+    if (loading) loading.style.display = 'none';
+    if (empty) {
+      empty.style.display = 'flex';
+      empty.querySelector('h3').textContent = 'Search Error';
+      empty.querySelector('p').textContent = `Failed to fetch search results: ${err.message}`;
+    }
+  }
+}
+
+function renderMusicResults(results) {
+  const grid = document.getElementById('musicResultsGrid');
+  if (!grid) return;
+
+  grid.innerHTML = results.map((item, idx) => {
+    const coverUrl = item.cover || '/icon.svg';
+    const title = item.title || 'Unknown Track';
+    const artist = item.artist || 'Unknown Artist';
+    const album = item.album || '';
+    const duration = item.durationStr || (item.duration ? formatMusicDuration(item.duration) : '');
+    const isTorrent = item.type === 'torrent' || item.source === 'torrent';
+
+    return `
+      <div class="music-card" data-index="${idx}">
+        <div class="music-card-cover-wrap">
+          <img src="${escapeHtml(coverUrl)}" alt="${escapeHtml(title)}" class="music-card-cover" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='/icon.svg'" />
+          <div class="music-card-cover-overlay"></div>
+          ${duration ? `<span class="music-card-duration-badge">⏱️ ${escapeHtml(duration)}</span>` : ''}
+          ${item.previewUrl ? `
+            <button type="button" class="music-preview-btn" title="Preview 30s audio sample" onclick="toggleAudioPreview('${escapeHtml(item.previewUrl)}', '${item.id || idx}', this)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" class="icon-play"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" class="icon-pause" style="display:none;"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+              <div class="music-soundwave"><span></span><span></span><span></span></div>
+            </button>
+          ` : ''}
+        </div>
+        <div class="music-card-body">
+          <h4 class="music-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h4>
+          <span class="music-card-artist" title="${escapeHtml(artist)}">${escapeHtml(artist)}</span>
+          ${album ? `<span class="music-card-album" title="${escapeHtml(album)}">${escapeHtml(album)}</span>` : ''}
+          <div class="music-card-badges-row">
+            ${isTorrent ? `
+              <span class="music-badge-pill badge-pill-hires">ALBUM TORRENT</span>
+              <span class="music-badge-pill badge-pill-cdda">${escapeHtml(item.size || 'Lossless')}</span>
+              <span class="music-badge-pill badge-pill-mp3">${item.seeders || 0} Seeds</span>
+            ` : `
+              <span class="music-badge-pill badge-pill-hires">24-BIT HI-RES</span>
+              <span class="music-badge-pill badge-pill-cdda">16-BIT CD</span>
+              <span class="music-badge-pill badge-pill-mp3">MP3 320K</span>
+              <span class="music-badge-pill badge-pill-aac">AAC</span>
+              <span class="music-badge-pill badge-pill-opus">OPUS</span>
+            `}
+          </div>
+          <button type="button" class="btn-music-open-modal" onclick="${isTorrent ? `dispatchTorrentAlbumDownload(${idx}, event)` : `openMusicFormatsModal(${idx})`}">
+            ${isTorrent ? `
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Download Full Album (${escapeHtml(item.size || 'FLAC')})</span>
+            ` : `
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+              <span>Choose Format &amp; Quality</span>
+            `}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.openMusicFormatsModal = function(idx) {
+  const item = currentMusicResults[idx];
+  if (!item) return;
+
+  const modal = document.getElementById('musicFormatsModal');
+  const heroBg = document.getElementById('musicModalHeroBg');
+  const cover = document.getElementById('musicModalCover');
+  const title = document.getElementById('musicModalTitle');
+  const subtitle = document.getElementById('musicModalSubtitle');
+  const yearEl = document.getElementById('musicModalYear');
+  const durationEl = document.getElementById('musicModalDuration');
+  const listEl = document.getElementById('musicFormatsList');
+  const filtersEl = document.getElementById('musicModalFilters');
+  const searchInput = document.getElementById('musicModalSearchInput');
+  const footerEl = document.getElementById('musicModalFooter');
+
+  if (footerEl) footerEl.style.display = 'none';
+
+  const coverUrl = item.cover || '/icon.svg';
+  if (cover) cover.src = coverUrl;
+  if (heroBg) heroBg.style.backgroundImage = `url('${coverUrl}')`;
+  if (title) title.textContent = item.title;
+  if (subtitle) subtitle.textContent = `${item.artist}${item.album ? ' • ' + item.album : ''}`;
+  if (yearEl) yearEl.textContent = item.year || '2024';
+  if (durationEl) durationEl.textContent = `⏱️ ${item.durationStr || (item.duration ? formatMusicDuration(item.duration) : '03:45')}`;
+  if (searchInput) searchInput.value = '';
+
+  const formats = [
+    {
+      id: 'flac_hires',
+      format: 'flac',
+      quality: '24bit',
+      name: 'FLAC Studio Master (24-bit Hi-Res)',
+      spec: '24-bit / 96kHz / 48kHz True PCM • Tidal Hi-Res / Soulseek Master',
+      badge: '24-BIT HI-RES',
+      badgeClass: 'btn-music-dl-hires',
+      badgePillClass: 'badge-pill-hires',
+      size: '~45–90 MB',
+      btnText: 'Download FLAC 24-bit'
+    },
+    {
+      id: 'flac_cdda',
+      format: 'flac',
+      quality: '16bit',
+      name: 'FLAC Lossless CDDA (16-bit / 44.1kHz)',
+      spec: '16-bit / 44.1kHz • 1411 kbps Bitstream • Deezer HiFi Studio CD',
+      badge: '16-BIT CDDA',
+      badgeClass: 'btn-music-dl-cdda',
+      badgePillClass: 'badge-pill-cdda',
+      size: '~25–40 MB',
+      btnText: 'Download FLAC 16-bit'
+    },
+    {
+      id: 'mp3_320',
+      format: 'mp3',
+      quality: '320k',
+      name: 'MP3 Extreme Quality (320 kbps CBR)',
+      spec: 'LAME 320 kbps Extreme CBR • 48kHz • Embedded Cover & ID3 Tags',
+      badge: 'MP3 320K',
+      badgeClass: 'btn-music-dl-lossy',
+      badgePillClass: 'badge-pill-mp3',
+      size: '~8–14 MB',
+      btnText: 'Download MP3 320k'
+    },
+    {
+      id: 'm4a_256',
+      format: 'm4a',
+      quality: '256k',
+      name: 'Apple AAC / M4A (256 kbps VBR)',
+      spec: 'Native iTunes 256 kbps AAC Bitstream • Crystal-Clear M4A Audio',
+      badge: 'AAC 256K',
+      badgeClass: 'btn-music-dl-lossy',
+      badgePillClass: 'badge-pill-aac',
+      size: '~6–10 MB',
+      btnText: 'Download M4A 256k'
+    },
+    {
+      id: 'opus_160',
+      format: 'opus',
+      quality: '160k',
+      name: 'Opus High-Fidelity (160 kbps VBR)',
+      spec: 'Next-Gen Opus Codec • Superior acoustic fidelity at lower filesize',
+      badge: 'OPUS 160K',
+      badgeClass: 'btn-music-dl-lossy',
+      badgePillClass: 'badge-pill-opus',
+      size: '~4–7 MB',
+      btnText: 'Download Opus'
+    },
+    {
+      id: 'wav_pcm',
+      format: 'wav',
+      quality: 'pcm',
+      name: 'WAV Studio PCM (Uncompressed Audio)',
+      spec: '16-bit / 44.1kHz Raw PCM • Zero Compression / Maximum Compatibility',
+      badge: 'RAW WAV',
+      badgeClass: 'btn-music-dl-lossy',
+      badgePillClass: 'badge-pill-hires',
+      size: '~35–50 MB',
+      btnText: 'Download WAV'
+    }
+  ];
+
+  let activeFilter = 'all';
+
+  function renderFormatsList() {
+    const filterQuery = (searchInput ? searchInput.value : '').toLowerCase().trim();
+    const filtered = formats.filter(fmt => {
+      if (activeFilter !== 'all' && fmt.format !== activeFilter) return false;
+      if (filterQuery) {
+        return fmt.name.toLowerCase().includes(filterQuery) ||
+               fmt.spec.toLowerCase().includes(filterQuery) ||
+               fmt.badge.toLowerCase().includes(filterQuery);
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div style="text-align: center; padding: 28px; color: var(--text-muted);">No formats matched the selected filter.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = filtered.map(fmt => `
+      <div class="music-format-item">
+        <div class="music-format-info">
+          <span class="music-format-badge-large ${fmt.badgePillClass}">${fmt.badge}</span>
+          <div class="music-format-text">
+            <div class="music-format-name">${escapeHtml(fmt.name)}</div>
+            <div class="music-format-spec">${escapeHtml(fmt.spec)}</div>
+          </div>
+        </div>
+        <div class="music-format-actions">
+          <span class="music-format-size">${fmt.size}</span>
+          <button type="button" class="btn-music-dl ${fmt.badgeClass}" onclick="dispatchTrackDownload(${idx}, '${fmt.format}', '${fmt.quality}', event)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>${fmt.btnText}</span>
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  if (filtersEl) {
+    filtersEl.innerHTML = `
+      <button type="button" class="modal-filter-pill active" data-filter="all">All Formats</button>
+      <button type="button" class="modal-filter-pill" data-filter="flac">FLAC Lossless</button>
+      <button type="button" class="modal-filter-pill" data-filter="mp3">MP3 320k</button>
+      <button type="button" class="modal-filter-pill" data-filter="m4a">AAC / M4A</button>
+      <button type="button" class="modal-filter-pill" data-filter="opus">Opus</button>
+    `;
+    filtersEl.onclick = (e) => {
+      const btn = e.target.closest('.modal-filter-pill');
+      if (!btn) return;
+      filtersEl.querySelectorAll('.modal-filter-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeFilter = btn.dataset.filter || 'all';
+      renderFormatsList();
+    };
+  }
+
+  if (searchInput) {
+    searchInput.oninput = () => { renderFormatsList(); };
+  }
+
+  renderFormatsList();
+  modal.style.display = 'flex';
+};
+
+window.dispatchTrackDownload = async function(idx, format, quality, event = null) {
+  const item = currentMusicResults[idx];
+  if (!item) return;
+
+  const clickedBtn = event ? event.currentTarget : null;
+  if (clickedBtn) {
+    clickedBtn.disabled = true;
+    clickedBtn.innerHTML = `<span>⏳ Enqueuing...</span>`;
+  }
+
+  const payload = {
+    title: item.title,
+    artist: item.artist,
+    album: item.album || '',
+    year: item.year || '',
+    duration: item.duration || 0,
+    cover: item.cover || '',
+    isrc: item.isrc || '',
+    previewUrl: item.previewUrl || '',
+    format: format || 'mp3',
+    quality: quality || '320k',
+    source: 'track'
+  };
+
+  try {
+    const res = await fetch('/api/music/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`Enqueued ${format.toUpperCase()}: ${item.title.substring(0, 28)}...`, 'success');
+      if (clickedBtn) {
+        clickedBtn.innerHTML = `<span>✓ Enqueued</span>`;
+        clickedBtn.classList.add('btn-success');
+      }
+      const footerEl = document.getElementById('musicModalFooter');
+      const footerStatus = document.getElementById('musicModalFooterStatusText');
+      if (footerEl && footerStatus) {
+        footerStatus.textContent = `Enqueued ${format.toUpperCase()} (${quality}) • Task active in Downloader`;
+        footerEl.style.display = 'flex';
+      }
+    } else {
+      showToast(`Download failed: ${data.error || 'Server error'}`, 'error');
+      if (clickedBtn) {
+        clickedBtn.disabled = false;
+        clickedBtn.innerHTML = `<span>Retry</span>`;
+      }
+    }
+  } catch (err) {
+    showToast(`Download error: ${err.message}`, 'error');
+    if (clickedBtn) {
+      clickedBtn.disabled = false;
+      clickedBtn.innerHTML = `<span>Retry</span>`;
+    }
+  }
+};
+
+window.dispatchTorrentAlbumDownload = async function(idx, event = null) {
+  const item = currentMusicResults[idx];
+  if (!item) return;
+
+  const clickedBtn = event ? event.currentTarget : null;
+  if (clickedBtn) {
+    clickedBtn.disabled = true;
+    clickedBtn.innerHTML = `<span>⏳ Enqueuing Album...</span>`;
+  }
+
+  const payload = {
+    title: item.title,
+    artist: item.artist || '',
+    cover: item.cover || '',
+    magnet: item.magnet || '',
+    torrentUrl: item.torrentUrl || '',
+    source: 'torrent',
+    format: 'flac',
+    quality: 'lossless'
+  };
+
+  try {
+    const res = await fetch('/api/music/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`Album Enqueued: ${item.title.substring(0, 30)}...`, 'success');
+      if (clickedBtn) {
+        clickedBtn.innerHTML = `<span>✓ Enqueued Album</span>`;
+        clickedBtn.classList.add('btn-success');
+      }
+    } else {
+      showToast(`Album download error: ${data.error || 'Server error'}`, 'error');
+      if (clickedBtn) {
+        clickedBtn.disabled = false;
+        clickedBtn.innerHTML = `<span>Retry</span>`;
+      }
+    }
+  } catch (err) {
+    showToast(`Download error: ${err.message}`, 'error');
+    if (clickedBtn) {
+      clickedBtn.disabled = false;
+      clickedBtn.innerHTML = `<span>Retry</span>`;
+    }
+  }
+};
+
+function initMusicView() {
+  const form = document.getElementById('musicSearchForm');
+  const input = document.getElementById('musicSearchInput');
+  const clearBtn = document.getElementById('btnClearMusicSearch');
+  const sourceTabs = document.getElementById('musicSourceTabs');
+  const formatFilters = document.getElementById('musicFormatFilters');
+  const quickTags = document.getElementById('musicQuickTags');
+  const prevBtn = document.getElementById('btnMusicPrevPage');
+  const nextBtn = document.getElementById('btnMusicNextPage');
+  const modalClose = document.getElementById('btnCloseMusicFormatsModal');
+  const modal = document.getElementById('musicFormatsModal');
+  const goToDlBtn = document.getElementById('btnMusicGoToDownloads');
+
+  if (modalClose && modal) {
+    modalClose.onclick = () => { modal.style.display = 'none'; };
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+  }
+
+  if (goToDlBtn) {
+    goToDlBtn.onclick = () => {
+      if (modal) modal.style.display = 'none';
+      switchView('downloader');
+    };
+  }
+
+  if (input && clearBtn) {
+    input.addEventListener('input', () => {
+      clearBtn.style.display = input.value.trim() ? 'block' : 'none';
+    });
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      clearBtn.style.display = 'none';
+      input.focus();
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = (input ? input.value : '').trim();
+      if (!q) return;
+      currentMusicPage = 1;
+      executeMusicSearch(q, currentMusicPage);
+    });
+  }
+
+  if (sourceTabs) {
+    sourceTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.music-tab');
+      if (!btn) return;
+      sourceTabs.querySelectorAll('.music-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMusicSource = btn.dataset.source || 'direct';
+
+      if (input) {
+        if (currentMusicSource === 'direct') {
+          input.placeholder = 'Search songs, artists, or albums (e.g. Bohemian Rhapsody, Taylor Swift, Hans Zimmer)...';
+        } else {
+          input.placeholder = 'Search full albums & discographies (e.g. Pink Floyd FLAC, Queen Discography, Daft Punk)...';
+        }
+      }
+
+      if (currentMusicQuery) {
+        currentMusicPage = 1;
+        executeMusicSearch(currentMusicQuery, currentMusicPage);
+      }
+    });
+  }
+
+  if (formatFilters) {
+    formatFilters.addEventListener('click', (e) => {
+      const btn = e.target.closest('.music-f-pill');
+      if (!btn) return;
+      formatFilters.querySelectorAll('.music-f-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMusicFormat = btn.dataset.format || 'all';
+
+      if (currentMusicQuery) {
+        currentMusicPage = 1;
+        executeMusicSearch(currentMusicQuery, currentMusicPage);
+      }
+    });
+  }
+
+  if (quickTags) {
+    quickTags.addEventListener('click', (e) => {
+      const chip = e.target.closest('.music-quick-chip');
+      if (!chip) return;
+      const q = chip.dataset.query;
+      if (!q) return;
+      if (input) {
+        input.value = q;
+        if (clearBtn) clearBtn.style.display = 'block';
+      }
+      currentMusicPage = 1;
+      executeMusicSearch(q, currentMusicPage);
+    });
+  }
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      if (currentMusicPage > 1) {
+        executeMusicSearch(currentMusicQuery, currentMusicPage - 1);
+      }
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      executeMusicSearch(currentMusicQuery, currentMusicPage + 1);
+    });
+  }
+}
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   initFlacChecker();
   initAdultSearch();
   initMoviesView();
+  initMusicView();
   setupVersionTapEasterEgg();
 });
+

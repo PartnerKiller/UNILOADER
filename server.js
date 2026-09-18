@@ -2821,6 +2821,233 @@ app.post('/api/movies/resolve-ola', (req, res, next) => {
   app.handle(req, res, next);
 });
 
+// ==========================================================================
+// Music & Album Hub Helpers & Endpoints (Multi-Format, Multi-Codec, Audiophile Studio)
+// ==========================================================================
+
+async function searchDirectMusic(query, page = 1) {
+  try {
+    const limit = 25;
+    const offset = (page - 1) * limit;
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=${limit}&offset=${offset}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data || !Array.isArray(data.results)) return [];
+
+    return data.results.map(it => {
+      const durationSec = Math.round((it.trackTimeMillis || 0) / 1000);
+      const m = Math.floor(durationSec / 60);
+      const s = durationSec % 60;
+      const durationStr = `${m}:${s < 10 ? '0' : ''}${s}`;
+      const year = (it.releaseDate || '').substring(0, 4);
+      let cover = it.artworkUrl100 || '';
+      if (cover) {
+        cover = cover.replace(/100x100bb\.jpg/i, '600x600bb.jpg');
+      }
+
+      return {
+        id: `itunes_${it.trackId}`,
+        trackId: it.trackId,
+        title: it.trackName || 'Unknown Track',
+        artist: it.artistName || 'Unknown Artist',
+        album: it.collectionName || '',
+        year: year || '',
+        duration: durationSec,
+        durationStr,
+        cover,
+        previewUrl: it.previewUrl || '',
+        genre: it.primaryGenreName || '',
+        type: 'track',
+        source: 'track'
+      };
+    });
+  } catch (e) {
+    console.warn('[MusicSearch] iTunes search error:', e.message);
+    return [];
+  }
+}
+
+async function searchMusicTorrents(query) {
+  try {
+    const [flacRes, generalRes] = await Promise.allSettled([
+      fetch(`https://apibay.org/q.php?q=${encodeURIComponent(query + ' flac')}&cat=100`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(6000)
+      }),
+      fetch(`https://apibay.org/q.php?q=${encodeURIComponent(query)}&cat=100`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+        signal: AbortSignal.timeout(6000)
+      })
+    ]);
+
+    const items = [];
+    const seen = new Set();
+
+    for (const r of [flacRes, generalRes]) {
+      if (r.status === 'fulfilled' && r.value.ok) {
+        try {
+          const list = await r.value.json();
+          if (Array.isArray(list) && list.length > 0 && list[0].name !== 'No results returned') {
+            for (const it of list) {
+              if (parseInt(it.seeders, 10) > 0 && !seen.has(it.info_hash)) {
+                seen.add(it.info_hash);
+                items.push(it);
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    items.sort((a, b) => (parseInt(b.seeders, 10) || 0) - (parseInt(a.seeders, 10) || 0));
+
+    return items.slice(0, 20).map(it => {
+      const sizeBytes = parseInt(it.size, 10) || 0;
+      const sizeStr = sizeBytes > (1024 ** 3)
+        ? (sizeBytes / (1024 ** 3)).toFixed(2) + ' GB'
+        : (sizeBytes / (1024 ** 2)).toFixed(1) + ' MB';
+      const hash = it.info_hash;
+      const magnet = `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(it.name)}&${BT_TRACKER_PARAMS}`;
+
+      let cleanArtist = '';
+      if (it.name.includes(' - ')) {
+        cleanArtist = it.name.split(' - ')[0].trim();
+      }
+
+      return {
+        id: `tpb_music_${hash}`,
+        title: it.name,
+        artist: cleanArtist || query,
+        album: it.name,
+        size: sizeStr,
+        seeders: parseInt(it.seeders, 10) || 0,
+        leechers: parseInt(it.leechers, 10) || 0,
+        magnet,
+        cover: '/icon.svg',
+        type: 'torrent',
+        source: 'torrent'
+      };
+    });
+  } catch (e) {
+    console.warn('[MusicSearch] Torrent search error:', e.message);
+    return [];
+  }
+}
+
+// Unified Music Search API
+app.get('/api/music/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const source = req.query.source || 'direct'; // 'direct' or 'albums'
+    const format = req.query.format || 'all';
+    const page = parseInt(req.query.page, 10) || 1;
+
+    if (!q) {
+      return res.json({ success: true, results: [], query: '', total: 0 });
+    }
+
+    let results = [];
+    if (source === 'albums') {
+      results = await searchMusicTorrents(q);
+    } else {
+      results = await searchDirectMusic(q, page);
+      if (results.length === 0) {
+        results = await searchMusicTorrents(q);
+      }
+    }
+
+    res.json({
+      success: true,
+      query: q,
+      source,
+      format,
+      page,
+      count: results.length,
+      results
+    });
+  } catch (err) {
+    console.error('[MusicSearch] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Music 1-Click Multi-Format Download API
+app.post('/api/music/download', async (req, res) => {
+  try {
+    const item = req.body || {};
+    const {
+      title, artist, album, duration, cover, format, quality, source, magnet, torrentUrl
+    } = item;
+
+    if (!title && !magnet) {
+      return res.status(400).json({ success: false, error: 'Title or magnet link is required' });
+    }
+
+    const isTorrent = source === 'torrent' || !!magnet || !!torrentUrl;
+
+    if (isTorrent) {
+      const jobPayload = {
+        url: magnet || torrentUrl || '',
+        magnet: magnet || '',
+        torrentUrl: torrentUrl || '',
+        title: (title || 'Music Album').replace(/[\\/:*?"<>|]/g, '_').trim(),
+        poster: cover || '',
+        code: 'MUSIC_ALBUM',
+        mode: 'torrent',
+        type: 'torrent'
+      };
+      const job = createAndStartJob(jobPayload);
+      return res.json({
+        success: true,
+        jobId: job.id,
+        title: job.title,
+        type: 'torrent'
+      });
+    }
+
+    // Direct Track Download with multi-format & multi-codec dispatch
+    const cleanArtist = (artist || '').trim();
+    const cleanTitle = (title || '').trim();
+    const fullName = cleanArtist ? `${cleanArtist} - ${cleanTitle}` : cleanTitle;
+    const requestedFormat = (format || 'mp3').toLowerCase();
+    const requestedQuality = (quality || '320k').toLowerCase();
+
+    const isFlac = requestedFormat === 'flac';
+
+    const jobPayload = {
+      title: fullName,
+      artist: cleanArtist,
+      trackTitle: cleanTitle,
+      album: album || '',
+      cover: cover || '',
+      poster: cover || '',
+      duration: duration || 0,
+      code: isFlac ? 'FLAC_HIFI' : `AUDIO_${requestedFormat.toUpperCase()}`,
+      mode: isFlac ? 'audiophile_flac' : 'audio',
+      audioFormat: isFlac ? 'flac' : requestedFormat,
+      audioBitrate: requestedQuality === '320k' ? '320k' : (requestedQuality === '256k' ? '256k' : '160k'),
+      type: 'audio',
+      isMusicTrack: true
+    };
+
+    const job = createAndStartJob(jobPayload);
+    res.json({
+      success: true,
+      jobId: job.id,
+      title: job.title,
+      format: requestedFormat,
+      quality: requestedQuality
+    });
+  } catch (err) {
+    console.error('[MusicDownload] Dispatch error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Unified Adult Search API
 app.get('/api/adult/search', async (req, res) => {
   try {
@@ -3434,32 +3661,40 @@ function startJobProcess(job) {
     });
     job.process = child;
     attachProcessListeners(job, child);
-  } else if (isYouTubeFlac || isDeezerFlac || (isTidal && isAudioFlac)) {
+  } else if (isYouTubeFlac || isDeezerFlac || (isTidal && isAudioFlac) || mode === 'audiophile_flac' || (mode === 'audio' && audioFormat === 'flac')) {
     const pythonBin = getPythonBin();
     const audiophileScript = path.join(__dirname, 'audiophile_flac_engine.py');
     const safeTitle = (job.title || 'audiophile_track').replace(/[\\/:*?"<>|]/g, '_').trim();
     const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
 
-    let artist = '';
-    let trackTitle = job.title || '';
-    if (job.title && job.title.includes(' - ')) {
-      const parts = job.title.split(' - ');
-      artist = parts[0].trim();
-      trackTitle = parts.slice(1).join(' - ').trim();
-    } else {
-      artist = job.uploader || '';
+    let artist = (opts && opts.artist) || '';
+    let trackTitle = (opts && opts.trackTitle) || '';
+    if (!artist || !trackTitle) {
+      if (job.title && job.title.includes(' - ')) {
+        const parts = job.title.split(' - ');
+        if (!artist) artist = parts[0].trim();
+        if (!trackTitle) trackTitle = parts.slice(1).join(' - ').trim();
+      } else {
+        if (!trackTitle) trackTitle = job.title || '';
+        if (!artist) artist = job.uploader || '';
+      }
     }
 
     job.logs.push(`Lossless FLAC requested: "${job.title}"`);
     job.logs.push(`Initiating 3-Tier Audiophile Resolution Pipeline (Tidal Hi-Res → Soulseek P2P → Deezer HiFi)...`);
     job.logs.push(`Strict Quality Guarantee: Fake/upscaled transcodes prohibited; full spectral authenticity analysis will be enforced.`);
 
-    const child = spawn(pythonBin, [
+    const flacArgs = [
       audiophileScript,
       artist,
       trackTitle,
-      finalOutPath
-    ], { 
+      finalOutPath,
+      (opts && opts.isrc) || 'None',
+      (opts && (opts.cover || opts.poster)) || 'None',
+      (opts && opts.duration) ? String(opts.duration) : 'None'
+    ];
+
+    const child = spawn(pythonBin, flacArgs, { 
       windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
     });
@@ -3625,7 +3860,12 @@ function startJobProcess(job) {
     }
 
     const isJable = url && url.includes('jable.tv');
-    const targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
+    let targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
+    if (opts.isMusicTrack && (!targetUrl || !targetUrl.startsWith('http'))) {
+      const qArtist = (opts.artist || '').trim();
+      const qTitle = (opts.trackTitle || opts.title || '').trim();
+      targetUrl = `ytsearch1:${qArtist} - ${qTitle} audio`;
+    }
     args.push(targetUrl);
 
     job.logs.push(`Starting ${mode.toUpperCase()} processing...`);
@@ -3905,7 +4145,7 @@ function createAndStartJob(opts) {
   const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-  const ext = mode === 'audio' ? (audioFormat || 'mp3') : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
+  const ext = (mode === 'audio' || mode === 'audiophile_flac') ? (audioFormat || (mode === 'audiophile_flac' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
   const finalFilename = `${safeTitle}.${ext}`;
   const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
 
