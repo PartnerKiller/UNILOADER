@@ -1678,26 +1678,33 @@ async function loadAdminUsers() {
 
     tbody.innerHTML = users.map(u => {
       const dateStr = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A';
+      const isOwner = u.role === 'owner' || u.username.toLowerCase() === 'sakura';
       const isPrem = u.role === 'premium';
       return `
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); ${isOwner ? 'background: rgba(245,158,11,0.04);' : ''}">
           <td style="padding: 12px 14px;"><strong>${escapeHtml(u.username)}</strong></td>
           <td style="padding: 12px 14px;"><code style="font-size: 0.8rem; color: #93c5fd;">${escapeHtml(u.id)}</code></td>
           <td style="padding: 12px 14px;">
-            <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; ${isPrem ? 'background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4);' : 'background: rgba(255,255,255,0.08); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12);'}">
-              ${escapeHtml(u.role ? u.role.toUpperCase() : 'USER')}
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; ${isOwner ? 'background: linear-gradient(135deg, rgba(245,158,11,0.3) 0%, rgba(217,119,6,0.3) 100%); color: #fef08a; border: 1px solid rgba(245,158,11,0.6);' : (isPrem ? 'background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4);' : 'background: rgba(255,255,255,0.08); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12);')}">
+              ${isOwner ? '👑 OWNER' : escapeHtml(u.role ? u.role.toUpperCase() : 'USER')}
             </span>
           </td>
           <td style="padding: 12px 14px; color: var(--text-muted);">${dateStr}</td>
           <td style="padding: 12px 14px; text-align: right;">
-            <div style="display: inline-flex; gap: 8px;">
-              <button type="button" class="btn btn-outline btn-xs" onclick="toggleUserRole('${escapeHtml(u.id)}', '${isPrem ? 'user' : 'premium'}')">
-                ${isPrem ? 'Demote to Standard' : 'Make Premium'}
-              </button>
-              <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteUserAccount('${escapeHtml(u.id)}', '${escapeHtml(u.username)}')">
-                Delete
-              </button>
-            </div>
+            ${isOwner ? `
+              <span style="display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3);">
+                👑 Protected Owner
+              </span>
+            ` : `
+              <div style="display: inline-flex; gap: 8px;">
+                <button type="button" class="btn btn-outline btn-xs" onclick="toggleUserRole('${escapeHtml(u.id)}', '${isPrem ? 'user' : 'premium'}')">
+                  ${isPrem ? 'Demote to Standard' : 'Make Premium'}
+                </button>
+                <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteUserAccount('${escapeHtml(u.id)}', '${escapeHtml(u.username)}')">
+                  Delete
+                </button>
+              </div>
+            `}
           </td>
         </tr>
       `;
@@ -1718,6 +1725,9 @@ window.toggleUserRole = async function(id, newRole) {
     if (res.ok) {
       showToast(`User membership updated to ${newRole.toUpperCase()}`, 'success');
       loadAdminUsers();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to update user role', 'error');
     }
   } catch (e) {
     showToast('Failed to update user role', 'error');
@@ -1734,6 +1744,9 @@ window.deleteUserAccount = async function(id, username) {
     if (res.ok) {
       showToast(`User "${username}" deleted`, 'info');
       loadAdminUsers();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to delete user', 'error');
     }
   } catch (e) {
     showToast('Failed to delete user', 'error');

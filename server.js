@@ -637,22 +637,46 @@ function verifyAdminToken(req) {
 
 function requireAdmin(req, res, next) {
   const session = verifyAdminToken(req);
-  if (!session) {
-    return res.status(401).json({ error: 'Unauthorized: Admin authentication required' });
+  if (session) {
+    req.admin = session;
+    return next();
   }
-  req.admin = session;
-  next();
+
+  // Also check if Bearer token belongs to an owner or admin user session
+  let token = null;
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (req.headers['x-admin-token'] || req.headers['x-user-token']) {
+    token = req.headers['x-admin-token'] || req.headers['x-user-token'];
+  }
+  if (token) {
+    const uSess = userSessions.get(token);
+    if (uSess && (uSess.role === 'owner' || uSess.role === 'admin')) {
+      req.admin = { user: uSess.username, role: uSess.role };
+      return next();
+    }
+  }
+
+  return res.status(401).json({ error: 'Unauthorized: Admin authentication required' });
 }
 
 // 1. Admin Login
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body || {};
-  const expectedUser = process.env.ADMIN_USER || 'sakura';
-  const expectedPass = process.env.ADMIN_PASS || 'sakura';
+  const expectedUser = (process.env.ADMIN_USER || 'sakura').toLowerCase();
+  const expectedPass = process.env.ADMIN_PASS || 'Sakura@002';
 
-  if (username === expectedUser && password === expectedPass) {
-    const token = generateAdminToken(username);
-    res.json({ success: true, token, user: username });
+  if (username && username.trim().toLowerCase() === expectedUser && password === expectedPass) {
+    const token = generateAdminToken(process.env.ADMIN_USER || 'sakura');
+    userSessions.set(token, {
+      userId: 'owner',
+      username: process.env.ADMIN_USER || 'sakura',
+      role: 'owner',
+      createdAt: Date.now()
+    });
+    saveUserSessions();
+    res.json({ success: true, token, user: process.env.ADMIN_USER || 'sakura', role: 'owner' });
   } else {
     res.status(401).json({ error: 'Invalid admin credentials' });
   }
@@ -670,7 +694,7 @@ app.post('/api/admin/logout', requireAdmin, (req, res) => {
 
 // 3. Verify Admin Session
 app.get('/api/admin/me', requireAdmin, (req, res) => {
-  res.json({ success: true, user: req.admin.user });
+  res.json({ success: true, user: req.admin.user, role: req.admin.role || 'owner' });
 });
 
 // ==========================================================================
@@ -712,6 +736,41 @@ function saveUsers() {
   }
 }
 
+function ensureOwnerAccount() {
+  const ownerUsername = (process.env.ADMIN_USER || 'sakura').trim();
+  const ownerPassword = process.env.ADMIN_PASS || 'Sakura@002';
+  const lowerOwner = ownerUsername.toLowerCase();
+
+  let owner = users.get(lowerOwner);
+  if (!owner) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = hashPassword(ownerPassword, salt);
+    owner = {
+      id: 'owner_sakura',
+      username: ownerUsername,
+      passwordHash,
+      salt,
+      role: 'owner',
+      createdAt: Date.now()
+    };
+    users.set(lowerOwner, owner);
+    saveUsers();
+  } else {
+    let changed = false;
+    if (owner.role !== 'owner') {
+      owner.role = 'owner';
+      changed = true;
+    }
+    const testHash = hashPassword(ownerPassword, owner.salt);
+    if (testHash !== owner.passwordHash) {
+      owner.salt = crypto.randomBytes(16).toString('hex');
+      owner.passwordHash = hashPassword(ownerPassword, owner.salt);
+      changed = true;
+    }
+    if (changed) saveUsers();
+  }
+}
+
 function loadUserSessions() {
   try {
     if (fs.existsSync(USER_SESSIONS_FILE)) {
@@ -737,7 +796,9 @@ function saveUserSessions() {
 }
 
 loadUsers();
+ensureOwnerAccount();
 loadUserSessions();
+
 
 function generateUserSession(user) {
   const token = crypto.randomBytes(32).toString('hex');
@@ -782,14 +843,15 @@ function resolveUserSession(req) {
     token = req.query.user_token;
   }
 
-  // Admin token inherits premium role
+  // Admin / Owner token inherits owner role & full premium access
   const adminSess = verifyAdminToken(req);
   if (adminSess) {
     return {
-      userId: 'admin',
+      userId: 'owner',
       username: adminSess.user,
-      role: 'admin',
-      isPremium: true
+      role: 'owner',
+      isPremium: true,
+      isOwner: true
     };
   }
 
@@ -803,11 +865,15 @@ function resolveUserSession(req) {
     return null;
   }
 
+  const isOwner = sess.role === 'owner' || sess.username?.toLowerCase() === 'sakura';
+  const isPrem = isOwner || sess.role === 'premium' || sess.role === 'admin';
+
   return {
     userId: sess.userId,
     username: sess.username,
-    role: sess.role || 'premium',
-    isPremium: sess.role === 'premium' || sess.role === 'admin'
+    role: isOwner ? 'owner' : (sess.role || 'premium'),
+    isPremium: isPrem,
+    isOwner: isOwner
   };
 }
 
@@ -823,6 +889,7 @@ function identifyUser(req, res, next) {
       username: 'Guest',
       role: 'guest',
       isPremium: false,
+      isOwner: false,
       ip: cleanIp
     };
   }
@@ -882,19 +949,28 @@ app.post('/api/auth/login', (req, res) => {
   const cleanUser = username.trim();
   const lowerUser = cleanUser.toLowerCase();
 
-  // Sakura admin login fallback
+  // Sakura owner / admin login
   const expectedAdminUser = (process.env.ADMIN_USER || 'sakura').toLowerCase();
-  const expectedAdminPass = process.env.ADMIN_PASS || 'sakura';
+  const expectedAdminPass = process.env.ADMIN_PASS || 'Sakura@002';
   if (lowerUser === expectedAdminUser && password === expectedAdminPass) {
     const adminToken = generateAdminToken(process.env.ADMIN_USER || 'sakura');
+    userSessions.set(adminToken, {
+      userId: 'owner',
+      username: process.env.ADMIN_USER || 'sakura',
+      role: 'owner',
+      createdAt: Date.now()
+    });
+    saveUserSessions();
+
     return res.json({
       success: true,
       token: adminToken,
       user: {
-        id: 'admin',
+        id: 'owner',
         username: process.env.ADMIN_USER || 'sakura',
-        role: 'admin',
-        isPremium: true
+        role: 'owner',
+        isPremium: true,
+        isOwner: true
       }
     });
   }
@@ -909,6 +985,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
+  const isOwner = user.role === 'owner' || lowerUser === 'sakura';
   const token = generateUserSession(user);
   res.json({
     success: true,
@@ -916,8 +993,9 @@ app.post('/api/auth/login', (req, res) => {
     user: {
       id: user.id,
       username: user.username,
-      role: user.role || 'premium',
-      isPremium: user.role === 'premium' || user.role === 'admin'
+      role: isOwner ? 'owner' : (user.role || 'premium'),
+      isPremium: isOwner || user.role === 'premium' || user.role === 'admin',
+      isOwner: isOwner
     }
   });
 });
@@ -946,10 +1024,12 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
       id: u.userId,
       username: u.username,
       role: u.role,
-      isPremium: u.isPremium
+      isPremium: u.isPremium,
+      isOwner: u.isOwner || u.role === 'owner'
     },
     limits: {
       isPremium: u.isPremium,
+      isOwner: u.isOwner || u.role === 'owner',
       maxDailyDownloads: u.isPremium ? 'unlimited' : 10,
       usedDailyDownloads: guestCount,
       maxBatchUrls: u.isPremium ? 50 : 2,
@@ -962,6 +1042,7 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
 
 // Admin User Management Endpoints
 app.get('/api/admin/users', requireAdmin, (req, res) => {
+  ensureOwnerAccount();
   const list = Array.from(users.values()).map(u => ({
     id: u.id,
     username: u.username,
@@ -976,6 +1057,9 @@ app.post('/api/admin/users/role', requireAdmin, (req, res) => {
   if (!id || !role) return res.status(400).json({ error: 'User ID and role are required' });
   for (const u of users.values()) {
     if (u.id === id) {
+      if (u.role === 'owner' || u.username.toLowerCase() === 'sakura') {
+        return res.status(403).json({ error: 'Cannot modify role of the owner account' });
+      }
       u.role = role;
       saveUsers();
       return res.json({ success: true, user: { id: u.id, username: u.username, role: u.role } });
@@ -988,6 +1072,9 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   const id = req.params.id;
   for (const [key, u] of users.entries()) {
     if (u.id === id) {
+      if (u.role === 'owner' || u.username.toLowerCase() === 'sakura') {
+        return res.status(403).json({ error: 'Cannot delete the owner account' });
+      }
       users.delete(key);
       saveUsers();
       for (const [t, s] of userSessions.entries()) {
@@ -1366,6 +1453,7 @@ app.post('/api/admin/creds', requireAdmin, (req, res) => {
     if (adminPass) {
       process.env.ADMIN_PASS = adminPass.trim();
     }
+    ensureOwnerAccount();
 
     try {
       let envContent = '';

@@ -242,15 +242,31 @@ function updateAuthUI(user, limits) {
   const drawerUserAvatar = document.getElementById('drawerUserAvatar');
   const drawerAuthBtnText = document.getElementById('drawerAuthBtnText');
 
-  if (user && (user.isPremium || user.role === 'premium' || user.role === 'admin')) {
-    // Logged in Premium User
-    const badgeText = user.role === 'admin' ? '★ ADMIN ACCESS' : '★ PREMIUM';
+  if (user && (user.isPremium || user.role === 'premium' || user.role === 'admin' || user.role === 'owner' || user.isOwner)) {
+    // Logged in Premium User or Owner / Admin
+    let badgeText = '★ PREMIUM';
+    let badgeClass = 'badge-tier badge-tier-premium';
+    if (user.role === 'owner' || user.isOwner) {
+      badgeText = '👑 OWNER';
+      badgeClass = 'badge-tier badge-tier-owner';
+    } else if (user.role === 'admin') {
+      badgeText = '⚡ ADMIN';
+      badgeClass = 'badge-tier badge-tier-admin';
+    }
+
     if (sidebarUserName) sidebarUserName.textContent = user.username;
     if (sidebarUserRole) {
       sidebarUserRole.textContent = badgeText;
-      sidebarUserRole.className = 'badge-tier badge-tier-premium';
+      sidebarUserRole.className = badgeClass;
     }
-    if (sidebarUserAvatar) sidebarUserAvatar.classList.add('is-premium');
+    if (sidebarUserAvatar) {
+      sidebarUserAvatar.classList.add('is-premium');
+      if (user.role === 'owner' || user.isOwner) {
+        sidebarUserAvatar.classList.add('is-owner');
+      } else {
+        sidebarUserAvatar.classList.remove('is-owner');
+      }
+    }
     if (sidebarAuthBtnText) sidebarAuthBtnText.textContent = 'Account';
     if (sidebarAuthBtn) sidebarAuthBtn.classList.add('btn-user-active');
 
@@ -258,9 +274,16 @@ function updateAuthUI(user, limits) {
     if (drawerUserName) drawerUserName.textContent = user.username;
     if (drawerUserRole) {
       drawerUserRole.textContent = badgeText;
-      drawerUserRole.className = 'badge-tier badge-tier-premium';
+      drawerUserRole.className = badgeClass;
     }
-    if (drawerUserAvatar) drawerUserAvatar.classList.add('is-premium');
+    if (drawerUserAvatar) {
+      drawerUserAvatar.classList.add('is-premium');
+      if (user.role === 'owner' || user.isOwner) {
+        drawerUserAvatar.classList.add('is-owner');
+      } else {
+        drawerUserAvatar.classList.remove('is-owner');
+      }
+    }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account Profile';
   } else {
     // Guest User
@@ -269,7 +292,10 @@ function updateAuthUI(user, limits) {
       sidebarUserRole.textContent = 'GUEST ACCESS';
       sidebarUserRole.className = 'badge-tier badge-tier-guest';
     }
-    if (sidebarUserAvatar) sidebarUserAvatar.classList.remove('is-premium');
+    if (sidebarUserAvatar) {
+      sidebarUserAvatar.classList.remove('is-premium');
+      sidebarUserAvatar.classList.remove('is-owner');
+    }
     if (sidebarAuthBtnText) sidebarAuthBtnText.textContent = 'Sign In / Join';
     if (sidebarAuthBtn) sidebarAuthBtn.classList.remove('btn-user-active');
 
@@ -279,7 +305,10 @@ function updateAuthUI(user, limits) {
       drawerUserRole.textContent = 'GUEST ACCESS';
       drawerUserRole.className = 'badge-tier badge-tier-guest';
     }
-    if (drawerUserAvatar) drawerUserAvatar.classList.remove('is-premium');
+    if (drawerUserAvatar) {
+      drawerUserAvatar.classList.remove('is-premium');
+      drawerUserAvatar.classList.remove('is-owner');
+    }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Sign In / Join';
   }
 }
@@ -368,9 +397,23 @@ function openAccountModal() {
   if (!modal) return;
   const nameEl = document.getElementById('accountModalUsername');
   const roleEl = document.getElementById('accountModalRoleBadge');
+  const adminLinkBtn = document.getElementById('btnAccountAdminStudio');
   if (nameEl && currentUser) nameEl.textContent = currentUser.username;
   if (roleEl && currentUser) {
-    roleEl.textContent = currentUser.role === 'admin' ? '★ ADMIN ACCESS' : '★ PREMIUM MEMBER';
+    if (currentUser.role === 'owner' || currentUser.isOwner) {
+      roleEl.textContent = '👑 OWNER / SYSTEM ADMIN';
+      roleEl.className = 'badge-tier badge-tier-owner';
+    } else if (currentUser.role === 'admin') {
+      roleEl.textContent = '⚡ ADMIN ACCESS';
+      roleEl.className = 'badge-tier badge-tier-admin';
+    } else {
+      roleEl.textContent = '★ PREMIUM MEMBER';
+      roleEl.className = 'badge-tier badge-tier-premium';
+    }
+  }
+  if (adminLinkBtn) {
+    const isOwnerOrAdmin = currentUser && (currentUser.role === 'owner' || currentUser.isOwner || currentUser.role === 'admin');
+    adminLinkBtn.style.display = isOwnerOrAdmin ? 'inline-flex' : 'none';
   }
   modal.style.display = 'flex';
 }
@@ -395,7 +438,7 @@ function setupAuthModalEvents() {
   const logoutBtn = document.getElementById('btnLogoutBtn');
 
   function handleAuthClick() {
-    if (currentUser && (currentUser.isPremium || currentUser.role === 'premium' || currentUser.role === 'admin')) {
+    if (currentUser && (currentUser.isPremium || currentUser.role === 'premium' || currentUser.role === 'admin' || currentUser.role === 'owner' || currentUser.isOwner)) {
       openAccountModal();
     } else {
       openAuthModal('login');
