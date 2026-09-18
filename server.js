@@ -1954,60 +1954,202 @@ async function searchDdlMovies(query, page = 1) {
     const q = (query || '').trim();
     if (!q) return [];
 
-    // Query Cinemeta open catalog (ultra-fast, zero-key, IMDb metadata & official posters)
-    const cinemetaUrl = `https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(q)}.json`;
-    const res = await fetch(cinemetaUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      signal: AbortSignal.timeout(6000)
-    });
+    const qLower = q.toLowerCase();
 
-    let metas = [];
-    if (res.ok) {
-      const data = await res.json();
-      metas = Array.isArray(data.metas) ? data.metas : [];
+    // Query Cinemeta open catalog for both Movies and TV Series concurrently
+    const [movieRes, seriesRes] = await Promise.allSettled([
+      fetch(`https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(q)}.json`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(6000)
+      }),
+      fetch(`https://v3-cinemeta.strem.io/catalog/series/top/search=${encodeURIComponent(q)}.json`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(6000)
+      })
+    ]);
+
+    let movieMetas = [];
+    if (movieRes.status === 'fulfilled' && movieRes.value.ok) {
+      const data = await movieRes.value.json();
+      if (Array.isArray(data.metas)) {
+        movieMetas = data.metas.map(m => ({ ...m, type: m.type || 'movie' }));
+      }
     }
 
+    let seriesMetas = [];
+    if (seriesRes.status === 'fulfilled' && seriesRes.value.ok) {
+      const data = await seriesRes.value.json();
+      if (Array.isArray(data.metas)) {
+        seriesMetas = data.metas.map(m => ({ ...m, type: 'series' }));
+      }
+    }
+
+    // Combine and deduplicate by id
+    const seenIds = new Set();
+    const combinedMetas = [];
+    for (const m of [...seriesMetas, ...movieMetas]) {
+      const id = m.imdb_id || m.id;
+      if (id && !seenIds.has(id)) {
+        seenIds.add(id);
+        combinedMetas.push(m);
+      }
+    }
+
+    // Relevance scoring: exact title matches first, then prefix matches, then substring
+    combinedMetas.sort((a, b) => {
+      const aName = (a.name || '').toLowerCase().trim();
+      const bName = (b.name || '').toLowerCase().trim();
+      const aExact = aName === qLower ? 1 : 0;
+      const bExact = bName === qLower ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+
+      const aStarts = aName.startsWith(qLower) ? 1 : 0;
+      const bStarts = bName.startsWith(qLower) ? 1 : 0;
+      if (aStarts !== bStarts) return bStarts - aStarts;
+
+      const aIncludes = aName.includes(qLower) ? 1 : 0;
+      const bIncludes = bName.includes(qLower) ? 1 : 0;
+      if (aIncludes !== bIncludes) return bIncludes - aIncludes;
+
+      // When both are exact, give series with seasons/popularity preference
+      if (aExact && bExact) {
+        if (a.type === 'series' && b.type !== 'series') return -1;
+        if (b.type === 'series' && a.type !== 'series') return 1;
+      }
+
+      return 0;
+    });
+
+    // Enrich top TV series with accurate IMDb rating, genres, and episode/season lists
+    const topSeriesToEnrich = combinedMetas.filter(m => m.type === 'series').slice(0, 4);
+    await Promise.allSettled(topSeriesToEnrich.map(async (m) => {
+      try {
+        const sRes = await fetch(`https://v3-cinemeta.strem.io/meta/series/${m.id}.json`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          signal: AbortSignal.timeout(4000)
+        });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData && sData.meta) {
+            m.imdbRating = sData.meta.imdbRating || m.imdbRating || '';
+            m.genres = sData.meta.genres || m.genres || [];
+            m.description = sData.meta.description || m.description || '';
+            m.videos = sData.meta.videos || [];
+          }
+        }
+      } catch (e) {}
+    }));
+
     const items = [];
-    for (const m of metas) {
-      const title = m.name || 'Movie';
+    for (const m of combinedMetas) {
+      const title = m.name || 'Title';
       const year = m.releaseInfo || m.year || '';
       const imdbId = m.imdb_id || m.id || '';
-      const poster = m.poster || (m.background ? m.background : '');
+      let poster = m.poster || (m.background ? m.background : '');
       const summary = m.description || '';
       const genres = m.genres || (m.genre ? (Array.isArray(m.genre) ? m.genre : [m.genre]) : []);
       const rating = parseFloat(m.imdbRating) || 0;
+      const isSeries = m.type === 'series';
 
-      const cleanBaseName = `${title.replace(/[^\w\s.-]/g, '').trim().replace(/\s+/g, '.')}${year ? `.${year}` : ''}`;
+      // Upgrade Cinemeta / IMDb Amazon poster resolution to crisp 600px
+      if (poster && poster.includes('media-amazon.com/images/M/') && poster.includes('._V1_')) {
+        poster = poster.replace(/\._V1_.*?\.(jpg|jpeg|png|webp)/i, '._V1_SX600.$1');
+      }
 
-      const releases = [
-        {
-          label: '1080p Full HD (Direct DDL Cloud)',
-          filename: `${cleanBaseName}.1080p.WEB-DL.mp4`,
-          size: '~2.4 GB',
+      const cleanBaseName = `${title.replace(/[^\w\s.-]/g, '').trim().replace(/\s+/g, '.')}${year ? `.${String(year).replace(/[^\w]/g, '-')}` : ''}`;
+
+      let releases = [];
+      if (isSeries) {
+        const uniqueSeasons = [...new Set((m.videos || []).map(v => v.season).filter(s => typeof s === 'number' && s > 0))].sort((a, b) => a - b);
+
+        // Complete Series Pack
+        releases.push({
+          label: uniqueSeasons.length > 1
+            ? `Complete Series (S01-S${String(uniqueSeasons.length).padStart(2, '0')}) [1080p Full HD]`
+            : `Complete Series Pack [1080p Full HD]`,
+          filename: `${cleanBaseName}.Complete.Series.1080p.mkv`,
+          size: uniqueSeasons.length > 1 ? `~${Math.round(uniqueSeasons.length * 3.2)} GB` : '~20 GB',
           quality: '1080p',
           provider: 'ddl',
           imdbId,
           type: 'ddl'
-        },
-        {
-          label: '720p HD (Direct DDL Cloud)',
-          filename: `${cleanBaseName}.720p.WEB-DL.mp4`,
-          size: '~1.1 GB',
-          quality: '720p',
-          provider: 'ddl',
-          imdbId,
-          type: 'ddl'
-        },
-        {
-          label: '4K UHD Ultra HD (Direct DDL Cloud)',
-          filename: `${cleanBaseName}.2160p.WEB-DL.mp4`,
-          size: '~5.8 GB',
-          quality: '4K UHD',
-          provider: 'ddl',
-          imdbId,
-          type: 'ddl'
+        });
+
+        // Individual Season Packs
+        if (uniqueSeasons.length > 0) {
+          for (const sNum of uniqueSeasons) {
+            const sPad = String(sNum).padStart(2, '0');
+            releases.push({
+              label: `Season ${sNum} Complete [1080p Full HD]`,
+              filename: `${cleanBaseName}.S${sPad}.Complete.1080p.mkv`,
+              size: '~3.5 GB',
+              quality: '1080p',
+              provider: 'ddl',
+              imdbId,
+              type: 'ddl'
+            });
+            releases.push({
+              label: `Season ${sNum} Complete [720p HD]`,
+              filename: `${cleanBaseName}.S${sPad}.Complete.720p.mkv`,
+              size: '~1.8 GB',
+              quality: '720p',
+              provider: 'ddl',
+              imdbId,
+              type: 'ddl'
+            });
+          }
+        } else {
+          releases.push({
+            label: 'Season 1 Complete [1080p Full HD]',
+            filename: `${cleanBaseName}.S01.Complete.1080p.mkv`,
+            size: '~3.5 GB',
+            quality: '1080p',
+            provider: 'ddl',
+            imdbId,
+            type: 'ddl'
+          });
+          releases.push({
+            label: 'Season 1 Complete [720p HD]',
+            filename: `${cleanBaseName}.S01.Complete.720p.mkv`,
+            size: '~1.8 GB',
+            quality: '720p',
+            provider: 'ddl',
+            imdbId,
+            type: 'ddl'
+          });
         }
-      ];
+      } else {
+        // Movie releases
+        releases = [
+          {
+            label: '1080p Full HD (Direct DDL Cloud)',
+            filename: `${cleanBaseName}.1080p.WEB-DL.mp4`,
+            size: '~2.4 GB',
+            quality: '1080p',
+            provider: 'ddl',
+            imdbId,
+            type: 'ddl'
+          },
+          {
+            label: '720p HD (Direct DDL Cloud)',
+            filename: `${cleanBaseName}.720p.WEB-DL.mp4`,
+            size: '~1.1 GB',
+            quality: '720p',
+            provider: 'ddl',
+            imdbId,
+            type: 'ddl'
+          },
+          {
+            label: '4K UHD Ultra HD (Direct DDL Cloud)',
+            filename: `${cleanBaseName}.2160p.WEB-DL.mp4`,
+            size: '~5.8 GB',
+            quality: '4K UHD',
+            provider: 'ddl',
+            imdbId,
+            type: 'ddl'
+          }
+        ];
+      }
 
       items.push({
         id: `ddl_${imdbId || Math.random().toString(36).substring(2, 8)}`,
@@ -2020,7 +2162,7 @@ async function searchDdlMovies(query, page = 1) {
         summary,
         imdbId,
         provider: 'ddl',
-        type: 'movie',
+        type: isSeries ? 'series' : 'movie',
         releasesCount: releases.length,
         releases
       });
@@ -2982,11 +3124,28 @@ async function startDdlMovieResolver(job) {
     const rawTitle = (job.opts && (job.opts.pureTitle || job.opts.title)) || job.title || '';
     const { title: cleanTitle, year: cleanYear } = extractCleanMovieTitle(rawTitle);
     const effectiveTitle = cleanTitle || rawTitle;
-    const effectiveYear = (job.opts && job.opts.year) || cleanYear || '';
+    let rawYear = (job.opts && job.opts.year) || cleanYear || '';
+    // Handle year ranges like 2008-2015 -> extract start year 2008
+    const startYearMatch = String(rawYear).match(/\b(19\d\d|20\d\d)\b/);
+    const effectiveYear = startYearMatch ? startYearMatch[1] : '';
+
     const quality = ((job.opts && job.opts.quality) || '1080p').toLowerCase();
     const qTag = quality.includes('4k') || quality.includes('2160') ? '2160p' : (quality.includes('720') ? '720p' : '1080p');
 
-    job.logs.push(`[Direct DDL] Target Title: "${effectiveTitle}" | Target Quality: ${qTag.toUpperCase()}${effectiveYear ? ` | Year: ${effectiveYear}` : ''}`);
+    // Detect Season or Episode notation
+    const combinedFullTitle = `${job.title} ${rawTitle} ${(job.opts && job.opts.title) || ''}`;
+    let seTag = '';
+    const seMatch = combinedFullTitle.match(/\b(S\d\d?E\d\d?)\b/i);
+    if (seMatch) {
+      seTag = seMatch[1].toUpperCase();
+    } else {
+      const seasonMatch = combinedFullTitle.match(/\b(?:Season\s*(\d+)|(S\d\d?))\b/i);
+      if (seasonMatch) {
+        seTag = seasonMatch[1] ? `Season ${seasonMatch[1]}` : seasonMatch[2].toUpperCase();
+      }
+    }
+
+    job.logs.push(`[Direct DDL] Target Title: "${effectiveTitle}" | Quality: ${qTag.toUpperCase()}${seTag ? ` | Tag: ${seTag}` : ''}${effectiveYear ? ` | Year: ${effectiveYear}` : ''}`);
 
     // 1. If a direct HTTP/HTTPS media stream was already provided
     if (job.url && job.url.startsWith('http') && !job.url.includes('strem.io') && !job.url.includes('cinemeta')) {
@@ -3000,29 +3159,31 @@ async function startDdlMovieResolver(job) {
     job.progress.percent = 35;
     job.progress.eta = 'Checking direct cloud archives...';
     let directStreamUrl = null;
-    try {
-      const searchTerms = `${effectiveTitle} ${effectiveYear}`.trim();
-      const iaUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(searchTerms)}+AND+mediatype%3Amovies&fl%5B%5D=identifier%2Ctitle&rows=3&page=1&output=json`;
-      const iaRes = await fetch(iaUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
-      if (iaRes.ok) {
-        const iaData = await iaRes.json();
-        const docs = iaData?.response?.docs || [];
-        if (docs.length > 0) {
-          const docId = docs[0].identifier;
-          const filesRes = await fetch(`https://archive.org/metadata/${docId}/files`, { signal: AbortSignal.timeout(3500) });
-          if (filesRes.ok) {
-            const filesData = await filesRes.json();
-            const mp4s = (filesData?.result || []).filter(f => f.name && (f.name.endsWith('.mp4') || f.name.endsWith('.mkv')));
-            if (mp4s.length > 0) {
-              const bestFile = mp4s.find(f => f.name.toLowerCase().includes(qTag)) || mp4s[0];
-              directStreamUrl = `https://archive.org/download/${docId}/${encodeURIComponent(bestFile.name)}`;
-              job.logs.push(`[Direct DDL] Found high-speed direct archive mirror: ${bestFile.name}`);
+    if (!seTag) {
+      try {
+        const searchTerms = `${effectiveTitle} ${effectiveYear}`.trim();
+        const iaUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(searchTerms)}+AND+mediatype%3Amovies&fl%5B%5D=identifier%2Ctitle&rows=3&page=1&output=json`;
+        const iaRes = await fetch(iaUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
+        if (iaRes.ok) {
+          const iaData = await iaRes.json();
+          const docs = iaData?.response?.docs || [];
+          if (docs.length > 0) {
+            const docId = docs[0].identifier;
+            const filesRes = await fetch(`https://archive.org/metadata/${docId}/files`, { signal: AbortSignal.timeout(3500) });
+            if (filesRes.ok) {
+              const filesData = await filesRes.json();
+              const mp4s = (filesData?.result || []).filter(f => f.name && (f.name.endsWith('.mp4') || f.name.endsWith('.mkv')));
+              if (mp4s.length > 0) {
+                const bestFile = mp4s.find(f => f.name.toLowerCase().includes(qTag)) || mp4s[0];
+                directStreamUrl = `https://archive.org/download/${docId}/${encodeURIComponent(bestFile.name)}`;
+                job.logs.push(`[Direct DDL] Found high-speed direct archive mirror: ${bestFile.name}`);
+              }
             }
           }
         }
+      } catch (e) {
+        job.logs.push(`[Direct DDL] Archive query note: ${e.message}`);
       }
-    } catch (e) {
-      job.logs.push(`[Direct DDL] Archive query note: ${e.message}`);
     }
 
     if (directStreamUrl) {
@@ -3033,30 +3194,46 @@ async function startDdlMovieResolver(job) {
       return;
     }
 
-    // 3. High-Speed Verified BitTorrent Swarm Fallback (YTS / 1337x / TPB)
+    // 3. High-Speed Verified Swarm Fallback (YTS / 1337x / TPB)
     job.progress.percent = 60;
-    job.progress.eta = 'Connecting to verified BitTorrent swarm...';
+    job.progress.eta = 'Connecting to verified swarm stream...';
     job.logs.push(`[Direct DDL] Direct cloud mirror unindexed. Resolving verified high-speed release bitstream...`);
 
-    const [ytsCandidates, tpbCandidates] = await Promise.allSettled([
-      searchYtsMovies(effectiveTitle, 1),
-      searchApibayMovies(`${effectiveTitle} ${effectiveYear}`.trim())
-    ]);
-
-    const candidates = [];
-    if (ytsCandidates.status === 'fulfilled' && Array.isArray(ytsCandidates.value)) {
-      for (const m of ytsCandidates.value) {
-        for (const r of m.releases || []) {
-          if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: m.title });
-        }
-      }
+    const queriesToTry = [];
+    if (seTag) {
+      queriesToTry.push(`${effectiveTitle} ${seTag} ${qTag}`);
+      queriesToTry.push(`${effectiveTitle} ${seTag}`);
+    } else {
+      if (effectiveYear) queriesToTry.push(`${effectiveTitle} ${effectiveYear} ${qTag}`);
+      queriesToTry.push(`${effectiveTitle} ${qTag}`);
+      if (effectiveYear) queriesToTry.push(`${effectiveTitle} ${effectiveYear}`);
     }
-    if (tpbCandidates.status === 'fulfilled' && Array.isArray(tpbCandidates.value)) {
-      for (const m of tpbCandidates.value) {
-        for (const r of m.releases || []) {
-          if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: m.title });
+    queriesToTry.push(effectiveTitle);
+
+    let candidates = [];
+    for (const qStr of queriesToTry) {
+      if (candidates.length > 0) break;
+      try {
+        const [ytsCandidates, tpbCandidates] = await Promise.allSettled([
+          (!seTag) ? searchYtsMovies(qStr, 1) : Promise.resolve([]),
+          searchApibayMovies(qStr)
+        ]);
+
+        if (ytsCandidates.status === 'fulfilled' && Array.isArray(ytsCandidates.value)) {
+          for (const m of ytsCandidates.value) {
+            for (const r of m.releases || []) {
+              if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: m.title });
+            }
+          }
         }
-      }
+        if (tpbCandidates.status === 'fulfilled' && Array.isArray(tpbCandidates.value)) {
+          for (const m of tpbCandidates.value) {
+            for (const r of m.releases || []) {
+              if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: m.title });
+            }
+          }
+        }
+      } catch (e) {}
     }
 
     if (candidates.length > 0) {

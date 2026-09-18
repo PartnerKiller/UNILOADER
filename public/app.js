@@ -2496,15 +2496,16 @@ function renderMovieResults(items) {
     const isDdl = item.provider === 'ddl';
     const isYts = item.provider === 'yts';
     const isTorrent = item.provider === 'torrent';
+    const isSeries = item.type === 'series';
 
-    let providerBadge = 'Direct DDL';
-    let providerClass = 'badge-provider-ddl';
+    let providerBadge = isSeries ? 'TV Series' : 'Direct DDL';
+    let providerClass = isSeries ? 'badge-provider-series' : 'badge-provider-ddl';
     if (isYts) {
       providerBadge = 'YTS 4K';
       providerClass = 'badge-provider-yts';
     } else if (isTorrent) {
-      providerBadge = 'BitTorrent';
-      providerClass = 'badge-provider-torrent';
+      providerBadge = isSeries ? 'TV Series • Swarm' : 'BitTorrent';
+      providerClass = isSeries ? 'badge-provider-series' : 'badge-provider-torrent';
     }
 
     let posterUrl = item.poster || defaultPoster;
@@ -2909,7 +2910,11 @@ window.openMovieReleasesModal = function(idx) {
 
   if (titleEl) titleEl.textContent = item.title;
   if (badgeEl) {
-    badgeEl.textContent = item.provider === 'ddl' ? 'Direct DDL Cloud' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
+    if (item.type === 'series') {
+      badgeEl.textContent = item.provider === 'ddl' ? 'TV Series • Direct DDL' : 'TV Series • Swarm';
+    } else {
+      badgeEl.textContent = item.provider === 'ddl' ? 'Direct DDL Cloud' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
+    }
   }
 
   // Populate hero elements
@@ -2936,10 +2941,11 @@ window.openMovieReleasesModal = function(idx) {
     }
   }
   if (subEl) {
-    if (item.genres && item.genres.length > 0) {
-      subEl.textContent = item.genres.join(' • ');
+    let genreText = (item.genres && item.genres.length > 0) ? item.genres.join(' • ') : '';
+    if (item.type === 'series') {
+      subEl.textContent = genreText ? `${genreText} • TV Series` : 'Select season or preferred quality';
     } else {
-      subEl.textContent = 'Select preferred quality and download directly';
+      subEl.textContent = genreText || 'Select preferred quality and download directly';
     }
   }
 
