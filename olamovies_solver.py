@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 OlaMovies Direct Cloud Stream Solver
 Automates:
@@ -19,9 +19,12 @@ import argparse
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 try:
-    from playwright_stealth import stealth_sync
+    from playwright_stealth.stealth import Stealth
 except ImportError:
-    stealth_sync = None
+    try:
+        from playwright_stealth import Stealth
+    except ImportError:
+        Stealth = None
 
 
 def emit(data):
@@ -88,15 +91,35 @@ def load_cookies(cookie_input):
 
 
 def solve_slider(page):
-    """Find slider handle and target marker, then perform realistic human drag."""
-    emit_log("[Step 1] Looking for Human Check slider...")
+    """Check Cloudflare, find slider handle, and perform human drag."""
+    emit_log("[Step 1] Loading release page...")
     page.wait_for_timeout(2000)
+
+    # Check for Cloudflare Turnstile managed challenge on links host
+    if "Just a moment" in page.title() or "challenges.cloudflare.com" in page.content():
+        emit_log("[Step 1] Cloudflare Turnstile challenge detected on link host...")
+        for sec in range(12):
+            page.wait_for_timeout(1000)
+            if "Just a moment" not in page.title():
+                emit_log("[Step 1] Cloudflare verification passed!")
+                break
+            for frame in page.frames:
+                if 'challenges.cloudflare.com' in frame.url:
+                    try:
+                        box = frame.locator('#challenge-stage, .ctp-checkbox-label, input[type="checkbox"]').first
+                        if box.is_visible():
+                            box.click(timeout=2000)
+                            emit_log("[Step 1] Clicked Turnstile checkbox...")
+                    except Exception:
+                        pass
+        if "Just a moment" in page.title():
+            return False, "Cloudflare Turnstile challenge blocked headless server. Please click '🚀 Auto-Hop in Browser' on the download card to complete via the Sakura Companion Script."
 
     # Check if login prompt exists
     login_btn = page.locator('a:has-text("Login to Continue"), button:has-text("Login to Continue")')
     if login_btn.count() > 0 and login_btn.first.is_visible():
         emit_log("[WARN] OlaMovies requested Google login. Stored session cookie required.")
-        return False, "Google login required on OlaMovies. Please save your session cookie in Admin settings."
+        return False, "Google login required on OlaMovies. Please save your session cookie in Admin settings or use Browser Auto-Hop."
 
     # Look for slider container
     slider_handle = page.locator('.slider-handle, [role="slider"], .drag-handle, .arrow-handle, button:has-text("->"), div:has-text("->")')
@@ -114,7 +137,7 @@ def solve_slider(page):
 
         marker_box = page.evaluate('''() => {
             const el = document.querySelector('.slider-marker') || 
-                       document.querySelector('.marker') ||
+                       document.querySelector('.marker') || 
                        document.querySelector('.target-circle') ||
                        Array.from(document.querySelectorAll('div, span')).find(e => e.className && (e.className.includes('marker') || e.className.includes('circle')));
             if (!el) return null;
@@ -140,7 +163,7 @@ def solve_slider(page):
             page.mouse.up()
             page.wait_for_timeout(1000)
     except Exception as e:
-        emit_log(f"[Step 1] Slider drag error: {e}")
+        emit_log(f"[Step 1] Slider drag note: {e}")
 
     # Now click "Verify to generate link"
     verify_btn = page.locator('button:has-text("Verify to generate link"), a:has-text("Verify to generate link")')
@@ -150,16 +173,22 @@ def solve_slider(page):
             verify_btn.first.click(timeout=5000)
             page.wait_for_timeout(2000)
         except Exception as e:
-            emit_log(f"[Step 1] Click verify failed: {e}")
+            emit_log(f"[Step 1] Click verify note: {e}")
 
-    # Look for the generated shortener button (e.g. "srnky.com")
-    srnky_btn = page.locator('a:has-text("srnky.com"), button:has-text("srnky.com"), a[href*="srnky.com"]')
-    if srnky_btn.count() > 0:
-        href = srnky_btn.first.get_attribute('href')
-        emit_log(f"[Step 1] Generated shortener link: {href or 'button click'}")
-        return True, href
+    # Look for destination link button
+    for _ in range(8):
+        page.wait_for_timeout(1000)
+        dest = page.locator('a[href*="srnky.com"], a[href*="financeehelp"], a[href*="techmags"], a.btn-success, .btn-generate')
+        if dest.count() > 0:
+            href = dest.first.get_attribute('href')
+            if href and href.startswith('http'):
+                emit_log(f"[Step 1] Generated shortener link: {href}")
+                return True, href
 
-    return True, None
+    if 'links.olamovies' not in page.url and 'links.ol-am' not in page.url and 'ol-am.top' not in page.url:
+        return True, page.url
+
+    return False, "Gate 1 Human Check slider did not generate shortener link on server. Please click '🚀 Auto-Hop in Browser' on the download card to resolve."
 
 
 def solve_turnstile(page):
@@ -337,8 +366,11 @@ def main():
         ''')
 
         page = context.new_page()
-        if stealth_sync:
-            stealth_sync(page)
+        if Stealth:
+            try:
+                Stealth().apply_stealth_sync(page)
+            except Exception as e:
+                emit_log(f"[WARN] Stealth application note: {e}")
 
         try:
             emit_progress(1, 5, 20, "Step 1/5: Loading OlaMovies link & Human Check...")

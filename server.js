@@ -3781,9 +3781,9 @@ function createAndStartJob(opts) {
   if (getActiveDownloadCount() < getMaxConcurrentDownloads()) {
     if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
       startTorrentJob(job);
-    } else if (job.url && (job.url.includes('workers.dev/serve') || job.mode === 'direct_http')) {
+    } else if (job.url && (job.url.includes('workers.dev') || job.mode === 'direct_http')) {
       startDirectHttpJob(job);
-    } else if (job.mode === 'olamovies_direct' || (job.url && job.url.includes('links.olamovies.mov'))) {
+    } else if (job.mode === 'olamovies_direct' || (job.url && (job.url.includes('links.olamovies') || job.url.includes('ol-am.top') || job.url.includes('links.ol') || job.url.includes('olamovies')))) {
       startOlaMoviesResolver(job);
     } else {
       startJobProcess(job);
@@ -3804,14 +3804,17 @@ app.post('/api/download', async (req, res) => {
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
-    if (url.includes('workers.dev/serve')) {
+    const isOlaStream = url.includes('workers.dev') || url.includes('omd-');
+    const isOlaLink = url.includes('links.olamovies') || url.includes('ol-am.top') || url.includes('links.ol') || url.includes('olamovies');
+
+    if (isOlaStream) {
       payload.mode = 'direct_http';
       payload.type = 'direct_http';
-    } else if (url.includes('links.olamovies.mov')) {
+    } else if (isOlaLink) {
       payload.mode = 'olamovies_direct';
     }
 
-    if (!title && !url.includes('workers.dev/serve') && !url.includes('links.olamovies.mov')) {
+    if (!title && !isOlaStream && !isOlaLink) {
       try {
         const meta = await extractMetadata(url);
         payload.hlsUrl = meta.hlsUrl;

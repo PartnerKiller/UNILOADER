@@ -896,7 +896,16 @@ function renderJobControls(job) {
         ` : ''}
       `;
     } else if (job.status === 'cancelled' || job.status === 'failed') {
-      return `<button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>`;
+      const isOla = (job.mode === 'olamovies_direct') || (job.url && (job.url.includes('olamovies') || job.url.includes('ol-am.top')));
+      const fallbackUrl = (job.opts && job.opts.link) || job.url;
+      return `
+        ${isOla && fallbackUrl ? `
+          <a href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm btn-auto-hop" title="Open and auto-hop link in your browser with companion script">
+            <span>🚀 Auto-Hop in Browser</span>
+          </a>
+        ` : ''}
+        <button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>
+      `;
     } else if (job.status === 'paused') {
       return `
         <button class="btn btn-success btn-sm" onclick="resumeJob('${job.id}')" title="Resume download">
@@ -906,11 +915,19 @@ function renderJobControls(job) {
         <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
       `;
     } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_olamovies') {
+      const isOlaResolving = job.status === 'resolving_olamovies';
+      const fallbackUrl = (job.opts && job.opts.link) || job.url;
       return `
-        <button class="btn btn-warning btn-sm" onclick="pauseJob('${job.id}')" title="Pause download">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-          <span>Pause</span>
-        </button>
+        ${isOlaResolving && fallbackUrl ? `
+          <a href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm btn-auto-hop" title="Open link now in browser for 1-click companion auto-hop">
+            <span>🚀 Auto-Hop</span>
+          </a>
+        ` : `
+          <button class="btn btn-warning btn-sm" onclick="pauseJob('${job.id}')" title="Pause download">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+            <span>Pause</span>
+          </button>
+        `}
         <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
       `;
     }

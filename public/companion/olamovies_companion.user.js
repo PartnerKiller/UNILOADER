@@ -1,16 +1,22 @@
-﻿// ==UserScript==
+// ==UserScript==
 // @name         Sakura OlaMovies Cloud Hopper & Auto-Downloader
 // @namespace    https://jav.nazuna.dpdns.org/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Automates OlaMovies slider, ad timers, Turnstile, and OM Drive, then sends direct cloud streams straight to Sakura Universal Downloader!
 // @author       Universal Downloader Suite
-// @match        *://*.olamovies.mov/*`
-// @match        *://*.olamovies.dad/*`
+// @match        *://*.olamovies.mov/*
+// @match        *://*.olamovies.dad/*
 // @match        *://links.olamovies.mov/*
+// @match        *://links.ol-am.top/*
+// @match        *://*.ol-am.top/*
 // @match        *://paybase.olamovies.mov/*
 // @match        *://*.srnky.com/*
 // @match        *://*.financeehelp.com/*
+// @match        *://*.techmags.net/*
 // @match        *://drive.olamovies.download/*
+// @connect      jav.nazuna.dpdns.org
+// @connect      192.168.0.10
+// @connect      *
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
 // @grant        GM_notification
@@ -22,7 +28,7 @@
   'use strict';
 
   const SAKURA_URL = 'https://jav.nazuna.dpdns.org';
-  const SAKURA_LOCAL_URL = 'http://192.168.0.10:3000';
+  const SAKURA_LOCAL_URL = 'http://192.168.0.10:3050';
 
   // Inject sleek HUD notification
   function showHud(msg, type = 'info') {
@@ -57,8 +63,8 @@
   const hostname = window.location.hostname;
   const pathname = window.location.pathname;
 
-  // 1. links.olamovies.mov
-  if (hostname.includes('links.olamovies.mov')) {
+  // 1. links.olamovies.mov & links.ol-am.top
+  if (hostname.includes('links.olamovies.mov') || hostname.includes('ol-am.top') || hostname.includes('olamovies')) {
     showHud('Sakura Hopper: Checking OlaMovies verification...');
 
     // Check if login needed
@@ -158,8 +164,8 @@
     }, 800);
   }
 
-  // 3. financeehelp.com (15s Ad Countdown Pages)
-  if (hostname.includes('financeehelp.com')) {
+  // 3. financeehelp.com & techmags.net (15s Ad Countdown Pages)
+  if (hostname.includes('financeehelp.com') || hostname.includes('techmags.net')) {
     showHud('Sakura Hopper: Processing ad timer...');
 
     // Auto-click Continue / #startButton

@@ -4766,3 +4766,23 @@ body {
   color: #fb7185;
 }
 
+.btn-auto-hop {
+  background: linear-gradient(135deg, #7c3aed, #db2777) !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(219, 39, 119, 0.35);
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.btn-auto-hop:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(219, 39, 119, 0.5);
+  color: #fff !important;
+}
+
+
