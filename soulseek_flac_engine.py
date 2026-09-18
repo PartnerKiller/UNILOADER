@@ -301,7 +301,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     art_lower_words = [w.lower() for w in art_words if len(w) >= 2]
     matched_local_flacs = []
     if os.path.exists(slskd_dl_dir):
-        for root, _, files in os.walk(slskd_dl_dir):
+        for root, dirs, files in os.walk(slskd_dl_dir):
+            dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
             for f in files:
                 if f.lower().endswith('.flac'):
                     f_lower = f.lower()
@@ -309,7 +310,11 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                     if title_lower_words and all(tw in f_lower or tw in root_lower for tw in title_lower_words):
                         if not art_lower_words or any(aw in f_lower or aw in root_lower for aw in art_lower_words):
                             local_flac = os.path.join(root, f)
-                            if os.path.getsize(local_flac) >= 5 * 1024 * 1024:
+                            try:
+                                flac_sz = os.path.getsize(local_flac)
+                            except (OSError, FileNotFoundError):
+                                continue
+                            if flac_sz >= 5 * 1024 * 1024:
                                 is_v, qual = verify_flac_integrity(local_flac)
                                 if is_v:
                                     bps = 16
@@ -544,11 +549,16 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             # Check if this exact file was already completed in SLSKD directory
             cached_candidate = None
             if os.path.exists(slskd_dl_dir):
-                for root, _, files in os.walk(slskd_dl_dir):
+                for root, dirs, files in os.walk(slskd_dl_dir):
+                    dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
                     for f in files:
-                        if f.endswith('.flac'):
+                        if f.lower().endswith('.flac'):
                             f_path = os.path.join(root, f)
-                            if (f == cand_base or (cand_base in f)) and abs(os.path.getsize(f_path) - best['size']) <= 2048:
+                            try:
+                                cand_sz = os.path.getsize(f_path)
+                            except (OSError, FileNotFoundError):
+                                continue
+                            if (f == cand_base or (cand_base in f)) and abs(cand_sz - best['size']) <= 2048:
                                 is_v, qual = verify_flac_integrity(f_path)
                                 if is_v:
                                     cached_candidate = f_path
@@ -709,24 +719,34 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 continue
                         
             # Find downloaded file in SLSKD downloads folder
+            # Allow SLSKD time to finalize and move file from incomplete/ to destination
+            time.sleep(1.5)
             target_basename = os.path.basename(best['filename'].replace('\\', '/'))
             base_stem, _ = os.path.splitext(target_basename)
             found_path = None
             
-            for root, _, files in os.walk(slskd_dl_dir):
-                for f in files:
-                    if f.endswith('.flac'):
-                        chk_f = os.path.join(root, f)
-                        f_sz = os.path.getsize(chk_f)
-                        if f == target_basename or f.startswith(base_stem):
-                            if abs(f_sz - best['size']) <= 2048 or f_sz > 5000000:
+            for retry_scan in range(6):
+                for root, dirs, files in os.walk(slskd_dl_dir):
+                    dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
+                    for f in files:
+                        if f.lower().endswith('.flac'):
+                            chk_f = os.path.join(root, f)
+                            try:
+                                f_sz = os.path.getsize(chk_f)
+                            except (OSError, FileNotFoundError):
+                                continue
+                            if f == target_basename or f.startswith(base_stem) or (base_stem and base_stem in f):
+                                if abs(f_sz - best['size']) <= 2048 or f_sz > 5000000:
+                                    found_path = chk_f
+                                    break
+                            elif f_sz == best['size']:
                                 found_path = chk_f
                                 break
-                        elif f_sz == best['size']:
-                            found_path = chk_f
-                            break
+                    if found_path:
+                        break
                 if found_path:
                     break
+                time.sleep(1.0)
                     
             if found_path and os.path.exists(found_path):
                 if os.path.exists(output_path):
