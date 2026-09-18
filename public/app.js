@@ -2678,6 +2678,9 @@ function renderAdultResults(items) {
     } else if (item.provider === 'xvideos') {
       sourceLabel = 'XVideos HD';
       badgeClass = 'badge-xvideos';
+    } else if (item.provider === 'eporner') {
+      sourceLabel = 'Eporner 4K';
+      badgeClass = 'badge-eporner';
     }
 
     const metaTag = isJav 

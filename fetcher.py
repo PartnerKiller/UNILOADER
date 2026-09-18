@@ -5,6 +5,7 @@ import json
 import re
 import base64
 import urllib.parse
+import urllib.request
 from bs4 import BeautifulSoup
 
 try:
@@ -1048,7 +1049,161 @@ def extract_all(url):
             }
 
     # -------------------------------------------------------------
-    # 10. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
+    # 10. K-MIB (k-mib.com) - Premier Korean Adult Platform
+    # -------------------------------------------------------------
+    if 'k-mib.com' in url or 'kmib' in url:
+        headers['Referer'] = 'https://k-mib.com/index.php'
+        r = session.get(url, headers=headers, timeout=20)
+        html = r.text
+        soup = BeautifulSoup(html, 'html.parser')
+
+        raw_title = ''
+        top_div = soup.find('div', class_='conts-view-top')
+        if top_div:
+            t_el = top_div.find('div', class_='title')
+            if t_el:
+                raw_title = t_el.text.strip()
+        if not raw_title:
+            raw_title = soup.title.string.strip() if soup.title else 'K-MIB Video'
+        title = re.sub(r'\s*[:|-]\s*K-MIB.*$', '', raw_title, flags=re.IGNORECASE).strip()
+
+        idx_match = re.search(r'idx=(\d+)', url)
+        code = f"KMIB-{idx_match.group(1)}" if idx_match else 'KMIB'
+
+        poster = ''
+        ctrl_img = soup.find('div', class_='control')
+        if ctrl_img and ctrl_img.find('img'):
+            src = ctrl_img.find('img').get('src', '')
+            if src:
+                poster = urllib.parse.urljoin(url, src)
+        if not poster:
+            og_img = soup.find('meta', property='og:image')
+            if og_img and og_img.get('content') and not og_img.get('content').endswith('24120615374902.jpg'):
+                poster = og_img.get('content')
+
+        stream_url = ''
+        charlla_sources = re.findall(r'https://player-api\.charlla\.video/mp4/[a-zA-Z0-9_-]+', html)
+        for c_url in charlla_sources:
+            try:
+                c_res = session.get(c_url, headers={'Referer': url}, timeout=10, allow_redirects=True)
+                if c_res.status_code == 200:
+                    stream_url = c_res.url
+                    break
+            except Exception:
+                pass
+
+        if not stream_url:
+            mp4s = re.findall(r'https?://[^\s"\'<>]+\.mp4[^\s"\'<>]*', html)
+            if mp4s:
+                stream_url = mp4s[0]
+
+        tags = [t.text.strip() for t in soup.find_all('div', class_='label') if t.text.strip()]
+        if not tags:
+            tags = ['Korean Adult', 'K-MIB', 'Exclusive']
+
+        return {
+            'title': title,
+            'code': code,
+            'poster': poster,
+            'hlsUrl': stream_url,
+            'downloadTargetUrl': stream_url or url,
+            'tags': tags[:10],
+            'model': 'K-Girls',
+            'duration': '',
+            'extractor': 'K-MIB',
+            'sourceUrl': url
+        }
+
+    # -------------------------------------------------------------
+    # 11. Eporner (eporner.com) - 1080p / 4K 60fps Ultra HD
+    # -------------------------------------------------------------
+    if 'eporner.com' in url:
+        try:
+            req_ep = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.eporner.com/'})
+            with urllib.request.urlopen(req_ep, timeout=12) as ep_resp:
+                ep_html = ep_resp.read().decode('utf-8')
+                ep_soup = BeautifulSoup(ep_html, 'html.parser')
+
+                raw_title = ep_soup.title.string.strip() if ep_soup.title else 'Eporner Video'
+                title = re.sub(r'\s*-\s*EPORNER.*$', '', raw_title, flags=re.IGNORECASE).strip()
+
+                id_m = re.search(r'video-([a-zA-Z0-9]+)', url)
+                code = id_m.group(1).upper() if id_m else 'EPORNER'
+
+                poster = ''
+                og_img = ep_soup.find('meta', property='og:image')
+                if og_img and og_img.get('content'):
+                    poster = og_img.get('content')
+
+                tags = [a.text.strip() for a in ep_soup.find_all('a', href=re.compile(r'/cat/')) if a.text.strip()]
+
+                stream_url = ''
+                for res_q in ['1080', '720', '480', '360', '240']:
+                    d_links = re.findall(rf'href=["\'](/dload/[^"\']*{res_q}[^"\']*\.mp4)["\']', ep_html)
+                    if d_links:
+                        stream_url = urllib.parse.urljoin('https://www.eporner.com', d_links[0])
+                        break
+
+                if not stream_url:
+                    gvid = re.findall(r'https?://gvideo\.eporner\.com/[^\s"\'<>]+\.mp4', ep_html)
+                    if gvid:
+                        stream_url = gvid[0]
+
+                return {
+                    'title': title,
+                    'code': code,
+                    'poster': poster,
+                    'hlsUrl': stream_url,
+                    'downloadTargetUrl': stream_url or url,
+                    'tags': tags[:10],
+                    'model': '',
+                    'duration': '',
+                    'extractor': 'Eporner',
+                    'sourceUrl': url
+                }
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------
+    # 12. Netflav (netflav.com) - Full HD Asian & JAV Streams
+    # -------------------------------------------------------------
+    if 'netflav' in url:
+        headers['Referer'] = 'https://netflav.com/'
+        r = session.get(url, headers=headers, timeout=20)
+        html = r.text
+        soup = BeautifulSoup(html, 'html.parser')
+
+        raw_title = soup.title.string.strip() if soup.title else 'Netflav Video'
+        title = re.sub(r'\s*[-|]\s*Netflav.*$', '', raw_title, flags=re.IGNORECASE).strip()
+
+        id_m = re.search(r'id=([a-zA-Z0-9]+)', url)
+        code = id_m.group(1).upper() if id_m else 'NETFLAV'
+
+        poster = ''
+        og_img = soup.find('meta', property='og:image')
+        if og_img and og_img.get('content'):
+            poster = og_img.get('content')
+
+        hls_url = ''
+        m3u8s = re.findall(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*', html)
+        if m3u8s:
+            hls_url = m3u8s[0]
+
+        return {
+            'title': title,
+            'code': code,
+            'poster': poster,
+            'hlsUrl': hls_url,
+            'downloadTargetUrl': hls_url or url,
+            'tags': ['Asian Adult', 'Netflav', 'JAV'],
+            'model': '',
+            'duration': '',
+            'extractor': 'Netflav',
+            'sourceUrl': url
+        }
+
+    # -------------------------------------------------------------
+    # 13. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
     # -------------------------------------------------------------
     try:
         r = session.get(url, headers=headers, timeout=20)

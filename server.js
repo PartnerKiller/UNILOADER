@@ -3255,6 +3255,38 @@ async function searchPornhub(query, page = 1) {
   }
 }
 
+async function searchEporner(query, page = 1) {
+  try {
+    const url = `https://www.eporner.com/api/v2/video/search/?query=${encodeURIComponent(query)}&page=${page}&per_page=25&thumbsize=big&order=top-weekly`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const list = data.videos || [];
+    return list.map(v => {
+      const thumb = (v.default_thumb && v.default_thumb.src) || (v.thumbs && v.thumbs[0] && v.thumbs[0].src) || '';
+      return {
+        id: v.id,
+        title: v.title || 'Eporner Video',
+        url: v.url,
+        thumb: thumb ? `/api/proxy-image?url=${encodeURIComponent(thumb)}` : '',
+        rawThumb: thumb,
+        previewVideo: '',
+        duration: v.length_min || '',
+        quality: '1080p 60fps',
+        provider: 'eporner',
+        type: 'tube',
+        isTeaser: false
+      };
+    });
+  } catch (e) {
+    console.warn('[AdultSearch] Eporner search error:', e.message);
+    return [];
+  }
+}
+
 async function searchSukebeiJAV(query, page = 1) {
   const url = `https://sukebei.nyaa.si/?f=0&c=2_2&q=${encodeURIComponent(query)}&p=${page}&page=rss`;
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -4511,16 +4543,19 @@ app.get('/api/adult/search', identifyUser, async (req, res) => {
     let javResults = [];
 
     if (type === 'all' || type === 'tubes') {
-      const [xvRes, phRes] = await Promise.allSettled([
+      const [xvRes, phRes, epRes] = await Promise.allSettled([
         searchXVideos(q, page, duration),
-        searchPornhub(q, page)
+        searchPornhub(q, page),
+        searchEporner(q, page)
       ]);
       const xv = xvRes.status === 'fulfilled' ? xvRes.value : [];
       const ph = phRes.status === 'fulfilled' ? phRes.value : [];
-      const maxTube = Math.max(xv.length, ph.length);
+      const ep = epRes.status === 'fulfilled' ? epRes.value : [];
+      const maxTube = Math.max(xv.length, ph.length, ep.length);
       for (let i = 0; i < maxTube; i++) {
         if (i < xv.length) tubeResults.push(xv[i]);
         if (i < ph.length) tubeResults.push(ph[i]);
+        if (i < ep.length) tubeResults.push(ep[i]);
       }
     }
 
@@ -5246,8 +5281,12 @@ function startJobProcess(job) {
       args.push('--add-header', 'Referer: https://www.xvideos.com/');
     } else if (url && url.includes('xhamster')) {
       args.push('--add-header', 'Referer: https://xhamster.com/');
-    } else if (url && url.includes('rule34video')) {
-      args.push('--add-header', 'Referer: https://rule34video.com/');
+    } else if (url && (url.includes('k-mib.com') || url.includes('kmib') || rawTarget.includes('kollus.com') || rawTarget.includes('charlla.video'))) {
+      args.push('--add-header', 'Referer: https://k-mib.com/index.php');
+    } else if (url && (url.includes('eporner.com') || rawTarget.includes('eporner.com'))) {
+      args.push('--add-header', 'Referer: https://www.eporner.com/');
+    } else if (url && (url.includes('netflav.com') || rawTarget.includes('netflav.com'))) {
+      args.push('--add-header', 'Referer: https://netflav.com/');
     }
 
     // Mode options

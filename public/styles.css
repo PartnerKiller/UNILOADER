@@ -3931,6 +3931,18 @@ body {
   color: #fff;
 }
 
+.badge-eporner {
+  background: linear-gradient(135deg, #7c3aed, #ec4899);
+  color: #fff;
+  font-weight: 800;
+}
+
+.badge-kmib {
+  background: linear-gradient(135deg, #0284c7, #06b6d4);
+  color: #fff;
+  font-weight: 800;
+}
+
 .badge-full-movie {
   background: hsla(142, 76%, 36%, 0.9);
   color: #fff;
