@@ -264,31 +264,47 @@ def calc_fidelity_score(bit_depth, sample_rate, size_bytes, filename, speed=0, f
     """
     Computes True Lossless Fidelity Score strictly adhering to Rule #1:
     Studio Masters (32-bit > 24-bit) and sample rates (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz).
-    Size bonus rewards uncompressed dynamic range.
-    Speed and free slots act as tie-breakers only and cannot override audio resolution or file size.
+    Uses actual stream metadata (bitDepth, sampleRate) first to prevent folder name keywords
+    (e.g. 'HIFI 24bit 192khz') from falsely inflating standard 16-bit / 44.1kHz rips.
     """
-    fn_lower = filename.lower()
-    bit_depth = bit_depth or 16
-    sample_rate = sample_rate or 44100
+    file_base = os.path.basename(filename.replace('\\', '/')).lower()
+    bit_depth = bit_depth or 0
+    sample_rate = sample_rate or 0
     size_mb = size_bytes / (1024.0 * 1024.0)
 
     score = 0
-    # 1. Bit depth tier (Rule #1: 24-bit / 32-bit Studio Master priority)
+    # 1. Bit depth tier (Rule #1: 32-bit > 24-bit > 16-bit Studio Master priority)
     if bit_depth >= 32:
         score += 100_000_000
-    elif bit_depth >= 24 or any(k in fn_lower for k in ['24bit', '24-bit', '24 bit', '24/']):
+    elif bit_depth >= 24:
+        score += 50_000_000
+    elif bit_depth == 16:
+        score += 10_000_000
+    elif any(k in file_base for k in ['32bit', '32-bit', '32 bit']):
+        score += 100_000_000
+    elif any(k in file_base for k in ['24bit', '24-bit', '24 bit', '24/']):
         score += 50_000_000
     else:
         score += 10_000_000
 
     # 2. Sample rate tier (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz)
-    if sample_rate >= 192000 or '192khz' in fn_lower or '192 khz' in fn_lower:
+    if sample_rate >= 192000:
         score += 40_000_000
-    elif sample_rate >= 96000 or '96khz' in fn_lower or '96 khz' in fn_lower:
+    elif sample_rate >= 96000:
         score += 30_000_000
-    elif sample_rate >= 88200 or '88.2khz' in fn_lower:
+    elif sample_rate >= 88200:
         score += 25_000_000
-    elif sample_rate >= 48000 or '48khz' in fn_lower:
+    elif sample_rate >= 48000:
+        score += 15_000_000
+    elif sample_rate >= 44100:
+        score += 5_000_000
+    elif '192khz' in file_base or '192 khz' in file_base:
+        score += 40_000_000
+    elif '96khz' in file_base or '96 khz' in file_base:
+        score += 30_000_000
+    elif '88.2khz' in file_base:
+        score += 25_000_000
+    elif '48khz' in file_base:
         score += 15_000_000
     else:
         score += 5_000_000
@@ -296,8 +312,8 @@ def calc_fidelity_score(bit_depth, sample_rate, size_bytes, filename, speed=0, f
     # 3. Size & dynamic range tier (uncompressed dynamic range)
     score += int(size_mb * 10_000)
 
-    # 4. Audiophile studio master keywords
-    if any(k in fn_lower for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz', 'dsd', 'hdtracks', '24-192', '24/192', '24-96', '24/96']):
+    # 4. Audiophile studio master keywords in basename
+    if any(k in file_base for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz', 'dsd', 'hdtracks', '24-192', '24/192', '24-96', '24/96']):
         score += 500_000
 
     # 5. Network availability & speed tie-breakers (capped so they NEVER override audio resolution or size)
@@ -622,7 +638,10 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         cand_sr_str = f"{best['sample_rate']/1000:.1f} kHz" if best['sample_rate'] else "Lossless"
         cand_bits_str = f"{best['bit_depth']}-bit" if best['bit_depth'] else "FLAC"
 
-        print(f"[Soulseek HiFi] Preparing candidate {idx+1}/{len(viable_candidates)}: '{cand_base}' ({cand_bits_str} / {cand_sr_str}, {total_mb:.1f}MB from '{best['username']}' • rated {peer_spd_str})", flush=True)
+        if idx == 0:
+            print(f"[Soulseek HiFi] 🚀 Downloading Selected Best Master (#1): '{cand_base}' ({cand_bits_str} / {cand_sr_str}, {total_mb:.1f}MB from '{best['username']}' • rated {peer_spd_str})", flush=True)
+        else:
+            print(f"[Soulseek HiFi] 🔄 Prior candidate was unreachable. Failing over to Runner-Up Master (#{idx+1}): '{cand_base}' ({cand_bits_str} / {cand_sr_str}, {total_mb:.1f}MB from '{best['username']}')", flush=True)
         
         # Check if this exact file was already completed in SLSKD directory
         cached_candidate = None
@@ -802,64 +821,64 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 pass
             print(f"[Soulseek HiFi] Transfer from '{best['username']}' did not complete, trying next peer...", flush=True)
             continue
-                        
-            # Find downloaded file in SLSKD downloads folder
-            # Allow SLSKD time to finalize and move file from incomplete/ to destination
-            time.sleep(1.5)
-            target_basename = os.path.basename(best['filename'].replace('\\', '/'))
-            base_stem, _ = os.path.splitext(target_basename)
-            found_path = None
-            
-            for retry_scan in range(6):
-                for root, dirs, files in os.walk(slskd_dl_dir):
-                    dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
-                    for f in files:
-                        if f.lower().endswith('.flac'):
-                            chk_f = os.path.join(root, f)
-                            try:
-                                f_sz = os.path.getsize(chk_f)
-                            except (OSError, FileNotFoundError):
-                                continue
-                            if f == target_basename or f.startswith(base_stem) or (base_stem and base_stem in f):
-                                if abs(f_sz - best['size']) <= 2048 or f_sz > 5000000:
-                                    found_path = chk_f
-                                    break
-                            elif f_sz == best['size']:
+
+        # Find downloaded file in SLSKD downloads folder
+        # Allow SLSKD time to finalize and move file from incomplete/ to destination
+        time.sleep(1.0)
+        target_basename = os.path.basename(best['filename'].replace('\\', '/'))
+        base_stem, _ = os.path.splitext(target_basename)
+        found_path = None
+        
+        for retry_scan in range(6):
+            for root, dirs, files in os.walk(slskd_dl_dir):
+                dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
+                for f in files:
+                    if f.lower().endswith('.flac'):
+                        chk_f = os.path.join(root, f)
+                        try:
+                            f_sz = os.path.getsize(chk_f)
+                        except (OSError, FileNotFoundError):
+                            continue
+                        if f == target_basename or f.startswith(base_stem) or (base_stem and base_stem in f):
+                            if abs(f_sz - best['size']) <= 2048 or f_sz > 5000000:
                                 found_path = chk_f
                                 break
-                    if found_path:
-                        break
+                        elif f_sz == best['size']:
+                            found_path = chk_f
+                            break
                 if found_path:
                     break
-                time.sleep(1.0)
-                    
-            if found_path and os.path.exists(found_path):
-                if os.path.exists(output_path):
-                    try: os.remove(output_path)
-                    except Exception: pass
-                shutil.copy2(found_path, output_path)
+            if found_path:
+                break
+            time.sleep(1.0)
                 
-                # Tag metadata and lyrics
-                lyrics = fetch_synced_lyrics(artist, title, duration=duration)
-                meta = {
-                    'title': title,
-                    'artist': artist,
-                    'isrc': isrc,
-                    'cover_url': cover_url,
-                    'lyrics': lyrics
-                }
-                tag_flac(output_path, meta)
+        if found_path and os.path.exists(found_path):
+            if os.path.exists(output_path):
+                try: os.remove(output_path)
+                except Exception: pass
+            shutil.copy2(found_path, output_path)
+            
+            # Tag metadata and lyrics
+            lyrics = fetch_synced_lyrics(artist, title, duration=duration)
+            meta = {
+                'title': title,
+                'artist': artist,
+                'isrc': isrc,
+                'cover_url': cover_url,
+                'lyrics': lyrics
+            }
+            tag_flac(output_path, meta)
+            
+            # Lossless PCM & Audio integrity verification
+            is_valid, qual_info = verify_flac_integrity(output_path)
+            if not is_valid:
+                print(f"[Soulseek HiFi] Lossless verification notice: {qual_info}. Trying next peer candidate...", flush=True)
+                try: os.remove(output_path)
+                except Exception: pass
+                continue
                 
-                # Lossless PCM & Audio integrity verification
-                is_valid, qual_info = verify_flac_integrity(output_path)
-                if not is_valid:
-                    print(f"[Soulseek HiFi] Lossless verification notice: {qual_info}. Trying next peer candidate...", flush=True)
-                    try: os.remove(output_path)
-                    except Exception: pass
-                    continue
-                    
-                print(f"[Soulseek HiFi] 🎉 Authentic {qual_info} Lossless FLAC saved: {output_path} ({os.path.getsize(output_path)/(1024*1024):.1f}MB)", flush=True)
-                return True
+            print(f"[Soulseek HiFi] 🎉 Authentic {qual_info} Lossless FLAC saved: {output_path} ({os.path.getsize(output_path)/(1024*1024):.1f}MB)", flush=True)
+            return True
             
     return False
 
