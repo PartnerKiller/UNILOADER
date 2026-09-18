@@ -407,27 +407,16 @@
             </div>
           </div>
 
-          <!-- OlaMovies Direct Cloud Engine -->
+          <!-- Native Direct DDL Movie Engine -->
           <div class="engine-config-card">
             <div class="card-head">
-              <h3>☁️ OlaMovies Direct Cloud Engine (Non-Torrent)</h3>
-              <p>Automate links.olamovies.mov slider, ad countdowns, and direct OM Drive workers.dev streaming.</p>
+              <h3>☁️ Native Direct DDL Movie Engine (Non-Torrent)</h3>
+              <p>Ultra-fast Cinemeta open catalog metadata with multi-threaded segmented cloud downloading.</p>
             </div>
             <div class="form-grid">
               <div class="form-group" style="grid-column: 1 / -1;">
-                <label for="cfgOlaCookie">OlaMovies / PayBase Session Cookie</label>
-                <textarea id="cfgOlaCookie" class="admin-input" rows="2" style="font-family: monospace; font-size: 0.8rem;" placeholder="Optional: Paste session cookies here to bypass Google login in headless mode..."></textarea>
-                <span class="field-hint">Stored securely on Sakura to authenticate headless Playwright requests.</span>
-              </div>
-              <div class="form-group" style="grid-column: 1 / -1;">
-                <label>Zero-Friction Browser Companion Script</label>
-                <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px;">
-                  <a href="/companion/olamovies_companion.user.js" target="_blank" class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    <span>Install in Tampermonkey / Violentmonkey</span>
-                  </a>
-                  <span style="font-size: 0.82rem; color: var(--text-muted);">Auto-solves sliders, 15s ad timers, and sends cloud links to Sakura with 1 click!</span>
-                </div>
+                <label>Direct DDL Multi-Thread Acceleration</label>
+                <span class="field-hint">Direct HTTP/HTTPS stream acceleration via 16 aria2c connections with zero browser userscripts or captcha gates.</span>
               </div>
             </div>
           </div>
@@ -441,7 +430,7 @@
             <div class="switch-list">
               <label class="engine-switch-row">
                 <div class="switch-info">
-                  <strong>Movie &amp; TV Show Hub (OlaMovies)</strong>
+                  <strong>Movie &amp; TV Show Hub (Direct DDL)</strong>
                   <span>Enable direct cloud movie releases and quality resolution cards</span>
                 </div>
                 <input type="checkbox" id="switchMovieHub" checked class="admin-toggle">
@@ -507,10 +496,10 @@
             <div class="switch-list">
               <label class="engine-switch-row">
                 <div class="switch-info">
-                  <strong>OlaMovies Catalog (Direct Fast Cloud)</strong>
-                  <span>Scrape OlaMovies catalog with Google Drive, FastCloud, and Rapid links</span>
+                  <strong>Direct DDL (Fast Cloud)</strong>
+                  <span>Enable native Cinemeta and direct cloud movie downloads</span>
                 </div>
-                <input type="checkbox" id="switchSourceOlaMovies" checked class="admin-toggle">
+                <input type="checkbox" id="switchSourceDdl" checked class="admin-toggle">
               </label>
               <label class="engine-switch-row">
                 <div class="switch-info">

@@ -1113,7 +1113,7 @@ function setupEngineSettings() {
         embedSubs: document.getElementById('switchEmbedSubs').checked,
         embedChapters: document.getElementById('switchEmbedChapters').checked,
         sponsorBlock: document.getElementById('switchSponsorBlock').checked,
-        olamoviesSource: document.getElementById('switchSourceOlaMovies') ? document.getElementById('switchSourceOlaMovies').checked : true,
+        ddlSource: document.getElementById('switchSourceDdl') ? document.getElementById('switchSourceDdl').checked : true,
         ytsSource: document.getElementById('switchSourceYts') ? document.getElementById('switchSourceYts').checked : false,
         torrentsSource: document.getElementById('switchSourceTorrents') ? document.getElementById('switchSourceTorrents').checked : false
       };
@@ -1132,7 +1132,6 @@ function setupEngineSettings() {
             httpChunkSize,
             retries,
             aria2cMinSplitSize,
-            olaMoviesCookie: document.getElementById('cfgOlaCookie') ? document.getElementById('cfgOlaCookie').value.trim() : '',
             features
           })
         });
@@ -1168,9 +1167,6 @@ async function loadEngineConfig() {
     if (cfg.httpChunkSize) document.getElementById('cfgChunkSize').value = cfg.httpChunkSize;
     if (cfg.retries) document.getElementById('cfgRetries').value = cfg.retries;
     if (cfg.aria2cMinSplitSize) document.getElementById('cfgMinSplit').value = cfg.aria2cMinSplitSize;
-    if (cfg.olaMoviesCookie && document.getElementById('cfgOlaCookie')) {
-      document.getElementById('cfgOlaCookie').value = cfg.olaMoviesCookie;
-    }
 
     const feat = cfg.features || {};
     if (feat.movieHub !== undefined) document.getElementById('switchMovieHub').checked = !!feat.movieHub;
@@ -1181,8 +1177,8 @@ async function loadEngineConfig() {
     if (feat.embedSubs !== undefined) document.getElementById('switchEmbedSubs').checked = !!feat.embedSubs;
     if (feat.embedChapters !== undefined) document.getElementById('switchEmbedChapters').checked = !!feat.embedChapters;
     if (feat.sponsorBlock !== undefined) document.getElementById('switchSponsorBlock').checked = !!feat.sponsorBlock;
-    if (feat.olamoviesSource !== undefined && document.getElementById('switchSourceOlaMovies')) {
-      document.getElementById('switchSourceOlaMovies').checked = !!feat.olamoviesSource;
+    if (feat.ddlSource !== undefined && document.getElementById('switchSourceDdl')) {
+      document.getElementById('switchSourceDdl').checked = !!feat.ddlSource;
     }
     if (feat.ytsSource !== undefined && document.getElementById('switchSourceYts')) {
       document.getElementById('switchSourceYts').checked = !!feat.ytsSource;

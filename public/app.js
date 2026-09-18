@@ -809,7 +809,7 @@ function createJobCardElement(job) {
           <span class="job-code">${job.code || 'MEDIA'}</span>
         </div>
         <div class="job-header-right">
-          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : (job.status === 'resolving_olamovies' ? 'RESOLVING OLA' : job.status.toUpperCase())}</span>
+          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase())}</span>
           <button type="button" class="btn-job-remove" onclick="removeJob('${job.id}')" title="Remove task">&times;</button>
         </div>
       </div>
@@ -896,14 +896,7 @@ function renderJobControls(job) {
         ` : ''}
       `;
     } else if (job.status === 'cancelled' || job.status === 'failed') {
-      const isOla = (job.mode === 'olamovies_direct') || (job.url && (job.url.includes('olamovies') || job.url.includes('ol-am.top')));
-      const fallbackUrl = (job.opts && job.opts.link) || job.url;
       return `
-        ${isOla && fallbackUrl ? `
-          <a href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm btn-auto-hop" title="Open and auto-hop link in your browser with companion script">
-            <span>🚀 Auto-Hop in Browser</span>
-          </a>
-        ` : ''}
         <button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>
       `;
     } else if (job.status === 'paused') {
@@ -914,20 +907,12 @@ function renderJobControls(job) {
         </button>
         <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
       `;
-    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_olamovies') {
-      const isOlaResolving = job.status === 'resolving_olamovies';
-      const fallbackUrl = (job.opts && job.opts.link) || job.url;
+    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') {
       return `
-        ${isOlaResolving && fallbackUrl ? `
-          <a href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm btn-auto-hop" title="Open link now in browser for 1-click companion auto-hop">
-            <span>🚀 Auto-Hop</span>
-          </a>
-        ` : `
-          <button class="btn btn-warning btn-sm" onclick="pauseJob('${job.id}')" title="Pause download">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-            <span>Pause</span>
-          </button>
-        `}
+        <button class="btn btn-warning btn-sm" onclick="pauseJob('${job.id}')" title="Pause download">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+          <span>Pause</span>
+        </button>
         <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
       `;
     }
@@ -948,7 +933,7 @@ function renderJobControls(job) {
 function formatEtaDisplay(eta, status) {
   if (status === 'completed') return 'Ready';
   if (status === 'paused') return 'Paused';
-  if (status === 'resolving_olamovies') return eta || 'Resolving Ola...';
+  if (status === 'resolving_ddl' || status === 'resolving_olamovies') return eta || 'Resolving DDL...';
   if (!eta || eta === '--' || eta === '0' || eta === '--:--') return '--:--';
   if (typeof eta === 'string' && /^\d+$/.test(eta.trim())) {
     const sec = parseInt(eta.trim(), 10);
@@ -968,7 +953,7 @@ function updateJobCard(job) {
   const badge = document.getElementById(`job-badge-${job.id}`);
   if (badge) {
     badge.className = `job-status-badge status-${job.status}`;
-    badge.textContent = job.status === 'completed' ? 'READY' : (job.status === 'resolving_olamovies' ? 'RESOLVING OLA' : job.status.toUpperCase());
+    badge.textContent = job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase());
   }
 
   const fill = document.getElementById(`job-prog-fill-${job.id}`);
@@ -2202,13 +2187,13 @@ function setupVersionTapEasterEgg() {
 }
 
 // ==========================================================================
-// MOVIE & TV SHOW HUB CONTROLLER (OlaMovies & Torrents Dual-Pipeline)
+// MOVIE & TV SHOW HUB CONTROLLER (Native Direct DDL & Torrents Dual-Pipeline)
 // ==========================================================================
 
 let currentMovieResults = [];
 let currentMoviePage = 1;
 let currentMovieQuery = '';
-let currentMovieSource = 'olamovies';
+let currentMovieSource = 'ddl';
 let currentMovieQuality = 'all';
 
 async function syncMovieSourceTabs() {
@@ -2218,7 +2203,7 @@ async function syncMovieSourceTabs() {
     const data = await res.json();
     if (!data.success || !data.sources) return;
 
-    const sources = data.sources; // { olamovies: bool, yts: bool, torrents: bool }
+    const sources = data.sources; // { ddl: bool, yts: bool, torrents: bool }
     const sourceTabs = document.getElementById('movieSourceTabs');
     if (!sourceTabs) return;
 
@@ -2233,9 +2218,9 @@ async function syncMovieSourceTabs() {
         tab.disabled = false;
         tab.classList.remove('disabled-source');
         tab.removeAttribute('style');
-        if (src === 'olamovies') {
-          tab.textContent = 'OlaMovies';
-          tab.title = 'OlaMovies Fast Cloud Releases';
+        if (src === 'ddl') {
+          tab.textContent = 'Direct DDL (Fast Cloud)';
+          tab.title = 'Native Direct DDL Cloud Releases';
         } else if (src === 'yts') {
           tab.textContent = 'YTS';
           tab.title = 'YTS High-Res Torrents';
@@ -2249,7 +2234,7 @@ async function syncMovieSourceTabs() {
         tab.style.opacity = '0.45';
         tab.style.cursor = 'not-allowed';
         tab.title = 'Disabled in Admin Settings';
-        if (src === 'olamovies') tab.textContent = 'OlaMovies (Disabled)';
+        if (src === 'ddl') tab.textContent = 'Direct DDL (Disabled)';
         else if (src === 'yts') tab.textContent = 'YTS (Disabled)';
         else if (src === 'torrents') tab.textContent = 'Torrents (Disabled)';
         tab.classList.remove('active');
@@ -2276,8 +2261,8 @@ async function syncMovieSourceTabs() {
     // Update search placeholder
     const searchInput = document.getElementById('movieSearchInput');
     if (searchInput) {
-      if (currentMovieSource === 'olamovies') {
-        searchInput.placeholder = 'Search movies or TV shows on OlaMovies (e.g. Deadpool & Wolverine, Oppenheimer, Stree 2)...';
+      if (currentMovieSource === 'ddl') {
+        searchInput.placeholder = 'Search movies, anime, or TV shows (e.g. A Silent Voice, Oppenheimer, Deadpool)...';
       } else if (currentMovieSource === 'yts') {
         searchInput.placeholder = 'Search high-res movies on YTS (e.g. Oppenheimer, Interstellar, Dune)...';
       } else if (currentMovieSource === 'torrents') {
@@ -2338,11 +2323,11 @@ function initMoviesView() {
       if (!btn || btn.disabled) return;
       sourceTabs.querySelectorAll('.movie-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      currentMovieSource = btn.dataset.source || 'olamovies';
+      currentMovieSource = btn.dataset.source || 'ddl';
 
       if (input) {
-        if (currentMovieSource === 'olamovies') {
-          input.placeholder = 'Search movies or TV shows on OlaMovies (e.g. Deadpool & Wolverine, Oppenheimer, Stree 2)...';
+        if (currentMovieSource === 'ddl') {
+          input.placeholder = 'Search movies, anime, or TV shows (e.g. A Silent Voice, Oppenheimer, Deadpool)...';
         } else if (currentMovieSource === 'yts') {
           input.placeholder = 'Search high-res movies on YTS (e.g. Oppenheimer, Interstellar, Dune)...';
         } else if (currentMovieSource === 'torrents') {
@@ -2493,12 +2478,12 @@ function renderMovieResults(items) {
   const defaultPoster = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22300%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%2312151c%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2248%25%22%20fill%3D%22%234a5568%22%20font-size%3D%2242%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3E🎬%3C%2Ftext%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2260%25%22%20fill%3D%22%23718096%22%20font-size%3D%2216%22%20text-anchor%3D%22middle%22%20font-family%3D%22sans-serif%22%3ENo%20Poster%3C%2Ftext%3E%3C%2Fsvg%3E';
 
   grid.innerHTML = items.map((item, idx) => {
-    const isOla = item.provider === 'olamovies';
+    const isDdl = item.provider === 'ddl';
     const isYts = item.provider === 'yts';
     const isTorrent = item.provider === 'torrent';
 
-    let providerBadge = 'OlaMovies';
-    let providerClass = 'badge-provider-ola';
+    let providerBadge = 'Direct DDL';
+    let providerClass = 'badge-provider-ddl';
     if (isYts) {
       providerBadge = 'YTS 4K';
       providerClass = 'badge-provider-yts';
@@ -2520,7 +2505,6 @@ function renderMovieResults(items) {
     const hasMultiAudio = (item.releases || []).some(r => r.isMultiAudio);
 
     const bestRelease = (item.releases && item.releases[0]) || null;
-    const can1Click = true; // Always enable 1-Click Download for movie cards
     const releaseCount = item.releasesCount || (item.releases ? item.releases.length : 0);
 
     const displayTitle = item.pureTitle || item.title;
@@ -2550,8 +2534,8 @@ function renderMovieResults(items) {
           <h4 class="movie-card-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</h4>
           
           <div class="movie-card-meta-line">
-            ${isOla ? `
-              <span class="movie-meta-item meta-fallback" title="High-speed acceleration stream ready for 1-click download">⚡ Engine Ready</span>
+            ${isDdl ? `
+              <span class="movie-meta-item meta-fallback" title="Direct Multi-Thread Cloud Download Ready">⚡ Direct Cloud</span>
             ` : ''}
             ${bestRelease && bestRelease.size ? `
               <span class="movie-meta-item meta-size">💾 ${escapeHtml(bestRelease.size)}</span>
@@ -2565,21 +2549,15 @@ function renderMovieResults(items) {
           </div>
 
           <div class="movie-card-actions">
-            <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="dispatchMovieDownload(${idx}, 0, event)">
+            <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="${isDdl ? `dispatchDdlDownload(${idx}, 0, event)` : `dispatchMovieDownload(${idx}, 0, event)`}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              <span>1-Click Download</span>
+              <span>${isDdl ? '⚡ Direct DDL' : '1-Click Download'}</span>
             </button>
 
             ${releaseCount > 0 ? `
               <button type="button" class="btn btn-secondary btn-sm movie-options-btn" onclick="openMovieReleasesModal(${idx})">
                 <span>📦 Releases (${releaseCount})</span>
               </button>
-            ` : ''}
-
-            ${isOla && item.link ? `
-              <a href="${escapeHtml(item.link)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm movie-link-btn" title="Open OlaMovies page for direct Google Drive / fast links">
-                <span>🔗 Ola Link</span>
-              </a>
             ` : ''}
           </div>
         </div>
@@ -2620,7 +2598,7 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
     magnet: release.magnet || (!isSpecificRelease && item.torrentFallback ? item.torrentFallback.magnet : ''),
     torrentUrl: release.torrentUrl || (!isSpecificRelease && item.torrentFallback ? item.torrentFallback.torrentUrl : ''),
     url: release.href || release.magnet || release.torrentUrl || item.link || '',
-    provider: item.provider || 'olamovies',
+    provider: item.provider || 'ddl',
     type: 'torrent'
   };
 
@@ -2696,42 +2674,48 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
   }
 };
 
-window.dispatchOlaDirectDownload = async function(idx, rIdx, event) {
+window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
   const item = currentMovieResults[idx];
   if (!item) return;
   const release = (item.releases && item.releases[rIdx]) || {};
-  const link = release.href || release.url || item.link;
-
-  if (!link) {
-    showToast('No direct link found for this release.', 'error');
-    return;
-  }
 
   const clickedBtn = event ? event.currentTarget : null;
+  const mainCardBtn = document.getElementById(`btnMovieDl_${idx}`);
   if (clickedBtn) {
     clickedBtn.disabled = true;
-    clickedBtn.innerHTML = `<span>⏳ Starting Solver...</span>`;
+    clickedBtn.innerHTML = `<span>⏳ Resolving DDL...</span>`;
+  } else if (mainCardBtn) {
+    mainCardBtn.disabled = true;
+    mainCardBtn.innerHTML = `<span>Connecting DDL...</span>`;
   }
 
   try {
-    const res = await fetch('/api/movies/resolve-ola', {
+    const res = await fetch('/api/movies/resolve-ddl', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        link,
         title: item.title,
-        filename: release.filename || `${item.title} [${release.quality || '1080p'}]`,
+        pureTitle: item.pureTitle || item.title,
+        year: item.year || '',
+        filename: release.filename || `${item.pureTitle || item.title} [${release.quality || '1080p'}]`,
         quality: release.quality || '1080p',
-        poster: item.poster || ''
+        poster: item.poster || '',
+        imdbId: item.imdbId || release.imdbId || '',
+        link: release.href || release.url || '',
+        url: release.href || release.url || ''
       })
     });
 
     const data = await res.json();
     if (res.ok && data.success) {
-      showToast(`☁️ Started Direct OlaMovies Resolver: ${item.title.substring(0, 30)}... (~1m)`, 'success');
+      showToast(`☁️ Started Direct DDL Download: ${item.title.substring(0, 30)}...`, 'success');
       if (clickedBtn) {
-        clickedBtn.innerHTML = `<span>✓ Resolving...</span>`;
+        clickedBtn.innerHTML = `<span>✓ Enqueued</span>`;
         clickedBtn.classList.add('btn-success');
+      }
+      if (mainCardBtn && !clickedBtn) {
+        mainCardBtn.innerHTML = `<span>✓ Enqueued</span>`;
+        mainCardBtn.classList.add('btn-success');
       }
 
       const modal = document.getElementById('movieReleasesModal');
@@ -2741,7 +2725,7 @@ window.dispatchOlaDirectDownload = async function(idx, rIdx, event) {
 
       if (modal && footer && footerText) {
         footer.style.display = 'flex';
-        footerText.textContent = `Resolving Cloud Stream: ${item.title.substring(0, 32)}...`;
+        footerText.textContent = `Direct DDL Active: ${item.title.substring(0, 32)}...`;
         if (btnGo) {
           btnGo.onclick = () => {
             modal.style.display = 'none';
@@ -2750,20 +2734,30 @@ window.dispatchOlaDirectDownload = async function(idx, rIdx, event) {
         }
       }
     } else {
-      showToast(data.error || 'Failed to start OlaMovies resolver', 'error');
+      showToast(data.error || 'Failed to start DDL download', 'error');
       if (clickedBtn) {
         clickedBtn.disabled = false;
-        clickedBtn.innerHTML = `<span>☁️ Direct Ola (~1m)</span>`;
+        clickedBtn.innerHTML = `<span>⚡ Direct DDL</span>`;
+      }
+      if (mainCardBtn && !clickedBtn) {
+        mainCardBtn.disabled = false;
+        mainCardBtn.innerHTML = `<span>⚡ Direct DDL</span>`;
       }
     }
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error');
     if (clickedBtn) {
       clickedBtn.disabled = false;
-      clickedBtn.innerHTML = `<span>☁️ Direct Ola (~1m)</span>`;
+      clickedBtn.innerHTML = `<span>⚡ Direct DDL</span>`;
+    }
+    if (mainCardBtn && !clickedBtn) {
+      mainCardBtn.disabled = false;
+      mainCardBtn.innerHTML = `<span>⚡ Direct DDL</span>`;
     }
   }
 };
+
+window.dispatchOlaDirectDownload = window.dispatchDdlDownload;
 
 let currentModalItemIdx = -1;
 let currentModalReleases = [];
@@ -2797,11 +2791,12 @@ function renderModalReleasesList() {
   }
 
   const curItem = currentModalItemIdx >= 0 ? currentMovieResults[currentModalItemIdx] : null;
-  const isOla = (curItem && curItem.provider === 'olamovies') || currentModalReleases.some(r => r.href && (r.href.includes('links.ol') || r.href.includes('olamovies')));
-  const bannerHtml = isOla ? `
-    <div class="modal-ola-banner">
+  const isDdl = (curItem && curItem.provider === 'ddl');
+
+  const bannerHtml = isDdl ? `
+    <div class="modal-ddl-banner">
       <span class="banner-icon">⚡</span>
-      <span style="flex: 1;"><strong>Direct OlaMovies Engine:</strong> Resolves OM Drive cloud streams directly (~1 min, zero torrents). Or install <a href="/companion/olamovies_companion.user.js" target="_blank" class="ola-banner-link">Sakura Companion Script</a> for 1-click browser auto-hop.</span>
+      <span style="flex: 1;"><strong>Direct DDL Engine:</strong> Multi-threaded segmented cloud downloading with zero script requirements and zero torrent gating.</span>
     </div>
   ` : '';
 
@@ -2831,30 +2826,20 @@ function renderModalReleasesList() {
           </div>
         </div>
         <div class="release-actions">
-          ${(rel.href && (rel.href.includes('links.ol') || (curItem && curItem.provider === 'olamovies'))) ? `
-            <button type="button" class="btn btn-primary btn-sm btn-rel-ola" id="btnModalRelOla_${rIdx}" onclick="dispatchOlaDirectDownload(${currentModalItemIdx}, ${rIdx}, event)" title="Resolve & download direct from OlaMovies (~1 min) without torrents">
-              <span>☁️ Direct Ola (~1m)</span>
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)" title="Fallback to BitTorrent swarm">
-              <span>⚡ Torrent</span>
+          ${isDdl ? `
+            <button type="button" class="btn btn-primary btn-sm btn-rel-ddl" id="btnModalRelDdl_${rIdx}" onclick="dispatchDdlDownload(${currentModalItemIdx}, ${rIdx}, event)" title="Direct DDL Multi-Thread Download">
+              <span>⚡ Direct DDL</span>
             </button>
           ` : `
             <button type="button" class="btn btn-primary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)">
               <span>⚡ Download</span>
             </button>
           `}
-          ${rel.href ? `
-            <a href="${escapeHtml(rel.href)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm btn-rel-link" title="Open direct link in browser (auto-hopped by companion userscript)">
-              <span>🔗 Link</span>
-            </a>
-            <button type="button" class="btn btn-secondary btn-sm btn-rel-copy" onclick="copyMovieReleaseLink('${escapeHtml(rel.href)}', this)" title="Copy direct link to clipboard">
-              <span>📋 Copy</span>
-            </button>
-          ` : (rel.magnet ? `
+          ${rel.magnet ? `
             <button type="button" class="btn btn-secondary btn-sm btn-rel-copy" onclick="copyMovieReleaseLink('${escapeHtml(rel.magnet)}', this)" title="Copy magnet link">
               <span>🧲 Magnet</span>
             </button>
-          ` : '')}
+          ` : ''}
         </div>
       </div>
     `;
@@ -2881,7 +2866,7 @@ window.openMovieReleasesModal = function(idx) {
 
   if (titleEl) titleEl.textContent = item.title;
   if (badgeEl) {
-    badgeEl.textContent = item.provider === 'olamovies' ? 'OlaMovies HD' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
+    badgeEl.textContent = item.provider === 'ddl' ? 'Direct DDL Cloud' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
   }
 
   // Reset search input

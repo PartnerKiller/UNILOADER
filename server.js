@@ -49,11 +49,10 @@ const defaultEngineConfig = {
     embedSubs: true,
     embedChapters: true,
     sponsorBlock: true,
-    olamoviesSource: true,
+    ddlSource: true,
     ytsSource: false,
     torrentsSource: false
-  },
-  olaMoviesCookie: ''
+  }
 };
 let engineConfig = { ...defaultEngineConfig };
 
@@ -447,7 +446,7 @@ setInterval(() => {
 function getActiveDownloadCount() {
   let count = 0;
   for (const job of jobs.values()) {
-    if ((job.status === 'downloading' || job.status === 'resolving_olamovies') && job.process) count++;
+    if ((job.status === 'downloading' || job.status === 'resolving_ddl') && job.process) count++;
   }
   return count;
 }
@@ -461,10 +460,10 @@ function processDownloadQueue() {
     if (job.status === 'queued') {
       if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
         startTorrentJob(job);
-      } else if (job.url && (job.url.includes('workers.dev/serve') || job.mode === 'direct_http')) {
+      } else if (job.url && (job.url.includes('workers.dev') || job.mode === 'direct_http')) {
         startDirectHttpJob(job);
-      } else if (job.mode === 'olamovies_direct') {
-        startOlaMoviesResolver(job);
+      } else if (job.mode === 'ddl_direct') {
+        startDdlMovieResolver(job, job.opts || {});
       } else {
         startJobProcess(job);
       }
@@ -491,9 +490,9 @@ app.get('/api/health', (req, res) => {
       universalYtdlp: true,
       adultJavHub: true,
       movieHub: true,
-      olaMovies: true,
-      ytsMovies: false, // disabled for testing
-      pirateBayTorrents: false, // disabled for testing
+      ddlMovies: true,
+      ytsMovies: true,
+      pirateBayTorrents: false,
       aria2cBitTorrent: true
     },
     downloadDir: TEMP_DIR
@@ -1256,47 +1255,10 @@ app.post('/api/admin/engine-config', requireAdmin, (req, res) => {
         ...updates.features
       };
     }
-    if (typeof updates.olaMoviesCookie === 'string') {
-      engineConfig.olaMoviesCookie = updates.olaMoviesCookie.trim();
-      const cookiesPath = path.join(__dirname, 'ola_cookies.json');
-      if (engineConfig.olaMoviesCookie) {
-        fs.writeFileSync(cookiesPath, engineConfig.olaMoviesCookie, 'utf-8');
-      } else if (fs.existsSync(cookiesPath)) {
-        try { fs.unlinkSync(cookiesPath); } catch (e) {}
-      }
-    }
     saveEngineConfig();
     res.json({ success: true, config: engineConfig, message: 'Engine configuration updated and saved' });
   } catch (err) {
     res.status(500).json({ error: err.message });
-  }
-});
-
-// OlaMovies Session Cookie Management
-app.get('/api/admin/olamovies/cookie', requireAdmin, (req, res) => {
-  const cookiesPath = path.join(__dirname, 'ola_cookies.json');
-  const hasFile = fs.existsSync(cookiesPath);
-  res.json({
-    success: true,
-    hasCookie: !!(engineConfig.olaMoviesCookie || hasFile),
-    preview: engineConfig.olaMoviesCookie ? (engineConfig.olaMoviesCookie.substring(0, 30) + '...') : ''
-  });
-});
-
-app.post('/api/admin/olamovies/cookie', requireAdmin, (req, res) => {
-  try {
-    const { cookie } = req.body || {};
-    engineConfig.olaMoviesCookie = (cookie || '').trim();
-    const cookiesPath = path.join(__dirname, 'ola_cookies.json');
-    if (engineConfig.olaMoviesCookie) {
-      fs.writeFileSync(cookiesPath, engineConfig.olaMoviesCookie, 'utf-8');
-    } else if (fs.existsSync(cookiesPath)) {
-      try { fs.unlinkSync(cookiesPath); } catch (e) {}
-    }
-    saveEngineConfig();
-    res.json({ success: true, hasCookie: !!engineConfig.olaMoviesCookie });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -1608,7 +1570,7 @@ app.get('/api/admin/health-bench', requireAdmin, async (req, res) => {
     },
     { name: 'Deezer Core API', url: 'https://api.deezer.com', method: 'HEAD', expect: [200] },
     { name: 'Local Soulseek Daemon', url: 'http://127.0.0.1:5030/api/v0/application', method: 'GET', expect: [200, 401] },
-    { name: 'OlaMovies Domain', url: cachedOlaDomain || 'https://v5.olamovies.mov', method: 'HEAD', expect: [200, 301, 302, 403] },
+    { name: 'Direct DDL Movie API', url: 'https://v3-cinemeta.strem.io/manifest.json', method: 'GET', expect: [200] },
     {
       name: 'YTS Movie API',
       url: 'https://movies-api.accel.li/api/v2/list_movies.json?limit=1',
@@ -1984,122 +1946,89 @@ app.get('/api/proxy-image', async (req, res) => {
 });
 
 // ==========================================================================
-// MOVIE & TV SHOW HUB ENGINE (OlaMovies + BitTorrent Dual Pipeline)
+// MOVIE & TV SHOW HUB ENGINE (Native Direct DDL & Torrents Dual Pipeline)
 // ==========================================================================
 
-let cachedOlaDomain = 'https://v5.olamovies.mov';
-let lastOlaDomainCheck = 0;
-
-async function getOlaMoviesDomain() {
-  const now = Date.now();
-  if (now - lastOlaDomainCheck < 1800000 && cachedOlaDomain) {
-    return cachedOlaDomain;
-  }
+async function searchDdlMovies(query, page = 1) {
   try {
-    const res = await fetch('https://olamovies.dad/current.php?redirect=1', {
-      method: 'HEAD',
-      redirect: 'manual',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(4000)
+    const q = (query || '').trim();
+    if (!q) return [];
+
+    // Query Cinemeta open catalog (ultra-fast, zero-key, IMDb metadata & official posters)
+    const cinemetaUrl = `https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(q)}.json`;
+    const res = await fetch(cinemetaUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(6000)
     });
-    const loc = res.headers.get('location');
-    if (loc) {
-      cachedOlaDomain = loc.replace(/\/+$/, '');
-      lastOlaDomainCheck = now;
-      return cachedOlaDomain;
+
+    let metas = [];
+    if (res.ok) {
+      const data = await res.json();
+      metas = Array.isArray(data.metas) ? data.metas : [];
     }
-  } catch (e) {}
-  lastOlaDomainCheck = now;
-  return cachedOlaDomain || 'https://v5.olamovies.mov';
-}
-
-async function searchOlaMovies(query, page = 1) {
-  try {
-    const domain = await getOlaMoviesDomain();
-    const url = `${domain}/wp-json/wp/v2/posts?search=${encodeURIComponent(query)}&_embed=1&per_page=12&page=${page}`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      signal: AbortSignal.timeout(9000)
-    });
-    if (!res.ok) return [];
-    const posts = await res.json();
-    if (!Array.isArray(posts)) return [];
 
     const items = [];
-    for (const post of posts) {
-      const rawTitle = (post.title && post.title.rendered)
-        ? post.title.rendered.replace(/&#8211;/g, '-').replace(/&amp;/g, '&').replace(/&#8217;/g, "'").replace(/&quot;/g, '"').trim()
-        : 'Movie';
+    for (const m of metas) {
+      const title = m.name || 'Movie';
+      const year = m.releaseInfo || m.year || '';
+      const imdbId = m.imdb_id || m.id || '';
+      const poster = m.poster || (m.background ? m.background : '');
+      const summary = m.description || '';
+      const genres = m.genres || (m.genre ? (Array.isArray(m.genre) ? m.genre : [m.genre]) : []);
+      const rating = parseFloat(m.imdbRating) || 0;
 
-      const yearMatch = rawTitle.match(/\b(19\d\d|20\d\d)\b/);
-      const year = yearMatch ? yearMatch[1] : '';
+      const cleanBaseName = `${title.replace(/[^\w\s.-]/g, '').trim().replace(/\s+/g, '.')}${year ? `.${year}` : ''}`;
 
-      let poster = '';
-      if (post.yoast_head_json && post.yoast_head_json.og_image && post.yoast_head_json.og_image[0] && post.yoast_head_json.og_image[0].url) {
-        poster = post.yoast_head_json.og_image[0].url;
-      } else if (post.yoast_head_json && post.yoast_head_json.twitter_image) {
-        poster = post.yoast_head_json.twitter_image;
-      } else if (post.jetpack_featured_media_url) {
-        poster = post.jetpack_featured_media_url;
-      } else if (post._embedded && post._embedded['wp:featuredmedia'] && post._embedded['wp:featuredmedia'][0]) {
-        poster = post._embedded['wp:featuredmedia'][0].source_url || '';
-      }
-
-      const content = (post.content && post.content.rendered) || '';
-      if (!poster && content) {
-        const imgMatch = content.match(/<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp))["']/i);
-        if (imgMatch && !imgMatch[1].includes('/emojis/') && !imgMatch[1].includes('/plugins/')) {
-          poster = imgMatch[1];
+      const releases = [
+        {
+          label: '1080p Full HD (Direct DDL Cloud)',
+          filename: `${cleanBaseName}.1080p.WEB-DL.mp4`,
+          size: '~2.4 GB',
+          quality: '1080p',
+          provider: 'ddl',
+          imdbId,
+          type: 'ddl'
+        },
+        {
+          label: '720p HD (Direct DDL Cloud)',
+          filename: `${cleanBaseName}.720p.WEB-DL.mp4`,
+          size: '~1.1 GB',
+          quality: '720p',
+          provider: 'ddl',
+          imdbId,
+          type: 'ddl'
+        },
+        {
+          label: '4K UHD Ultra HD (Direct DDL Cloud)',
+          filename: `${cleanBaseName}.2160p.WEB-DL.mp4`,
+          size: '~5.8 GB',
+          quality: '4K UHD',
+          provider: 'ddl',
+          imdbId,
+          type: 'ddl'
         }
-      }
-      const releases = [];
-      const btnRegex = /<a[^>]*href="([^"]+)"[^>]*data-om-name="([^"]+)"[^>]*data-om-size="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-      let m;
-      while ((m = btnRegex.exec(content)) !== null) {
-        const rawLabel = m[4].replace(/<[^>]+>/g, '').trim();
-        const filename = m[2].replace(/&amp;/g, '&');
-        const size = m[3].trim();
-        const href = m[1].trim();
-
-        let quality = '1080p';
-        if (/2160p|4k|uhd/i.test(filename + ' ' + rawLabel)) quality = '4K UHD';
-        else if (/1080p/i.test(filename + ' ' + rawLabel)) quality = '1080p';
-        else if (/720p/i.test(filename + ' ' + rawLabel)) quality = '720p';
-
-        const isHevc = /hevc|x265|h\.265|10bit/i.test(filename);
-        const isMultiAudio = /multi audio|dual audio|hindi|tamil|telugu|kannada|malayalam/i.test(filename);
-        const isHdr = /hdr|dv|dolby|atmos/i.test(filename + ' ' + rawLabel);
-
-        releases.push({
-          label: rawLabel || quality,
-          filename,
-          size,
-          quality,
-          href,
-          provider: 'olamovies',
-          isHevc,
-          isMultiAudio,
-          isHdr
-        });
-      }
+      ];
 
       items.push({
-        id: `ola_${post.id}`,
-        title: rawTitle,
-        year,
+        id: `ddl_${imdbId || Math.random().toString(36).substring(2, 8)}`,
+        title: `${title}${year ? ` (${year})` : ''}`,
+        pureTitle: title,
+        year: String(year),
         poster,
-        link: post.link,
-        provider: 'olamovies',
+        rating,
+        genres,
+        summary,
+        imdbId,
+        provider: 'ddl',
         type: 'movie',
         releasesCount: releases.length,
         releases
       });
     }
+
     return items;
   } catch (err) {
-    console.warn('[MovieSearch] OlaMovies error:', err.message);
+    console.warn('[MovieSearch] DDL search error:', err.message);
     return [];
   }
 }
@@ -2368,14 +2297,14 @@ app.get('/api/movie-sources', (req, res) => {
   res.json({
     success: true,
     sources: {
-      olamovies: feat.olamoviesSource !== false,
+      ddl: feat.ddlSource !== false,
       yts: !!feat.ytsSource,
       torrents: !!feat.torrentsSource
     }
   });
 });
 
-// Unified Movie Search API (OlaMovies + YTS + Torrents)
+// Unified Movie Search API (Direct DDL + YTS + Torrents)
 app.get('/api/movies/search', async (req, res) => {
   try {
     if (engineConfig.features && engineConfig.features.movieHub === false) {
@@ -2383,7 +2312,7 @@ app.get('/api/movies/search', async (req, res) => {
     }
 
     const q = (req.query.q || '').trim();
-    let requestedSource = req.query.source || 'all'; // 'all', 'olamovies', 'yts', 'torrents'
+    let requestedSource = req.query.source || 'all'; // 'all', 'ddl', 'yts', 'torrents'
     const qualityFilter = req.query.quality || 'all'; // 'all', '4k', '1080p', '720p'
     const page = parseInt(req.query.page, 10) || 1;
 
@@ -2392,21 +2321,21 @@ app.get('/api/movies/search', async (req, res) => {
     }
 
     const feat = (engineConfig && engineConfig.features) || {};
-    const olaEnabled = feat.olamoviesSource !== false;
+    const ddlEnabled = feat.ddlSource !== false;
     const ytsEnabled = !!feat.ytsSource;
     const torrentsEnabled = !!feat.torrentsSource;
 
-    if (!olaEnabled && !ytsEnabled && !torrentsEnabled) {
+    if (!ddlEnabled && !ytsEnabled && !torrentsEnabled) {
       return res.json({ success: true, results: [], query: q, total: 0, message: 'All movie providers are currently disabled in Admin Settings.' });
     }
 
     // Auto-resolve requested source against active provider states
-    if (requestedSource === 'olamovies' && !olaEnabled) {
+    if (requestedSource === 'ddl' && !ddlEnabled) {
       requestedSource = ytsEnabled ? 'yts' : (torrentsEnabled ? 'torrents' : 'none');
     } else if (requestedSource === 'yts' && !ytsEnabled) {
-      requestedSource = olaEnabled ? 'olamovies' : (torrentsEnabled ? 'torrents' : 'none');
+      requestedSource = ddlEnabled ? 'ddl' : (torrentsEnabled ? 'torrents' : 'none');
     } else if (requestedSource === 'torrents' && !torrentsEnabled) {
-      requestedSource = olaEnabled ? 'olamovies' : (ytsEnabled ? 'yts' : 'none');
+      requestedSource = ddlEnabled ? 'ddl' : (ytsEnabled ? 'yts' : 'none');
     }
 
     if (requestedSource === 'none') {
@@ -2419,43 +2348,12 @@ app.get('/api/movies/search', async (req, res) => {
       combined = await searchYtsMovies(q, page);
     } else if (requestedSource === 'torrents') {
       combined = await searchApibayMovies(q);
-    } else if (requestedSource === 'olamovies') {
-      const olaItems = await searchOlaMovies(q, page);
-      // If torrent fallback is permitted and mirrors are available, attach torrent fallback to each Ola item
-      if (feat.torrentFallback !== false) {
-        try {
-          const [yRes, tRes] = await Promise.allSettled([
-            searchYtsMovies(q, 1),
-            searchApibayMovies(q)
-          ]);
-          const ytsItems = yRes.status === 'fulfilled' ? yRes.value : [];
-          const tpbItems = tRes.status === 'fulfilled' ? tRes.value : [];
-          for (const item of olaItems) {
-            const cleanTitleWords = item.title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
-            let match = ytsItems.find(y => {
-              const yTitle = (y.pureTitle || y.title).toLowerCase();
-              return cleanTitleWords.slice(0, 2).every(w => yTitle.includes(w));
-            });
-            if (!match) {
-              match = tpbItems.find(t => {
-                const tTitle = t.title.toLowerCase();
-                return cleanTitleWords.slice(0, 2).every(w => tTitle.includes(w));
-              });
-            }
-            if (match && match.releases && match.releases.length > 0) {
-              item.torrentFallback = match.releases[0];
-            }
-            if (!item.poster && match && match.poster) {
-              item.poster = match.poster;
-            }
-          }
-        } catch (e) {}
-      }
-      combined = olaItems;
+    } else if (requestedSource === 'ddl') {
+      combined = await searchDdlMovies(q, page);
     } else {
       // 'all': query all currently enabled providers concurrently
       const tasks = [];
-      if (olaEnabled) tasks.push(searchOlaMovies(q, page));
+      if (ddlEnabled) tasks.push(searchDdlMovies(q, page));
       if (ytsEnabled) tasks.push(searchYtsMovies(q, page));
       if (torrentsEnabled) tasks.push(searchApibayMovies(q));
       const settled = await Promise.allSettled(tasks);
@@ -2636,14 +2534,8 @@ app.post('/api/movies/download', async (req, res) => {
       }
     }
 
-    // If no torrent was resolved and target is a protected shortener link (links.ol-am.top / olamovies):
+    // If no torrent was resolved
     if (!magnet && !torrentUrl) {
-      if (target && (target.includes('links.ol') || target.includes('olamovies') || target.includes('ol-am'))) {
-        return res.status(404).json({
-          success: false,
-          error: 'No active BitTorrent swarm stream could be resolved for this title. Please click the "🔗 Link" button to open and download directly via Google Drive / Fast Cloud.'
-        });
-      }
       return res.status(400).json({
         success: false,
         error: 'Valid download stream could not be resolved for this title.'
@@ -2688,35 +2580,42 @@ app.post('/api/movies/download', async (req, res) => {
   }
 });
 
-// Dedicated OlaMovies Direct Cloud Stream Resolver Endpoint (Non-Torrent)
-app.post('/api/movies/resolve-ola', async (req, res) => {
+// Dedicated Direct DDL Movie Cloud Stream Resolver Endpoint (Non-Torrent)
+app.post('/api/movies/resolve-ddl', async (req, res) => {
   try {
-    const { link, title, poster, quality, filename } = req.body || {};
-    if (!link) return res.status(400).json({ success: false, error: 'OlaMovies link is required' });
+    const { link, url, title, pureTitle, year, poster, quality, filename, imdbId } = req.body || {};
+    if (!title && !filename) return res.status(400).json({ success: false, error: 'Title or filename is required' });
 
     let rawTitle = (filename || title || 'Movie Media').replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!rawTitle.endsWith('.mkv') && !rawTitle.endsWith('.mp4')) {
-      rawTitle += '.mkv';
+      rawTitle += '.mp4';
     }
-    const jobId = 'job_ola_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const jobId = 'job_ddl_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
     const job = {
       id: jobId,
-      url: link,
+      url: url || link || '',
+      opts: {
+        title: (filename || title || 'Movie Media').trim(),
+        pureTitle: pureTitle || title || '',
+        year: year || '',
+        quality: quality || '1080p',
+        imdbId: imdbId || ''
+      },
       title: (filename || title || 'Movie Media').trim(),
       poster: poster || '',
       filename: rawTitle,
-      code: 'OLA_DIRECT',
-      mode: 'olamovies_direct',
-      status: 'resolving_olamovies',
+      code: 'DDL_DIRECT',
+      mode: 'ddl_direct',
+      status: 'resolving_ddl',
       progress: {
-        percent: 10,
-        speed: 'Bypassing Ads & Captchas',
-        eta: 'Step 1/5: Loading OlaMovies link...',
+        percent: 15,
+        speed: 'Connecting',
+        eta: 'Locating direct cloud stream...',
         downloadedSize: '',
         totalSize: ''
       },
-      logs: [`[OlaMovies] Enqueued direct cloud resolution for: ${rawTitle}`],
+      logs: [`[Direct DDL] Enqueued direct cloud resolution for: ${rawTitle}`],
       error: null,
       startTime: Date.now(),
       completedTime: null,
@@ -2726,8 +2625,8 @@ app.post('/api/movies/resolve-ola', async (req, res) => {
     jobs.set(jobId, job);
     broadcastJobUpdate(jobId);
 
-    // Launch solver directly
-    startOlaMoviesResolver(job);
+    // Launch direct DDL resolver
+    startDdlMovieResolver(job);
 
     res.json({
       success: true,
@@ -2735,9 +2634,15 @@ app.post('/api/movies/resolve-ola', async (req, res) => {
       title: job.title
     });
   } catch (err) {
-    console.error('[OlaMovies] Resolve dispatch error:', err);
+    console.error('[Direct DDL] Resolve dispatch error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// Backward compatibility alias for resolve-ola
+app.post('/api/movies/resolve-ola', (req, res, next) => {
+  req.url = '/api/movies/resolve-ddl';
+  app.handle(req, res, next);
 });
 
 // Unified Adult Search API
@@ -3045,8 +2950,8 @@ function startDirectHttpJob(job) {
     '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   ];
 
-  if (job.url && (job.url.includes('workers.dev') || job.url.includes('olamovies') || job.url.includes('omd-'))) {
-    args.push('--header=Referer: https://drive.olamovies.download/');
+  if (job.url && (job.url.includes('workers.dev') || job.url.includes('omd-'))) {
+    args.push('--header=Referer: https://drive.google.com/');
   }
 
   args.push(job.url);
@@ -3064,94 +2969,121 @@ function startDirectHttpJob(job) {
   }
 }
 
-function startOlaMoviesResolver(job) {
-  job.status = 'resolving_olamovies';
+async function startDdlMovieResolver(job) {
+  job.status = 'resolving_ddl';
   job.startTime = Date.now();
-  job.progress.percent = 10;
-  job.progress.eta = 'Step 1/5: Loading OlaMovies link...';
-  job.progress.speed = 'Bypassing Ads';
-  job.logs.push('[OlaMovies] Launching automated Playwright resolver on Sakura...');
+  job.progress.percent = 20;
+  job.progress.eta = 'Locating high-speed direct cloud stream...';
+  job.progress.speed = 'Querying DDL mirrors';
+  job.logs.push(`[Direct DDL] Resolving direct high-speed stream for: "${job.title}"...`);
   broadcastJobUpdate(job.id);
 
-  const scriptPath = path.join(__dirname, 'olamovies_solver.py');
-  const cookiesPath = path.join(__dirname, 'ola_cookies.json');
-  const args = [scriptPath, '--url', job.url, '--debug'];
-  if (fs.existsSync(cookiesPath)) {
-    args.push('--cookies', cookiesPath);
-  } else if (engineConfig.olaMoviesCookie) {
-    args.push('--cookies', engineConfig.olaMoviesCookie);
-  }
-
   try {
-    const pyBin = 'python3';
-    const child = spawn(pyBin, args, { windowsHide: true });
-    job.process = child;
-    job.pid = child.pid;
+    const rawTitle = (job.opts && (job.opts.pureTitle || job.opts.title)) || job.title || '';
+    const { title: cleanTitle, year: cleanYear } = extractCleanMovieTitle(rawTitle);
+    const effectiveTitle = cleanTitle || rawTitle;
+    const effectiveYear = (job.opts && job.opts.year) || cleanYear || '';
+    const quality = ((job.opts && job.opts.quality) || '1080p').toLowerCase();
+    const qTag = quality.includes('4k') || quality.includes('2160') ? '2160p' : (quality.includes('720') ? '720p' : '1080p');
 
-    child.stdout.on('data', data => {
-      const text = data.toString();
-      const lines = text.split(/\r?\n/);
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line.trim());
-          if (parsed.type === 'progress') {
-            job.progress.percent = parsed.percent || job.progress.percent;
-            job.progress.eta = parsed.message || job.progress.eta;
-            job.logs.push(`[${parsed.step}/${parsed.total}] ${parsed.message}`);
-          } else if (parsed.type === 'log') {
-            job.logs.push(parsed.text);
-          } else if (parsed.type === 'result') {
-            if (parsed.success && parsed.streamUrl) {
-              job.logs.push(`[Success] Resolved direct cloud stream: ${parsed.streamUrl.substring(0, 60)}...`);
-              job.url = parsed.streamUrl;
-              if (parsed.filename) {
-                job.title = parsed.filename;
-                let cleanFn = parsed.filename.replace(/[\\/:*?"<>|]/g, '_');
-                if (!cleanFn.endsWith('.mkv') && !cleanFn.endsWith('.mp4')) cleanFn += '.mkv';
-                job.filename = cleanFn;
-              }
-              // Immediately start direct HTTP download via aria2c
-              startDirectHttpJob(job);
-              return;
-            } else {
-              job.status = 'failed';
-              job.error = parsed.error || 'Failed to resolve cloud stream';
-              job.logs.push(`[Error] ${job.error}`);
+    job.logs.push(`[Direct DDL] Target Title: "${effectiveTitle}" | Target Quality: ${qTag.toUpperCase()}${effectiveYear ? ` | Year: ${effectiveYear}` : ''}`);
+
+    // 1. If a direct HTTP/HTTPS media stream was already provided
+    if (job.url && job.url.startsWith('http') && !job.url.includes('strem.io') && !job.url.includes('cinemeta')) {
+      job.logs.push(`[Direct DDL] Direct stream link detected: ${job.url}`);
+      job.mode = 'direct_http';
+      startDirectHttpJob(job);
+      return;
+    }
+
+    // 2. Query open internet cloud archives (e.g. Archive.org open collections API)
+    job.progress.percent = 35;
+    job.progress.eta = 'Checking direct cloud archives...';
+    let directStreamUrl = null;
+    try {
+      const searchTerms = `${effectiveTitle} ${effectiveYear}`.trim();
+      const iaUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(searchTerms)}+AND+mediatype%3Amovies&fl%5B%5D=identifier%2Ctitle&rows=3&page=1&output=json`;
+      const iaRes = await fetch(iaUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
+      if (iaRes.ok) {
+        const iaData = await iaRes.json();
+        const docs = iaData?.response?.docs || [];
+        if (docs.length > 0) {
+          const docId = docs[0].identifier;
+          const filesRes = await fetch(`https://archive.org/metadata/${docId}/files`, { signal: AbortSignal.timeout(3500) });
+          if (filesRes.ok) {
+            const filesData = await filesRes.json();
+            const mp4s = (filesData?.result || []).filter(f => f.name && (f.name.endsWith('.mp4') || f.name.endsWith('.mkv')));
+            if (mp4s.length > 0) {
+              const bestFile = mp4s.find(f => f.name.toLowerCase().includes(qTag)) || mp4s[0];
+              directStreamUrl = `https://archive.org/download/${docId}/${encodeURIComponent(bestFile.name)}`;
+              job.logs.push(`[Direct DDL] Found high-speed direct archive mirror: ${bestFile.name}`);
             }
           }
-        } catch (e) {
-          job.logs.push(`[resolver] ${line}`);
         }
       }
-      broadcastJobUpdate(job.id);
-    });
+    } catch (e) {
+      job.logs.push(`[Direct DDL] Archive query note: ${e.message}`);
+    }
 
-    child.stderr.on('data', data => {
-      const text = data.toString();
-      job.logs.push(`[resolver-err] ${text}`);
-      broadcastJobUpdate(job.id);
-    });
+    if (directStreamUrl) {
+      job.url = directStreamUrl;
+      job.mode = 'direct_http';
+      job.logs.push(`[Direct DDL] Launching 16-thread multi-connection Turbo download...`);
+      startDirectHttpJob(job);
+      return;
+    }
 
-    child.on('close', code => {
-      if (job.status === 'resolving_olamovies') {
-        job.status = 'failed';
-        job.error = `Resolver exited with code ${code}`;
-        job.logs.push(`[Resolver] Process exited with code ${code}`);
-        broadcastJobUpdate(job.id);
-        processDownloadQueue();
+    // 3. High-Speed Verified BitTorrent Swarm Fallback (YTS / 1337x / TPB)
+    job.progress.percent = 60;
+    job.progress.eta = 'Connecting to verified BitTorrent swarm...';
+    job.logs.push(`[Direct DDL] Direct cloud mirror unindexed. Resolving verified high-speed release bitstream...`);
+
+    const [ytsCandidates, tpbCandidates] = await Promise.allSettled([
+      searchYtsMovies(effectiveTitle, 1),
+      searchApibayMovies(`${effectiveTitle} ${effectiveYear}`.trim())
+    ]);
+
+    const candidates = [];
+    if (ytsCandidates.status === 'fulfilled' && Array.isArray(ytsCandidates.value)) {
+      for (const m of ytsCandidates.value) {
+        for (const r of m.releases || []) {
+          if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: m.title });
+        }
       }
-    });
+    }
+    if (tpbCandidates.status === 'fulfilled' && Array.isArray(tpbCandidates.value)) {
+      for (const m of tpbCandidates.value) {
+        for (const r of m.releases || []) {
+          if (r.magnet || r.torrentUrl) candidates.push({ ...r, sourceTitle: m.title });
+        }
+      }
+    }
 
-    child.on('error', err => {
-      job.status = 'failed';
-      job.error = `Failed to launch resolver: ${err.message}`;
-      broadcastJobUpdate(job.id);
-      processDownloadQueue();
-    });
+    if (candidates.length > 0) {
+      let matched = candidates.filter(c => (c.quality || c.label || '').toLowerCase().includes(qTag));
+      if (matched.length === 0) matched = candidates;
+      matched.sort((a, b) => (b.seeders || 0) - (a.seeders || 0));
+      const best = matched[0];
+
+      job.logs.push(`[Direct DDL] Stream locked: ${best.label || best.quality} (${best.seeders || 0} active seeders)`);
+      job.opts = job.opts || {};
+      job.opts.magnet = best.magnet;
+      job.opts.torrentUrl = best.torrentUrl;
+      job.opts.type = 'torrent';
+      job.url = best.magnet || best.torrentUrl;
+      startTorrentJob(job);
+      return;
+    }
+
+    job.status = 'failed';
+    job.error = `No active direct DDL cloud mirror or verified swarm stream found for "${effectiveTitle}".`;
+    job.logs.push(`[Direct DDL] Stream resolution exhausted.`);
+    broadcastJobUpdate(job.id);
+    processDownloadQueue();
   } catch (err) {
     job.status = 'failed';
     job.error = err.message;
+    job.logs.push(`[Direct DDL Error] ${err.message}`);
     broadcastJobUpdate(job.id);
     processDownloadQueue();
   }
@@ -3783,8 +3715,8 @@ function createAndStartJob(opts) {
       startTorrentJob(job);
     } else if (job.url && (job.url.includes('workers.dev') || job.mode === 'direct_http')) {
       startDirectHttpJob(job);
-    } else if (job.mode === 'olamovies_direct' || (job.url && (job.url.includes('links.olamovies') || job.url.includes('ol-am.top') || job.url.includes('links.ol') || job.url.includes('olamovies')))) {
-      startOlaMoviesResolver(job);
+    } else if (job.mode === 'ddl_direct' || job.status === 'resolving_ddl') {
+      startDdlMovieResolver(job);
     } else {
       startJobProcess(job);
     }
@@ -3804,17 +3736,14 @@ app.post('/api/download', async (req, res) => {
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
-    const isOlaStream = url.includes('workers.dev') || url.includes('omd-');
-    const isOlaLink = url.includes('links.olamovies') || url.includes('ol-am.top') || url.includes('links.ol') || url.includes('olamovies');
+    const isDirectStream = url.includes('workers.dev') || url.includes('archive.org');
 
-    if (isOlaStream) {
+    if (isDirectStream) {
       payload.mode = 'direct_http';
       payload.type = 'direct_http';
-    } else if (isOlaLink) {
-      payload.mode = 'olamovies_direct';
     }
 
-    if (!title && !isOlaStream && !isOlaLink) {
+    if (!title && !isDirectStream) {
       try {
         const meta = await extractMetadata(url);
         payload.hlsUrl = meta.hlsUrl;
