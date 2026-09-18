@@ -109,34 +109,37 @@ def tag_flac(flac_path, meta):
 
 def get_tidal_stream_url(isrc=None, query=None):
     """Resolves Tidal Hi-Res / Lossless FLAC stream URL via Monochrome API."""
+    qualities = ['HI_RES_LOSSLESS', 'HI_RES', 'LOSSLESS']
     # 1. Search by ISRC
     if isrc:
-        for mirror in TIDAL_API_MIRRORS:
-            try:
-                r = session.get(f"{mirror}/track", params={'isrc': isrc, 'quality': 'LOSSLESS'}, timeout=4)
-                if r.status_code == 200:
-                    data = r.json()
-                    stream_url = data.get('stream_url') or data.get('url') or data.get('downloadUrl')
-                    if stream_url:
-                        return stream_url, data
-            except Exception:
-                pass
+        for q in qualities:
+            for mirror in TIDAL_API_MIRRORS:
+                try:
+                    r = session.get(f"{mirror}/track", params={'isrc': isrc, 'quality': q}, timeout=4)
+                    if r.status_code == 200:
+                        data = r.json()
+                        stream_url = data.get('stream_url') or data.get('url') or data.get('downloadUrl')
+                        if stream_url:
+                            return stream_url, data
+                except Exception:
+                    pass
 
     # 2. Search by Query
     if query:
-        for mirror in TIDAL_API_MIRRORS:
-            try:
-                r = session.get(f"{mirror}/search", params={'q': query, 'quality': 'LOSSLESS'}, timeout=4)
-                if r.status_code == 200:
-                    data = r.json()
-                    items = data.get('tracks') or data.get('items') or data.get('data') or []
-                    if items:
-                        t = items[0]
-                        stream_url = t.get('stream_url') or t.get('url') or t.get('downloadUrl')
-                        if stream_url:
-                            return stream_url, t
-            except Exception:
-                pass
+        for q in qualities:
+            for mirror in TIDAL_API_MIRRORS:
+                try:
+                    r = session.get(f"{mirror}/search", params={'q': query, 'quality': q}, timeout=4)
+                    if r.status_code == 200:
+                        data = r.json()
+                        items = data.get('tracks') or data.get('items') or data.get('data') or []
+                        if items:
+                            t = items[0]
+                            stream_url = t.get('stream_url') or t.get('url') or t.get('downloadUrl')
+                            if stream_url:
+                                return stream_url, t
+                except Exception:
+                    pass
                 
     return None, None
 
