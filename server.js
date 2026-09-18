@@ -2121,7 +2121,12 @@ app.get('/api/admin/storage/files', requireAdmin, (req, res) => {
     }
 
     fileList.sort((a, b) => b.mtime - a.mtime);
-    res.json({ success: true, disk: diskStats, files: fileList.slice(0, 150) });
+    res.json({
+      success: true,
+      disk: diskStats,
+      directories: targetDirs.map(t => ({ path: t.path, category: t.category })),
+      files: fileList.slice(0, 150)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2136,7 +2141,19 @@ app.get('/api/admin/storage/raw-download', requireAdmin, (req, res) => {
   const resolved = path.resolve(filePath);
   const home = path.resolve(process.env.HOME || process.env.USERPROFILE || '');
   const temp = path.resolve(TEMP_DIR);
-  if (!resolved.startsWith(temp) && !resolved.startsWith(home)) {
+  let isAllowed = resolved.startsWith(temp) || resolved.startsWith(home);
+  if (!isAllowed) {
+    for (const u of users.values()) {
+      if (u.downloadFolder && typeof u.downloadFolder === 'string') {
+        const uFolder = path.resolve(u.downloadFolder.trim());
+        if (resolved === uFolder || resolved.startsWith(uFolder + path.sep)) {
+          isAllowed = true;
+          break;
+        }
+      }
+    }
+  }
+  if (!isAllowed) {
     return res.status(403).send('Forbidden: Access outside download directories');
   }
   res.download(resolved);
@@ -4977,6 +4994,15 @@ function createAndStartJob(opts) {
   const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
   const isPremium = !!opts.isPremium;
   const ownerId = opts.ownerId || 'guest';
+  const assignedFolder = getUserDownloadFolder(ownerId);
+
+  const initialLogs = [];
+  if (isPremium) {
+    initialLogs.push('🌟 Priority bandwidth allocated (Premium User)');
+  }
+  if (assignedFolder) {
+    initialLogs.push(`📁 Permanent Storage: Downloads routed to assigned folder: ${assignedFolder}`);
+  }
 
   const job = {
     id: jobId,
@@ -4988,6 +5014,8 @@ function createAndStartJob(opts) {
     mode,
     ownerId,
     isPremium,
+    downloadFolder: assignedFolder || '',
+    isPermanent: !!assignedFolder,
     filePath,
     filename: finalFilename,
     filesize: '',
@@ -5001,7 +5029,7 @@ function createAndStartJob(opts) {
       currentFrag: 0,
       totalFrag: 0
     },
-    logs: isPremium ? ['🌟 Priority bandwidth allocated (Premium User)'] : [],
+    logs: initialLogs,
     error: null,
     startTime: Date.now(),
     completedTime: null,
@@ -5630,13 +5658,14 @@ app.get('/api/stream/:id', (req, res) => {
   }
 });
 
-// Periodic cleanup of temp files and parts folders older than 2 hours
+// Periodic cleanup of temp files and parts folders older than 2 hours (exempting permanent user files)
 setInterval(() => {
   try {
     const now = Date.now();
     const files = fs.readdirSync(TEMP_DIR);
     for (const f of files) {
       const full = path.join(TEMP_DIR, f);
+      if (isPermanentUserFile(full)) continue;
       const stat = fs.statSync(full);
       if (now - stat.mtimeMs > 2 * 3600 * 1000) {
         if (stat.isDirectory()) {

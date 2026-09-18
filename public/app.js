@@ -403,6 +403,9 @@ function openAccountModal() {
   const nameEl = document.getElementById('accountModalUsername');
   const roleEl = document.getElementById('accountModalRoleBadge');
   const adminLinkBtn = document.getElementById('btnAccountAdminStudio');
+  const folderPathEl = document.getElementById('accountModalFolderPath');
+  const folderBadgeEl = document.getElementById('accountModalFolderBadge');
+
   if (nameEl && currentUser) nameEl.textContent = currentUser.username;
   if (roleEl && currentUser) {
     if (currentUser.role === 'owner' || currentUser.isOwner) {
@@ -416,6 +419,25 @@ function openAccountModal() {
       roleEl.className = 'badge-tier badge-tier-premium';
     }
   }
+
+  if (folderPathEl && folderBadgeEl && currentUser) {
+    if (currentUser.downloadFolder) {
+      folderPathEl.textContent = currentUser.downloadFolder;
+      folderPathEl.title = currentUser.downloadFolder;
+      folderBadgeEl.textContent = '📁 Permanent Storage';
+      folderBadgeEl.style.background = 'rgba(16,185,129,0.15)';
+      folderBadgeEl.style.color = '#34d399';
+      folderBadgeEl.style.borderColor = 'rgba(16,185,129,0.3)';
+    } else {
+      folderPathEl.textContent = 'Default Temporary Media Directory';
+      folderPathEl.title = 'Default server temp storage';
+      folderBadgeEl.textContent = 'Temporary Cache';
+      folderBadgeEl.style.background = 'rgba(255,255,255,0.06)';
+      folderBadgeEl.style.color = '#94a3b8';
+      folderBadgeEl.style.borderColor = 'rgba(255,255,255,0.12)';
+    }
+  }
+
   if (adminLinkBtn) {
     const isOwnerOrAdmin = currentUser && (currentUser.role === 'owner' || currentUser.isOwner || currentUser.role === 'admin');
     adminLinkBtn.style.display = isOwnerOrAdmin ? 'inline-flex' : 'none';

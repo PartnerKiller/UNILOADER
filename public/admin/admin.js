@@ -1679,6 +1679,8 @@ function setupUsersTab() {
       }
       const passInp = document.getElementById('newAccountPassword');
       if (passInp) passInp.value = 'User_' + Math.random().toString(36).substring(2, 8);
+      const folderInp = document.getElementById('newAccountFolder');
+      if (folderInp) folderInp.value = '';
       const errEl = document.getElementById('createUserError');
       if (errEl) errEl.style.display = 'none';
     }
@@ -1704,12 +1706,14 @@ function setupUsersTab() {
       const userInp = document.getElementById('newAccountUsername');
       const passInp = document.getElementById('newAccountPassword');
       const roleInp = document.getElementById('newAccountRole');
+      const folderInp = document.getElementById('newAccountFolder');
       const errEl = document.getElementById('createUserError');
       const submitBtn = document.getElementById('btnSubmitCreateUser');
 
       const username = userInp ? userInp.value.trim() : '';
       const password = passInp ? passInp.value : '';
       const role = roleInp ? roleInp.value : 'premium';
+      const downloadFolder = folderInp ? folderInp.value.trim() : '';
 
       if (!username || username.length < 3) {
         if (errEl) {
@@ -1734,7 +1738,7 @@ function setupUsersTab() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${adminToken}`
           },
-          body: JSON.stringify({ username, password, role })
+          body: JSON.stringify({ username, password, role, downloadFolder })
         });
         const data = await res.json();
         if (res.ok && data.success) {
@@ -1744,6 +1748,101 @@ function setupUsersTab() {
         } else {
           if (errEl) {
             errEl.textContent = data.error || 'Failed to create user account.';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Network error while contacting server.';
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  // Assign Permanent Download Folder Modal Events
+  const assignModal = document.getElementById('assignFolderModal');
+  const btnCloseAssign = document.getElementById('btnCloseAssignFolderModal');
+  const btnCancelAssign = document.getElementById('btnCancelAssignFolder');
+  const assignForm = document.getElementById('assignFolderForm');
+
+  window.closeAssignFolderModal = function() {
+    if (assignModal) assignModal.style.display = 'none';
+  };
+
+  if (btnCloseAssign) btnCloseAssign.addEventListener('click', closeAssignFolderModal);
+  if (btnCancelAssign) btnCancelAssign.addEventListener('click', closeAssignFolderModal);
+  if (assignModal) {
+    assignModal.addEventListener('click', (e) => {
+      if (e.target === assignModal) closeAssignFolderModal();
+    });
+  }
+
+  window.openAssignFolderModal = function(id, username, currentFolder) {
+    if (!assignModal) return;
+    const idInp = document.getElementById('assignFolderUserId');
+    const userLabel = document.getElementById('assignFolderTargetUser');
+    const pathInp = document.getElementById('assignFolderPath');
+    const errEl = document.getElementById('assignFolderError');
+
+    if (idInp) idInp.value = id;
+    if (userLabel) userLabel.textContent = username;
+    if (pathInp) pathInp.value = currentFolder || '';
+    if (errEl) errEl.style.display = 'none';
+
+    const btnSakura = document.getElementById('btnQuickFolderSakura');
+    if (btnSakura) {
+      btnSakura.onclick = () => {
+        if (pathInp) pathInp.value = `/home/sakura/downloads/${username}`;
+      };
+    }
+    const btnSlskd = document.getElementById('btnQuickFolderSlskd');
+    if (btnSlskd) {
+      btnSlskd.onclick = () => {
+        if (pathInp) pathInp.value = `/home/sakura/slskd_downloads/${username}`;
+      };
+    }
+    const btnClear = document.getElementById('btnClearFolder');
+    if (btnClear) {
+      btnClear.onclick = () => {
+        if (pathInp) pathInp.value = '';
+      };
+    }
+
+    assignModal.style.display = 'flex';
+  };
+
+  if (assignForm) {
+    assignForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const idInp = document.getElementById('assignFolderUserId');
+      const pathInp = document.getElementById('assignFolderPath');
+      const errEl = document.getElementById('assignFolderError');
+      const submitBtn = document.getElementById('btnSubmitAssignFolder');
+
+      const id = idInp ? idInp.value : '';
+      const downloadFolder = pathInp ? pathInp.value.trim() : '';
+
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/users/folder', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({ id, downloadFolder })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || 'Permanent folder updated successfully!', 'success');
+          closeAssignFolderModal();
+          loadAdminUsers();
+        } else {
+          if (errEl) {
+            errEl.textContent = data.error || 'Failed to update user folder.';
             errEl.style.display = 'block';
           }
         }
@@ -1775,7 +1874,7 @@ async function loadAdminUsers() {
     if (!tbody) return;
 
     if (users.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No registered members yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No registered members yet.</td></tr>`;
       return;
     }
 
@@ -1783,6 +1882,15 @@ async function loadAdminUsers() {
       const dateStr = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A';
       const isOwner = u.role === 'owner' || u.username.toLowerCase() === 'sakura';
       const isPrem = u.role === 'premium';
+      const folderDisplay = u.downloadFolder
+        ? `<div style="display: flex; align-items: center; gap: 6px;">
+             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10b981; flex-shrink: 0;"></span>
+             <code style="font-size: 0.75rem; color: #a7f3d0; background: rgba(16,185,129,0.1); padding: 2px 6px; border-radius: 4px; word-break: break-all;" title="${escapeHtml(u.downloadFolder)}">
+               ${escapeHtml(u.downloadFolder)}
+             </code>
+           </div>`
+        : `<span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Default (Temp Cache)</span>`;
+
       return `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); ${isOwner ? 'background: rgba(245,158,11,0.04);' : ''}">
           <td style="padding: 12px 14px;"><strong>${escapeHtml(u.username)}</strong></td>
@@ -1792,22 +1900,26 @@ async function loadAdminUsers() {
               ${isOwner ? '👑 OWNER' : escapeHtml(u.role ? u.role.toUpperCase() : 'USER')}
             </span>
           </td>
+          <td style="padding: 12px 14px;">${folderDisplay}</td>
           <td style="padding: 12px 14px; color: var(--text-muted);">${dateStr}</td>
           <td style="padding: 12px 14px; text-align: right;">
-            ${isOwner ? `
-              <span style="display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3);">
-                👑 Protected Owner
-              </span>
-            ` : `
-              <div style="display: inline-flex; gap: 8px;">
+            <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+              <button type="button" class="btn btn-outline btn-xs" onclick="openAssignFolderModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.downloadFolder || '')}')">
+                📁 Folder
+              </button>
+              ${isOwner ? `
+                <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3);">
+                  👑 Owner
+                </span>
+              ` : `
                 <button type="button" class="btn btn-outline btn-xs" onclick="toggleUserRole('${escapeHtml(u.id)}', '${isPrem ? 'user' : 'premium'}')">
-                  ${isPrem ? 'Demote to Standard' : 'Make Premium'}
+                  ${isPrem ? 'Demote' : 'Make Premium'}
                 </button>
                 <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteUserAccount('${escapeHtml(u.id)}', '${escapeHtml(u.username)}')">
                   Delete
                 </button>
-              </div>
-            `}
+              `}
+            </div>
           </td>
         </tr>
       `;
@@ -1887,6 +1999,9 @@ window.approveAccessRequest = async function(id, username) {
   const customPass = prompt(`Approve and create account for "${username}".\nEnter initial password (leave blank to generate automatically):`, 'User_' + Math.random().toString(36).substring(2, 8));
   if (customPass === null) return;
 
+  const customFolder = prompt(`Assign permanent download folder for "${username}" (optional, leave blank for default temp storage):`, `/home/sakura/downloads/${username}`);
+  if (customFolder === null) return;
+
   try {
     const res = await fetch(`/api/admin/access-requests/${encodeURIComponent(id)}/approve`, {
       method: 'POST',
@@ -1894,11 +2009,15 @@ window.approveAccessRequest = async function(id, username) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${adminToken}`
       },
-      body: JSON.stringify({ password: customPass.trim() || undefined, role: 'premium' })
+      body: JSON.stringify({
+        password: customPass.trim() || undefined,
+        role: 'premium',
+        downloadFolder: customFolder.trim() || undefined
+      })
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      alert(`🎉 Account created for "${username}"!\nInitial Password: ${data.user.initialPassword}\nRole: ${data.user.role}\n\nPlease share this password with the user.`);
+      alert(`🎉 Account created for "${username}"!\nInitial Password: ${data.user.initialPassword}\nRole: ${data.user.role}\nAssigned Folder: ${data.user.downloadFolder || 'Default Temporary'}\n\nPlease share this password with the user.`);
       showToast(`User "${username}" approved and created!`, 'success');
       loadAdminUsers();
       loadAccessRequests();

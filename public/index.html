@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.7.2">
+  <link rel="stylesheet" href="styles.css?v=4.8.0">
 </head>
 <body>
   <div class="app-layout">
@@ -103,7 +103,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.7.2 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.8.0 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -267,7 +267,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.7.2 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.8.0 &bull; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -1657,6 +1657,16 @@
             </div>
           </div>
 
+          <div class="account-storage-card">
+            <div class="account-storage-header">
+              <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Assigned Storage Target</span>
+              <span id="accountModalFolderBadge" class="badge-tag" style="font-size: 0.68rem; padding: 2px 8px; border-radius: 4px; background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3);">Permanent Storage</span>
+            </div>
+            <div id="accountModalFolderPath" class="account-storage-path">
+              Default Temporary Storage
+            </div>
+          </div>
+
           <div class="account-actions">
             <a href="/admin" class="btn btn-primary" id="btnAccountAdminStudio" style="display: none; align-items: center; justify-content: center; gap: 8px; text-decoration: none; padding: 10px 16px; font-size: 0.85rem; font-weight: 600; border-radius: var(--radius-sm);" target="_blank">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
@@ -1673,6 +1683,6 @@
 
   </div>
 
-  <script src="app.js?v=4.7.2"></script>
+  <script src="app.js?v=4.8.0"></script>
 </body>
 </html>
