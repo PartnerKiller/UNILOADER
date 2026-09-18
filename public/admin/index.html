@@ -37,6 +37,12 @@
           <label for="adminPass">Password</label>
           <input type="password" id="adminPass" placeholder="Enter password" autocomplete="current-password" required>
         </div>
+        <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+          <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer; user-select: none;">
+            <input type="checkbox" id="adminRememberMe" style="accent-color: #2563eb; width: 16px; height: 16px; cursor: pointer;" checked>
+            <span>Remember me</span>
+          </label>
+        </div>
         <button type="submit" class="btn btn-primary btn-block" id="loginBtn">
           <span>Authenticate & Access</span>
         </button>
@@ -1029,6 +1035,6 @@
     </div>
   </div>
 
-  <script src="/admin/admin.js?v=4.8.0"></script>
+  <script src="/admin/admin.js?v=4.8.1"></script>
 </body>
 </html>

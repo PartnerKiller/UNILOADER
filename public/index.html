@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.8.0">
+  <link rel="stylesheet" href="styles.css?v=4.7.3">
 </head>
 <body>
   <div class="app-layout">
@@ -45,30 +45,25 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Downloader</span>
         </button>
-        <button type="button" class="nav-item" data-view="movies" id="navMovies">
+        <button type="button" class="nav-item user-only-nav" data-view="movies" id="navMovies">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
           <span>Movie &amp; TV Hub</span>
-          <span class="nav-lock-badge" title="Registered User Access Only">🔒</span>
         </button>
-        <button type="button" class="nav-item" data-view="music" id="navMusic">
+        <button type="button" class="nav-item user-only-nav" data-view="music" id="navMusic">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
           <span>Music Hub</span>
-          <span class="nav-lock-badge" title="Registered User Access Only">🔒</span>
         </button>
-        <button type="button" class="nav-item" data-view="flac-checker" id="navFlacChecker">
+        <button type="button" class="nav-item user-only-nav" data-view="flac-checker" id="navFlacChecker">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           <span>FLAC Checker</span>
-          <span class="nav-lock-badge" title="Registered User Access Only">🔒</span>
+        </button>
+        <button type="button" class="nav-item nav-item-adult user-only-nav" data-view="adult-search" id="navAdultSearch">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+          <span>Adult &amp; JAV Hub</span>
         </button>
         <button type="button" class="nav-item" data-view="supported" id="navSupported">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           <span>Supported Sites</span>
-        </button>
-        <!-- Ephemeral Adult Hub Entry: Default Hidden, Revealed Only via 7-Tap Easter Egg -->
-        <button type="button" class="nav-item nav-item-adult" data-view="adult-search" id="navAdultSearch" style="display: none;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
-          <span>Adult &amp; JAV Hub</span>
-          <span class="nav-lock-badge" title="Registered User Access Only">🔒</span>
         </button>
         <button type="button" class="nav-item" data-view="about" id="navAbout">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -103,7 +98,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.8.0 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.7.3 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -190,7 +185,7 @@
                 <span class="drawer-item-desc">Fast video, audio &amp; batch processor</span>
               </div>
             </button>
-            <button type="button" class="drawer-nav-item" data-view="movies">
+            <button type="button" class="drawer-nav-item user-only-nav" data-view="movies" id="drawerNavMovies">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
               </div>
@@ -198,10 +193,9 @@
                 <span class="drawer-item-title">Movie &amp; TV Hub</span>
                 <span class="drawer-item-desc">Direct high-speed streaming &amp; multi-season packs</span>
               </div>
-              <span class="drawer-lock-badge" title="Registered User Access Only">🔒</span>
               <span class="drawer-badge badge-cinema">CINEMA</span>
             </button>
-            <button type="button" class="drawer-nav-item" data-view="music">
+            <button type="button" class="drawer-nav-item user-only-nav" data-view="music" id="drawerNavMusic">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
               </div>
@@ -209,10 +203,9 @@
                 <span class="drawer-item-title">Music Hub</span>
                 <span class="drawer-item-desc">24-bit Hi-Res, FLAC CDDA, MP3 320k &amp; Albums</span>
               </div>
-              <span class="drawer-lock-badge" title="Registered User Access Only">🔒</span>
               <span class="drawer-badge badge-music">STUDIO</span>
             </button>
-            <button type="button" class="drawer-nav-item" data-view="flac-checker">
+            <button type="button" class="drawer-nav-item user-only-nav" data-view="flac-checker" id="drawerNavFlacChecker">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
               </div>
@@ -220,7 +213,16 @@
                 <span class="drawer-item-title">FLAC Checker</span>
                 <span class="drawer-item-desc">Spectral Nyquist &amp; Lossless Authenticity</span>
               </div>
-              <span class="drawer-lock-badge" title="Registered User Access Only">🔒</span>
+            </button>
+            <button type="button" class="drawer-nav-item drawer-nav-item-adult user-only-nav" data-view="adult-search" id="drawerNavAdultSearch">
+              <div class="drawer-item-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+              </div>
+              <div class="drawer-item-info">
+                <span class="drawer-item-title">Adult &amp; JAV Hub</span>
+                <span class="drawer-item-desc">Private encrypted catalog</span>
+              </div>
+              <span class="drawer-badge badge-adult">18+</span>
             </button>
             <button type="button" class="drawer-nav-item" data-view="supported">
               <div class="drawer-item-icon">
@@ -230,17 +232,6 @@
                 <span class="drawer-item-title">Supported Sites</span>
                 <span class="drawer-item-desc">1,000+ video &amp; audio portals</span>
               </div>
-            </button>
-            <button type="button" class="drawer-nav-item drawer-nav-item-adult" data-view="adult-search" id="drawerNavAdultSearch" style="display: none;">
-              <div class="drawer-item-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
-              </div>
-              <div class="drawer-item-info">
-                <span class="drawer-item-title">Adult &amp; JAV Hub</span>
-                <span class="drawer-item-desc">Private encrypted catalog</span>
-              </div>
-              <span class="drawer-lock-badge" title="Registered User Access Only">🔒</span>
-              <span class="drawer-badge badge-adult">18+</span>
             </button>
             <button type="button" class="drawer-nav-item" data-view="about">
               <div class="drawer-item-icon">
@@ -267,7 +258,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.8.0 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.7.3 &bull; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -899,7 +890,7 @@
             <div style="width: 100%;">
               <div class="adult-header-top-row">
                 <div class="badge-tag adult-hub-badge">🔞 Audiophile Adult & JAV Hub</div>
-                <button type="button" class="btn btn-secondary btn-xs btn-lock-adult" id="btnLockAdultHub" title="Hide and lock Adult Hub from navigation">
+                <button type="button" class="btn btn-secondary btn-xs btn-lock-adult" id="btnLockAdultHub" title="Hide and lock Adult Hub from navigation" style="display: none;">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                   <span>Hide & Lock Hub</span>
                 </button>
@@ -1325,25 +1316,33 @@
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         <span>Downloader</span>
       </button>
-      <button type="button" class="bottom-nav-item" data-view="movies" id="bottomNavMovies">
+      <button type="button" class="bottom-nav-item user-only-nav" data-view="movies" id="bottomNavMovies">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
         <span>Movies</span>
       </button>
-      <button type="button" class="bottom-nav-item" data-view="music" id="bottomNavMusic">
+      <button type="button" class="bottom-nav-item user-only-nav" data-view="music" id="bottomNavMusic">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
         <span>Music</span>
       </button>
-      <button type="button" class="bottom-nav-item" data-view="flac-checker" id="bottomNavFlacChecker">
+      <button type="button" class="bottom-nav-item user-only-nav" data-view="flac-checker" id="bottomNavFlacChecker">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
         <span>FLAC</span>
+      </button>
+      <button type="button" class="bottom-nav-item user-only-nav" data-view="adult-search" id="bottomNavAdultSearch">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+        <span>Adult</span>
+      </button>
+      <button type="button" class="bottom-nav-item guest-only-nav" data-view="supported" id="bottomNavSupported">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+        <span>Sites</span>
+      </button>
+      <button type="button" class="bottom-nav-item guest-only-nav" data-view="about" id="bottomNavAbout">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <span>About</span>
       </button>
       <button type="button" class="bottom-nav-item" id="bottomNavMoreBtn" title="More Features">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         <span>More</span>
-      </button>
-      <button type="button" class="bottom-nav-item" data-view="adult-search" id="bottomNavAdultSearch" style="display: none;">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
-        <span>Adult</span>
       </button>
     </nav>
 
@@ -1607,6 +1606,13 @@
               <input type="password" id="authPassword" class="auth-input" placeholder="Enter your password" autocomplete="current-password" required minlength="6" />
             </div>
 
+            <div class="auth-options-row">
+              <label class="remember-me-label" for="authRememberMe">
+                <input type="checkbox" id="authRememberMe" checked />
+                <span>Remember me</span>
+              </label>
+            </div>
+
             <button type="submit" class="btn btn-primary auth-submit-btn" id="authSubmitBtn">
               <span id="authSubmitText">Sign In to Universal</span>
               <div class="btn-spinner" id="authSpinner" style="display: none;"></div>
@@ -1683,6 +1689,6 @@
 
   </div>
 
-  <script src="app.js?v=4.8.0"></script>
+  <script src="app.js?v=4.7.3"></script>
 </body>
 </html>

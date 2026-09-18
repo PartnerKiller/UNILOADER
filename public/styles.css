@@ -6377,6 +6377,32 @@ body {
   border-color: var(--border-focus);
 }
 
+.auth-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+  margin-bottom: 12px;
+}
+
+.remember-me-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.remember-me-label input[type="checkbox"] {
+  accent-color: var(--accent-primary, #2563eb);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
 .auth-submit-btn {
   width: 100%;
   padding: 11px;
@@ -6481,20 +6507,30 @@ body {
 }
 
 /* ==========================================================================
-   Member Access Application Gateway & Role Badges (v4.7.0)
+   Member Access Application Gateway & Role Badges (v4.7.0 / v4.7.3)
    ========================================================================== */
+
+/* Member Feature Filtering: Hidden completely for Guests, Visible for Authenticated Members */
+.user-only-nav {
+  display: none !important;
+}
+
+body.authenticated-user .nav-item.user-only-nav,
+body.authenticated-user .drawer-nav-item.user-only-nav {
+  display: flex !important;
+}
+
+body.authenticated-user .bottom-nav-item.user-only-nav {
+  display: flex !important;
+}
+
+body.authenticated-user .guest-only-nav {
+  display: none !important;
+}
 
 .nav-lock-badge,
 .drawer-lock-badge {
-  font-size: 0.72rem;
-  opacity: 0.75;
-  margin-left: auto;
-  transition: opacity var(--transition-fast);
-}
-
-.nav-item:hover .nav-lock-badge,
-.drawer-nav-item:hover .drawer-lock-badge {
-  opacity: 1;
+  display: none !important;
 }
 
 .auth-modal-title-bar {

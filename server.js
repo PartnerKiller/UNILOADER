@@ -606,9 +606,9 @@ let globalUiSettings = {
   updatedAt: Date.now()
 };
 
-function generateAdminToken(user) {
+function generateAdminToken(user, rememberMe = true) {
   const token = crypto.randomBytes(32).toString('hex');
-  adminSessions.set(token, { user, createdAt: Date.now() });
+  adminSessions.set(token, { user, rememberMe: !!rememberMe, createdAt: Date.now() });
   saveAdminSessions();
   return token;
 }
@@ -627,7 +627,8 @@ function verifyAdminToken(req) {
   if (!token) return null;
   const session = adminSessions.get(token);
   if (!session) return null;
-  if (Date.now() - session.createdAt > 14 * 24 * 60 * 60 * 1000) {
+  const maxAge = (session.rememberMe !== false) ? (90 * 24 * 60 * 60 * 1000) : (24 * 60 * 60 * 1000);
+  if (Date.now() - session.createdAt > maxAge) {
     adminSessions.delete(token);
     saveAdminSessions();
     return null;
@@ -663,18 +664,20 @@ function requireAdmin(req, res, next) {
 
 // 1. Admin Login
 app.post('/api/admin/login', (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, rememberMe } = req.body || {};
+  const isRemember = rememberMe !== false;
   const expectedUser = (process.env.ADMIN_USER || 'sakura').toLowerCase();
   const expectedPass = process.env.ADMIN_PASS || 'Sakura@002';
   const cleanUser = (username || '').trim().toLowerCase();
   const isMatchUser = cleanUser === expectedUser || cleanUser === 'sakura' || cleanUser === 'admin';
 
   if (isMatchUser && password === expectedPass) {
-    const token = generateAdminToken(process.env.ADMIN_USER || 'sakura');
+    const token = generateAdminToken(process.env.ADMIN_USER || 'sakura', isRemember);
     userSessions.set(token, {
       userId: 'owner',
       username: process.env.ADMIN_USER || 'sakura',
       role: 'owner',
+      rememberMe: isRemember,
       createdAt: Date.now()
     });
     saveUserSessions();
@@ -939,12 +942,13 @@ function finalizeJobPermanentStorage(job) {
 
 
 
-function generateUserSession(user) {
+function generateUserSession(user, rememberMe = true) {
   const token = crypto.randomBytes(32).toString('hex');
   const sess = {
     userId: user.id,
     username: user.username,
     role: user.role || 'premium',
+    rememberMe: !!rememberMe,
     createdAt: Date.now()
   };
   userSessions.set(token, sess);
@@ -998,7 +1002,8 @@ function resolveUserSession(req) {
   const sess = userSessions.get(token);
   if (!sess) return null;
 
-  if (Date.now() - sess.createdAt > 30 * 24 * 60 * 60 * 1000) {
+  const maxAge = (sess.rememberMe !== false) ? (90 * 24 * 60 * 60 * 1000) : (24 * 60 * 60 * 1000);
+  if (Date.now() - sess.createdAt > maxAge) {
     userSessions.delete(token);
     saveUserSessions();
     return null;
@@ -1097,7 +1102,8 @@ app.post('/api/access-requests', identifyUser, (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, rememberMe } = req.body || {};
+  const isRemember = rememberMe !== false;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
   }
@@ -1110,11 +1116,12 @@ app.post('/api/auth/login', (req, res) => {
   const expectedAdminPass = process.env.ADMIN_PASS || 'Sakura@002';
   const isOwnerOrAdmin = lowerUser === expectedAdminUser || lowerUser === 'sakura' || lowerUser === 'admin';
   if (isOwnerOrAdmin && password === expectedAdminPass) {
-    const adminToken = generateAdminToken(process.env.ADMIN_USER || 'sakura');
+    const adminToken = generateAdminToken(process.env.ADMIN_USER || 'sakura', isRemember);
     userSessions.set(adminToken, {
       userId: 'owner',
       username: process.env.ADMIN_USER || 'sakura',
       role: 'owner',
+      rememberMe: isRemember,
       createdAt: Date.now()
     });
     saveUserSessions();
@@ -1143,7 +1150,7 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const isOwner = user.role === 'owner' || lowerUser === 'sakura';
-  const token = generateUserSession(user);
+  const token = generateUserSession(user, isRemember);
   res.json({
     success: true,
     token,

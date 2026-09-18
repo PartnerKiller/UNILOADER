@@ -294,6 +294,15 @@ function updateAuthUI(user, limits) {
     }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account';
 
+    // Reveal all member-accessible features across navigation (Movies, Music, FLAC, Adult Hub)
+    document.body.classList.add('authenticated-user');
+    document.querySelectorAll('.user-only-nav').forEach(el => {
+      el.style.display = 'flex';
+    });
+    document.querySelectorAll('.guest-only-nav').forEach(el => {
+      el.style.display = 'none';
+    });
+
     // Hide tool locks for registered members
     document.querySelectorAll('.nav-lock-badge, .drawer-lock-badge').forEach(el => {
       el.style.display = 'none';
@@ -308,7 +317,21 @@ function updateAuthUI(user, limits) {
       applyMemberRoleBadge.className = badgeClass;
     }
   } else {
-    // Guest User
+    // Guest User: Hide user-accessible features completely from navigation
+    document.body.classList.remove('authenticated-user');
+    document.querySelectorAll('.user-only-nav').forEach(el => {
+      el.style.display = 'none';
+    });
+    document.querySelectorAll('.guest-only-nav').forEach(el => {
+      el.style.display = 'flex';
+    });
+
+    // If guest is currently viewing any restricted member panel, redirect to downloader
+    const activeRestricted = document.querySelector('.view-panel.active');
+    if (activeRestricted && ['viewMovies', 'viewMusic', 'viewFlacChecker', 'viewAdultSearch'].includes(activeRestricted.id)) {
+      switchView('downloader');
+    }
+
     if (sidebarUserName) sidebarUserName.textContent = 'Guest Visitor';
     if (sidebarUserRole) {
       sidebarUserRole.textContent = 'GUEST ACCESS';
@@ -332,11 +355,6 @@ function updateAuthUI(user, limits) {
       drawerUserAvatar.classList.remove('is-owner');
     }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Sign In';
-
-    // Show tool locks for guests
-    document.querySelectorAll('.nav-lock-badge, .drawer-lock-badge').forEach(el => {
-      el.style.display = '';
-    });
 
     // Show application form for guests in About & Privacy
     if (applyGuestBox) applyGuestBox.style.display = 'block';
@@ -382,8 +400,19 @@ function openAuthModal(tab = 'login', notice = '') {
   }
 
   modal.style.display = 'flex';
+  const rememberedUser = localStorage.getItem('sakura_remembered_username') || '';
+  const rememberCheckbox = document.getElementById('authRememberMe');
+  if (rememberCheckbox) {
+    rememberCheckbox.checked = localStorage.getItem('sakura_remember_me') !== 'false';
+  }
   const userInput = document.getElementById('authUsername');
-  if (userInput) setTimeout(() => userInput.focus(), 50);
+  const passInput = document.getElementById('authPassword');
+  if (userInput && rememberedUser) {
+    userInput.value = rememberedUser;
+    if (passInput) setTimeout(() => passInput.focus(), 60);
+  } else if (userInput) {
+    setTimeout(() => userInput.focus(), 60);
+  }
 }
 
 function closeAuthModal() {
@@ -585,18 +614,30 @@ function setupAuthModalEvents() {
       if (spinner) spinner.style.display = 'inline-block';
       if (submitText) submitText.style.opacity = '0.5';
 
+      const rememberCheckbox = document.getElementById('authRememberMe');
+      const rememberMe = rememberCheckbox ? rememberCheckbox.checked : true;
+
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password, rememberMe })
         });
         const data = await res.json();
 
         if (res.ok && data.success && data.token) {
           userAuthToken = data.token;
-          localStorage.setItem('sakura_user_token', data.token);
           sessionStorage.setItem('sakura_user_token', data.token);
+
+          if (rememberMe) {
+            localStorage.setItem('sakura_user_token', data.token);
+            localStorage.setItem('sakura_remembered_username', username);
+            localStorage.setItem('sakura_remember_me', 'true');
+          } else {
+            localStorage.removeItem('sakura_user_token');
+            localStorage.removeItem('sakura_remembered_username');
+            localStorage.setItem('sakura_remember_me', 'false');
+          }
 
           if (alertEl) {
             alertEl.textContent = '🌟 Welcome back, ' + (data.user?.username || username) + '!';
@@ -914,9 +955,7 @@ function switchView(viewName) {
 
   const isGuest = !currentUser || currentUser.role === 'guest';
   if (isGuest && restrictedViews[viewName]) {
-    const toolTitle = restrictedViews[viewName];
-    showToast(`🔒 ${toolTitle} is restricted to registered members.`, 'warning');
-    openAuthModal('login', `${toolTitle} is reserved for registered members. Guests have access to the Downloader. Please sign in or apply for member access under About & Privacy.`);
+    switchView('downloader');
     return;
   }
 
@@ -932,21 +971,6 @@ function switchView(viewName) {
     currentAudioPreview = null;
     currentPreviewTrackId = null;
     document.querySelectorAll('.music-preview-btn').forEach(b => b.classList.remove('playing'));
-  }
-
-  // Ephemeral Adult Hub:
-  // If navigating to ANY other option, immediately hide the Adult Hub buttons from the navigation!
-  if (viewName !== 'adult-search') {
-    isAdultHubActive = false;
-    updateAdultHubVisibility(false);
-  } else {
-    // Only allow entering adult-search if explicitly triggered by the 7-tap gesture
-    if (!isAdultHubActive) {
-      viewName = 'downloader';
-      updateAdultHubVisibility(false);
-    } else {
-      updateAdultHubVisibility(true);
-    }
   }
 
   // 1. Hide all view panels and show target panel
@@ -2757,89 +2781,34 @@ window.dispatchAdultDownload = async function(idx) {
 };
 
 // ==========================================================================
-// Easter Egg: Tap Version 7 Times to Unlock & Open Adult & JAV Hub
+// Adult & JAV Hub Navigation Visibility (Direct Menu Access for Members)
 // ==========================================================================
 
-let versionTapCount = 0;
-let versionTapTimeout = null;
-let isAdultHubActive = false;
-
 function isAdultHubUnlocked() {
-  return isAdultHubActive;
+  return Boolean(currentUser && currentUser.role !== 'guest');
 }
 
 function updateAdultHubVisibility(visible) {
+  const isMember = visible !== undefined ? visible : (currentUser && currentUser.role !== 'guest');
   const sidebarBtn = document.getElementById('navAdultSearch');
   const bottomBtn = document.getElementById('bottomNavAdultSearch');
   const drawerBtn = document.getElementById('drawerNavAdultSearch');
   if (sidebarBtn) {
-    sidebarBtn.style.display = visible ? 'flex' : 'none';
+    sidebarBtn.style.display = isMember ? 'flex' : 'none';
   }
   if (bottomBtn) {
-    bottomBtn.style.display = visible ? 'flex' : 'none';
+    bottomBtn.style.display = isMember ? 'flex' : 'none';
   }
   if (drawerBtn) {
-    drawerBtn.style.display = visible ? 'flex' : 'none';
+    drawerBtn.style.display = isMember ? 'flex' : 'none';
   }
 }
 
 function setupVersionTapEasterEgg() {
-  // Purge any lingering localStorage key so it never persists across reloads
+  // Easter egg tap gesture disabled: access-gained users now see Adult & JAV Hub directly in the navigation menu.
   try {
     localStorage.removeItem('adult_hub_unlocked');
   } catch (e) {}
-
-  // Strictly hidden by default on every page load and reload
-  isAdultHubActive = false;
-  updateAdultHubVisibility(false);
-
-  const versionTags = document.querySelectorAll('.version-tag, #mobileBrandTitle');
-  versionTags.forEach(tag => {
-    tag.style.cursor = 'pointer';
-    tag.style.userSelect = 'none';
-
-    tag.addEventListener('click', (e) => {
-      e.preventDefault();
-      versionTapCount++;
-      clearTimeout(versionTapTimeout);
-
-      versionTapTimeout = setTimeout(() => {
-        versionTapCount = 0;
-      }, 3500);
-
-      if (versionTapCount >= 7) {
-        versionTapCount = 0;
-        clearTimeout(versionTapTimeout);
-
-        // Temporarily reveal and open Adult Hub for this session
-        isAdultHubActive = true;
-        updateAdultHubVisibility(true);
-
-        showToast('🔞 Adult & JAV Hub Opened!', 'success');
-        switchView('adult-search');
-
-        const navBtn = document.getElementById('navAdultSearch');
-        if (navBtn) {
-          navBtn.classList.add('pulse-highlight');
-          setTimeout(() => navBtn.classList.remove('pulse-highlight'), 2000);
-        }
-      } else if (versionTapCount >= 4) {
-        const remaining = 7 - versionTapCount;
-        showToast(`Tap ${remaining} more time${remaining > 1 ? 's' : ''} to reveal hidden options...`, 'info');
-      }
-    });
-  });
-
-  // Lock Hub button in Adult Hub header
-  const lockBtn = document.getElementById('btnLockAdultHub');
-  if (lockBtn) {
-    lockBtn.addEventListener('click', () => {
-      isAdultHubActive = false;
-      updateAdultHubVisibility(false);
-      showToast('Adult & JAV Hub hidden from navigation', 'info');
-      switchView('downloader');
-    });
-  }
 }
 
 // ==========================================================================
