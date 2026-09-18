@@ -192,7 +192,8 @@ body {
 }
 
 /* Left Sidebar Navigation */
-.app-sidebar {
+.app-sidebar,
+.sidebar {
   width: 250px;
   min-width: 250px;
   background: var(--bg-secondary);
@@ -310,6 +311,19 @@ body {
   padding-top: 16px;
   border-top: 1px solid var(--border-subtle);
   width: 100%;
+}
+
+.sidebar-footer .status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-emerald);
+  background-color: hsla(158, 75%, 42%, 0.12);
+  border: 1px solid hsla(158, 75%, 42%, 0.25);
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
 }
 
 /* Windows Desktop & Local Downloads Card */
