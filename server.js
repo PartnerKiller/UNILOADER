@@ -3028,6 +3028,8 @@ app.post('/api/music/download', async (req, res) => {
       duration: duration || 0,
       code: isFlac ? 'FLAC_HIFI' : `AUDIO_${requestedFormat.toUpperCase()}`,
       mode: isFlac ? 'audiophile_flac' : 'audio',
+      format: requestedFormat,
+      quality: requestedQuality,
       audioFormat: isFlac ? 'flac' : requestedFormat,
       audioBitrate: requestedQuality === '320k' ? '320k' : (requestedQuality === '256k' ? '256k' : '160k'),
       type: 'audio',
@@ -3680,7 +3682,8 @@ function startJobProcess(job) {
       }
     }
 
-    job.logs.push(`Lossless FLAC requested: "${job.title}"`);
+    const targetQuality = (opts && (opts.quality || opts.audioBitrate)) ? String(opts.quality || opts.audioBitrate) : 'auto';
+    job.logs.push(`Lossless FLAC requested: "${job.title}" (Quality: ${targetQuality})`);
     job.logs.push(`Initiating 3-Tier Audiophile Resolution Pipeline (Tidal Hi-Res → Soulseek P2P → Deezer HiFi)...`);
     job.logs.push(`Strict Quality Guarantee: Fake/upscaled transcodes prohibited; full spectral authenticity analysis will be enforced.`);
 
@@ -3691,7 +3694,8 @@ function startJobProcess(job) {
       finalOutPath,
       (opts && opts.isrc) || 'None',
       (opts && (opts.cover || opts.poster)) || 'None',
-      (opts && opts.duration) ? String(opts.duration) : 'None'
+      (opts && opts.duration) ? String(opts.duration) : 'None',
+      targetQuality
     ];
 
     const child = spawn(pythonBin, flacArgs, { 

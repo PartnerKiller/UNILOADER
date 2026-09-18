@@ -482,7 +482,24 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                     # Size bonus (higher resolution streams have larger file sizes)
                     quality_bonus += min((size / (1024 * 1024)) * 20, 2000)
                     
-                    score = quality_bonus + (5000 if free_slot else -5000) + 1000 - (queue_len * 50) + min(speed / 100000, 500)
+                    # Bandwidth & Peer Speed Scoring (Crucial for high-speed connections):
+                    peer_kbps = speed / 1024.0
+                    speed_score = 0
+                    if peer_kbps >= 3000:
+                        speed_score += 25000  # >= 3 MB/s fast broadband peer
+                    elif peer_kbps >= 1500:
+                        speed_score += 18000  # >= 1.5 MB/s
+                    elif peer_kbps >= 800:
+                        speed_score += 8000   # >= 800 KB/s
+                    elif peer_kbps < 300:
+                        speed_score -= 25000  # Heavily penalize slow dial-up/DSL peers (<300 KB/s)
+                    elif peer_kbps < 600:
+                        speed_score -= 12000  # Penalize slow peers (<600 KB/s)
+
+                    slot_score = 15000 if free_slot else -20000
+                    queue_penalty = queue_len * 200
+
+                    score = quality_bonus + speed_score + slot_score - queue_penalty
                     candidates.append({
                         'username': uname,
                         'filename': fname,
@@ -499,7 +516,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             print(f"[Soulseek HiFi] No matching FLAC files found in peer catalog", flush=True)
             return False
             
-        # Sort best candidates first (peers with free upload slots & zero queues come first)
+        # Sort best candidates first (fast peers with free upload slots come first)
         candidates.sort(key=lambda x: x['score'], reverse=True)
         
         # Deduplicate candidates so we try different peers, never hammering the same queued user
@@ -509,14 +526,20 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             if c['username'] not in seen_users:
                 seen_users.add(c['username'])
                 unique_peer_candidates.append(c)
-                if len(unique_peer_candidates) >= 12:
-                    break
+
+        # Filter out heavily penalized slow/queued candidates and try at most top 3 fast candidates
+        viable_candidates = [c for c in unique_peer_candidates if c['score'] > 0]
+        if not viable_candidates:
+            viable_candidates = unique_peer_candidates[:2]
+        else:
+            viable_candidates = viable_candidates[:3]
         
         # Try top distinct peer candidates sequentially until one completes
-        for idx, best in enumerate(unique_peer_candidates):
+        for idx, best in enumerate(viable_candidates):
             cand_base = os.path.basename(best['filename'].replace('\\', '/'))
             total_mb = best['size'] / (1024 * 1024)
-            print(f"[Soulseek HiFi] Trying candidate {idx+1}/{len(unique_peer_candidates)}: '{cand_base}' ({total_mb:.1f}MB from '{best['username']}')", flush=True)
+            peer_spd_str = f"{best['speed']/1024:.0f}KB/s" if best['speed'] > 0 else "unknown"
+            print(f"[Soulseek HiFi] Trying candidate {idx+1}/{len(viable_candidates)}: '{cand_base}' ({total_mb:.1f}MB from '{best['username']}' • rated {peer_spd_str})", flush=True)
             
             # Check if this exact file was already completed in SLSKD directory
             cached_candidate = None
@@ -557,12 +580,17 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 print(f"[Soulseek HiFi] Failed to contact peer '{best['username']}': {e}. Trying next peer...", flush=True)
                 continue
                 
-            # Monitor transfer
+            # Monitor transfer with speed watchdog
             start_time = time.time()
+            transfer_start_time = time.time()
             completed = False
             aborted = False
             stall_count = 0
+            slow_speed_count = 0
             last_bytes_tx = -1
+            MIN_SPEED_MB = 0.80   # Speed watchdog: minimum 0.80 MiB/s (~6.5 Mbps) to prevent crawling
+            SPEED_GRACE_SEC = 5.0 # Grace period for peer connection ramp-up
+
             print(f"[download] 0.0% of {total_mb:.1f}MiB at 0.00MiB/s ETA --:-- (Soulseek HiFi)", flush=True)
             
             while time.time() - start_time < max_wait_sec:
@@ -639,6 +667,18 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 # Emit download progress for UI parsing
                 print(f"[download] {pct:.1f}% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA {eta_str} (Soulseek HiFi)", flush=True)
 
+                # SPEED WATCHDOG: After grace period, fast-fail slow peers (< 0.80 MiB/s)
+                elapsed = time.time() - transfer_start_time
+                if bytes_tx > 0 and elapsed >= SPEED_GRACE_SEC:
+                    if speed_mb < MIN_SPEED_MB:
+                        slow_speed_count += 1
+                        if slow_speed_count >= 3:
+                            print(f"[Soulseek HiFi] ⚠️ Peer '{best['username']}' upload speed too slow ({speed_mb:.2f} MiB/s < {MIN_SPEED_MB} MiB/s). Aborting to protect user bandwidth...", flush=True)
+                            aborted = True
+                            break
+                    else:
+                        slow_speed_count = 0
+
                 # Stall / queue watchdog
                 if bytes_tx == last_bytes_tx:
                     stall_count += 1
@@ -647,14 +687,16 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                         print(f"[Soulseek HiFi] Peer '{best['username']}' queued or unresponsive ({state}). Fast-failing to next candidate...", flush=True)
                         aborted = True
                         break
-                    # Fast-fail after 6 seconds of stalled data mid-stream
-                    if bytes_tx > 0 and stall_count >= 6:
+                    # Fast-fail after 5 seconds of stalled data mid-stream
+                    if bytes_tx > 0 and stall_count >= 5:
                         print(f"[Soulseek HiFi] Peer '{best['username']}' stalled mid-transfer at {pct:.1f}%. Fast-failing to next candidate...", flush=True)
                         aborted = True
                         break
                 else:
                     stall_count = 0
-                    start_time = time.time()
+                    # Only reset start_time if download speed is healthy
+                    if speed_mb >= MIN_SPEED_MB:
+                        start_time = time.time()
 
                 last_bytes_tx = bytes_tx
 

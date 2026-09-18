@@ -72,55 +72,74 @@ def verify_and_accept_flac(file_path, tier_name):
     return True
 
 
-def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, duration=None):
+def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, duration=None, quality='auto'):
     """
-    Executes the 3-Tier Audiophile Resolution Pipeline in strict quality order.
+    Executes the 3-Tier Audiophile Resolution Pipeline in quality and speed optimized order.
+    - If 16-bit CDDA is requested: Deezer HiFi CDN (1411kbps bitstream, 15-30 MB/s) is queried first.
+    - If 24-bit Studio Master is requested: Tidal Hi-Res & Soulseek P2P Masters are queried first with speed watchdog.
+    - Fast fallback ensures users on high-bandwidth connections never get stuck on slow peers.
     """
     clean_artist = re.sub(r'[\(\)\[\]]', '', artist).strip()
     clean_title = re.sub(r'[\(\)\[\]]', '', title).strip()
     full_name = f"{clean_artist} - {clean_title}" if clean_artist else clean_title
+    target_quality = (quality or 'auto').lower()
 
-    print(f"[Audiophile HiFi] Resolving true lossless FLAC for: \"{full_name}\"", flush=True)
+    print(f"[Audiophile HiFi] Resolving true lossless FLAC for: \"{full_name}\" (Target: {target_quality})", flush=True)
     if isrc:
         print(f"[Audiophile HiFi] Primary ISRC anchor: {isrc}", flush=True)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
+    is_16bit_target = target_quality in ('16bit', 'cdda', '16', 'cd')
+
+    # If the user explicitly requested 16-bit CDDA Lossless:
+    # Route directly to Deezer HiFi CDN (1411 kbps unthrottled Akamai/Fastly CDN - downloads in 2-3 seconds!)
+    if is_16bit_target:
+        try:
+            from deezer_hifi_engine import resolve_and_download_flac
+            print(f"[Audiophile HiFi] [Tier 1 CDN] Streaming Deezer HiFi 1411kbps CD Lossless Bitstream...", flush=True)
+            t_ok = resolve_and_download_flac(clean_artist, clean_title, isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url)
+            if t_ok and verify_and_accept_flac(output_path, "Deezer HiFi CDN"):
+                return True
+        except Exception as e:
+            print(f"[Audiophile HiFi] [Tier 1 CDN] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
+
     # -------------------------------------------------------------
-    # Tier 1: Tidal Hi-Res / Monochrome API (Studio Masters 24-bit)
+    # Tier 1 / Hi-Res: Tidal Hi-Res / Monochrome API (Studio Masters 24-bit)
     # -------------------------------------------------------------
     try:
         from tidal_monochrome_engine import download_tidal_flac
-        print(f"[Audiophile HiFi] [Tier 1] Querying Tidal Hi-Res Studio Masters (24-bit / 96kHz / 48kHz)...", flush=True)
+        print(f"[Audiophile HiFi] [Tier 1 Hi-Res] Querying Tidal Hi-Res Studio Masters (24-bit / 96kHz / 48kHz)...", flush=True)
         t1_ok = download_tidal_flac(clean_artist, clean_title, output_path, isrc=isrc, cover_url=cover_url, duration=duration)
         if t1_ok and verify_and_accept_flac(output_path, "Tidal Hi-Res"):
             return True
     except Exception as e:
-        print(f"[Audiophile HiFi] [Tier 1] Tidal Hi-Res notice: {e}", file=sys.stderr, flush=True)
+        print(f"[Audiophile HiFi] [Tier 1 Hi-Res] Tidal Hi-Res notice: {e}", file=sys.stderr, flush=True)
 
     # -------------------------------------------------------------
-    # Tier 2: Soulseek P2P Network (24-bit Hi-Res & Audiophile Vinyl/CD)
+    # Tier 2: Soulseek P2P Network (24-bit Hi-Res & Audiophile Vinyl/CD with Speed Watchdog)
     # -------------------------------------------------------------
     try:
         from soulseek_flac_engine import search_and_download_flac
-        print(f"[Audiophile HiFi] [Tier 2] Searching Soulseek P2P Audiophile Masters (24-bit / CD Lossless)...", flush=True)
+        print(f"[Audiophile HiFi] [Tier 2 P2P] Searching Soulseek P2P Audiophile Masters (High-Speed Peers)...", flush=True)
         t2_ok = search_and_download_flac(clean_artist, clean_title, output_path, isrc=isrc, cover_url=cover_url, duration=duration)
         if t2_ok and verify_and_accept_flac(output_path, "Soulseek P2P"):
             return True
     except Exception as e:
-        print(f"[Audiophile HiFi] [Tier 2] Soulseek P2P notice: {e}", file=sys.stderr, flush=True)
+        print(f"[Audiophile HiFi] [Tier 2 P2P] Soulseek P2P notice: {e}", file=sys.stderr, flush=True)
 
     # -------------------------------------------------------------
-    # Tier 3: Deezer HiFi (1411 kbps 16-bit 44.1kHz FLAC CDN Bitstream)
+    # Tier 3: Deezer HiFi (1411 kbps 16-bit 44.1kHz FLAC CDN Bitstream Fallback)
     # -------------------------------------------------------------
-    try:
-        from deezer_hifi_engine import resolve_and_download_flac
-        print(f"[Audiophile HiFi] [Tier 3] Streaming Deezer HiFi 1411kbps Lossless Bitstream...", flush=True)
-        t3_ok = resolve_and_download_flac(clean_artist, clean_title, isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url)
-        if t3_ok and verify_and_accept_flac(output_path, "Deezer HiFi"):
-            return True
-    except Exception as e:
-        print(f"[Audiophile HiFi] [Tier 3] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
+    if not is_16bit_target:
+        try:
+            from deezer_hifi_engine import resolve_and_download_flac
+            print(f"[Audiophile HiFi] [Tier 3 Fallback] Streaming Deezer HiFi 1411kbps Lossless Bitstream...", flush=True)
+            t3_ok = resolve_and_download_flac(clean_artist, clean_title, isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url)
+            if t3_ok and verify_and_accept_flac(output_path, "Deezer HiFi CDN"):
+                return True
+        except Exception as e:
+            print(f"[Audiophile HiFi] [Tier 3 Fallback] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
 
     # -------------------------------------------------------------
     # Strict Anti-Transcode Policy Enforcement
@@ -135,7 +154,7 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print("Usage: python audiophile_flac_engine.py <ARTIST> <TITLE> <OUTPUT_PATH> [ISRC] [COVER_URL] [DURATION]")
+        print("Usage: python audiophile_flac_engine.py <ARTIST> <TITLE> <OUTPUT_PATH> [ISRC] [COVER_URL] [DURATION] [QUALITY]")
         sys.exit(1)
 
     art = sys.argv[1]
@@ -144,8 +163,9 @@ if __name__ == '__main__':
     code = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] not in ('None', '') else None
     cov = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] not in ('None', '') else None
     dur = float(sys.argv[6]) if len(sys.argv) > 6 and sys.argv[6] not in ('None', '') else None
+    qual = sys.argv[7] if len(sys.argv) > 7 and sys.argv[7] not in ('None', '') else 'auto'
 
-    success = resolve_flac_audio(art, tit, out, isrc=code, cover_url=cov, duration=dur)
+    success = resolve_flac_audio(art, tit, out, isrc=code, cover_url=cov, duration=dur, quality=qual)
     if success:
         print(f"🎉 SUCCESS: Genuine Lossless FLAC saved at: {out}")
         sys.exit(0)

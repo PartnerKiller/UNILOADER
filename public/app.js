@@ -814,7 +814,11 @@ function createJobCardElement(job) {
   card.id = `job-card-${job.id}`;
   card.className = `job-card ${job.status}`;
 
-  const isAudio = job.mode === 'audio';
+  const isAudio = job.mode === 'audio' || 
+                  job.mode === 'audiophile_flac' || 
+                  (job.opts && (job.opts.isMusicTrack || job.opts.audioFormat || job.opts.type === 'audio')) ||
+                  (job.filename && /\.(flac|mp3|m4a|aac|opus|wav|ogg)$/i.test(job.filename)) ||
+                  (job.code && job.code.startsWith('FLAC_') || job.code && job.code.startsWith('AUDIO_'));
 
   card.innerHTML = `
     <div class="job-header">
@@ -899,9 +903,9 @@ function renderJobControls(job) {
             <span>Save to Device</span>
           </a>
         `}
-        <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')" title="Watch Media">
+        <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')" title="${(isFlac || job.mode === 'audio' || job.mode === 'audiophile_flac') ? 'Listen Audio' : 'Watch Media'}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-          <span>Watch</span>
+          <span>${(isFlac || job.mode === 'audio' || job.mode === 'audiophile_flac' || (job.opts && job.opts.isMusicTrack)) ? 'Listen' : 'Watch'}</span>
         </button>
         ${isFlac ? `
           <button class="btn btn-flac-verify btn-sm" onclick="inspectFlacFile('${job.id}', '${directPath}')" title="Inspect Lossless FLAC Authenticity">
