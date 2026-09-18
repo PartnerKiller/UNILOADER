@@ -186,7 +186,7 @@ console.log('Detected Tools:', tools);
 // In-memory job & SSE client store
 const jobs = new Map();
 const sseClients = new Map(); // jobId -> Set(res)
-const globalSseClients = new Set();
+const globalSseClients = new Map(); // res -> currentUser
 
 const HISTORY_FILE = path.join(TEMP_DIR, '.jobs_history.json');
 
@@ -202,6 +202,7 @@ function saveJobsHistory() {
           code: j.code || 'MEDIA',
           poster: j.poster || '',
           mode: j.mode || 'video',
+          ownerId: j.ownerId || 'owner',
           filename: j.filename || path.basename(j.filePath),
           filesize: j.filesize || '',
           filePath: j.filePath,
@@ -228,6 +229,7 @@ function loadJobsHistory() {
           if (r && r.id && r.filePath && fs.existsSync(r.filePath)) {
             jobs.set(r.id, {
               ...r,
+              ownerId: r.ownerId || 'owner',
               logs: ['Processing completed! File ready in folder.'],
               downloadUrl: `/api/download-file/${r.id}`,
               streamUrl: `/api/stream/${r.id}`,
@@ -273,6 +275,7 @@ function loadJobsHistory() {
               code: title.substring(0, 15).toUpperCase(),
               poster: '',
               mode: isAudio ? 'audio' : 'video',
+              ownerId: 'owner',
               filename: cleanName,
               filesize: sizeStr,
               filePath: fullPath,
@@ -358,27 +361,64 @@ function findMediaFileByJobId(jobId) {
 
 loadJobsHistory();
 
+function formatJobSummary(job, detailed = false) {
+  const base = {
+    id: job.id,
+    url: job.url || '',
+    mode: job.mode,
+    title: job.title,
+    code: job.code || 'MEDIA',
+    poster: job.poster || '',
+    status: job.status,
+    progress: job.progress || { percent: 0, speed: '0 MB/s', eta: '--' },
+    filesize: job.filesize || '',
+    filename: job.filename,
+    error: job.error,
+    createdAt: job.createdAt || job.startTime || Date.now(),
+    downloadUrl: `/api/download-file/${job.id}`,
+    streamUrl: `/api/stream/${job.id}`,
+    filePath: job.filePath || '',
+    ownerId: job.ownerId || 'owner'
+  };
+  if (detailed) {
+    base.startTime = job.startTime;
+    base.completedTime = job.completedTime;
+    base.lastLog = job.logs && job.logs.length > 0 ? job.logs[job.logs.length - 1] : '';
+    base.logs = job.logs ? job.logs.slice(-20) : [];
+  }
+  return base;
+}
+
+function getJobsForUser(currentUser, options = {}) {
+  const isOwner = currentUser && (currentUser.isOwner || currentUser.role === 'owner' || currentUser.userId === 'owner');
+  const targetUserId = currentUser ? currentUser.userId : null;
+  const showAll = options.all && isOwner;
+
+  const result = [];
+  for (const job of jobs.values()) {
+    if (showAll) {
+      result.push(formatJobSummary(job, options.detailed));
+      continue;
+    }
+
+    const jobOwner = job.ownerId || 'owner';
+    if (targetUserId && jobOwner === targetUserId) {
+      result.push(formatJobSummary(job, options.detailed));
+    }
+  }
+
+  result.sort((a, b) => (b.createdAt || b.startTime || 0) - (a.createdAt || a.startTime || 0));
+  return result;
+}
+
 function broadcastGlobalJobUpdate() {
   if (globalSseClients.size === 0) return;
-  const jobList = Array.from(jobs.values()).map(j => ({
-    id: j.id,
-    mode: j.mode,
-    title: j.title,
-    status: j.status,
-    progress: j.progress,
-    filesize: j.filesize || '',
-    filename: j.filename,
-    error: j.error,
-    createdAt: j.createdAt,
-    downloadUrl: `/api/download-file/${j.id}`,
-    streamUrl: `/api/stream/${j.id}`
-  }));
-  const payload = JSON.stringify(jobList);
-  for (const client of globalSseClients) {
+  for (const [clientRes, clientUser] of globalSseClients.entries()) {
     try {
-      client.write(`data: ${payload}\n\n`);
+      const userJobs = getJobsForUser(clientUser, { detailed: false });
+      clientRes.write(`data: ${JSON.stringify(userJobs)}\n\n`);
     } catch (e) {
-      globalSseClients.delete(client);
+      globalSseClients.delete(clientRes);
     }
   }
 }
@@ -403,7 +443,8 @@ function broadcastJobUpdate(jobId) {
       filesize: job.filesize || '',
       downloadUrl: `/api/download-file/${job.id}`,
       streamUrl: `/api/stream/${job.id}`,
-      filePath: job.filePath || ''
+      filePath: job.filePath || '',
+      ownerId: job.ownerId || 'owner'
     });
     for (const res of clients) {
       try {
@@ -415,8 +456,8 @@ function broadcastJobUpdate(jobId) {
   }
 }
 
-// Global SSE Stream Endpoint (60fps realtime live updates)
-app.get('/api/jobs/stream', (req, res) => {
+// Global SSE Stream Endpoint (Real-time live updates isolated per user)
+app.get('/api/jobs/stream', identifyUser, (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -424,23 +465,10 @@ app.get('/api/jobs/stream', (req, res) => {
     'Access-Control-Allow-Origin': '*'
   });
   res.write('\n');
-  globalSseClients.add(res);
+  globalSseClients.set(res, req.currentUser);
 
-  // Send initial jobs payload
-  const initial = Array.from(jobs.values()).map(j => ({
-    id: j.id,
-    mode: j.mode,
-    title: j.title,
-    status: j.status,
-    progress: j.progress,
-    filesize: j.filesize || '',
-    filename: j.filename,
-    error: j.error,
-    createdAt: j.createdAt,
-    downloadUrl: `/api/download-file/${j.id}`,
-    streamUrl: `/api/stream/${j.id}`,
-    filePath: j.filePath || ''
-  }));
+  // Send initial jobs payload strictly filtered for this user
+  const initial = getJobsForUser(req.currentUser, { detailed: false });
   res.write(`data: ${JSON.stringify(initial)}\n\n`);
 
   req.on('close', () => {
@@ -450,7 +478,7 @@ app.get('/api/jobs/stream', (req, res) => {
 
 // SSE Heartbeat every 15 seconds to keep connections persistent
 setInterval(() => {
-  for (const client of globalSseClients) {
+  for (const client of globalSseClients.keys()) {
     try {
       client.write(': keepalive\n\n');
     } catch (e) {
@@ -622,6 +650,8 @@ function verifyAdminToken(req) {
     token = req.headers['x-admin-token'];
   } else if (req.query && req.query.admin_token) {
     token = req.query.admin_token;
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
   }
 
   if (!token) return null;
@@ -1114,8 +1144,14 @@ function resolveUserSession(req) {
     token = authHeader.substring(7).trim();
   } else if (req.headers['x-user-token']) {
     token = req.headers['x-user-token'];
+  } else if (req.headers['x-admin-token']) {
+    token = req.headers['x-admin-token'];
   } else if (req.query && req.query.user_token) {
     token = req.query.user_token;
+  } else if (req.query && req.query.admin_token) {
+    token = req.query.admin_token;
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
   }
 
   // Admin / Owner token inherits owner role & full premium access
@@ -1164,8 +1200,13 @@ function identifyUser(req, res, next) {
   } else {
     const rawIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
     const cleanIp = rawIp.replace(/^::ffff:/, '');
+    const headerCid = req.headers['x-client-id'] || (req.query && req.query.client_id);
+    const guestCid = (headerCid && typeof headerCid === 'string' && headerCid.trim())
+      ? headerCid.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)
+      : null;
+
     req.currentUser = {
-      userId: `guest_${cleanIp.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      userId: guestCid ? (guestCid.startsWith('guest_') ? guestCid : `guest_${guestCid}`) : `guest_${cleanIp.replace(/[^a-zA-Z0-9]/g, '_')}`,
       username: 'Guest',
       role: 'guest',
       isPremium: false,
@@ -6007,11 +6048,15 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
 });
 
 // 4. SSE Events Stream with Keep-Alive Heartbeat
-app.get('/api/jobs/:id/events', (req, res) => {
+app.get('/api/jobs/:id/events', identifyUser, (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
 
   if (!job) return res.status(404).send('Job not found');
+
+  if (job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).send('Forbidden: Access denied to job events');
+  }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -6046,31 +6091,10 @@ app.get('/api/jobs/:id/events', (req, res) => {
   });
 });
 
-// Get all jobs
-app.get('/api/jobs', (req, res) => {
-  const list = [];
-  for (const job of jobs.values()) {
-    list.push({
-      id: job.id,
-      url: job.url,
-      title: job.title,
-      code: job.code,
-      poster: job.poster,
-      mode: job.mode,
-      filename: job.filename,
-      filesize: job.filesize || '',
-      status: job.status,
-      progress: job.progress,
-      error: job.error,
-      startTime: job.startTime,
-      completedTime: job.completedTime,
-      downloadUrl: `/api/download-file/${job.id}`,
-      streamUrl: `/api/stream/${job.id}`,
-      filePath: job.filePath || '',
-      lastLog: job.logs.length > 0 ? job.logs[job.logs.length - 1] : '',
-      logs: job.logs.slice(-20)
-    });
-  }
+// Get jobs filtered by authenticated user or owner
+app.get('/api/jobs', identifyUser, (req, res) => {
+  const showAll = req.query.all === '1' && req.currentUser.isOwner;
+  const list = getJobsForUser(req.currentUser, { all: showAll, detailed: true });
   res.json(list);
 });
 
@@ -6159,10 +6183,14 @@ function resumeJob(job) {
 }
 
 // 5. Pause Job Endpoint
-app.post('/api/jobs/:id/pause', (req, res) => {
+app.post('/api/jobs/:id/pause', identifyUser, (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  if (job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
 
   const ok = pauseJob(job);
   if (ok) {
@@ -6173,10 +6201,14 @@ app.post('/api/jobs/:id/pause', (req, res) => {
 });
 
 // 6. Resume Job Endpoint
-app.post('/api/jobs/:id/resume', (req, res) => {
+app.post('/api/jobs/:id/resume', identifyUser, (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  if (job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
 
   const ok = resumeJob(job);
   if (ok) {
@@ -6187,32 +6219,40 @@ app.post('/api/jobs/:id/resume', (req, res) => {
 });
 
 // 7. Pause All Jobs Endpoint
-app.post('/api/jobs/pause-all', (req, res) => {
+app.post('/api/jobs/pause-all', identifyUser, (req, res) => {
   let count = 0;
   for (const job of jobs.values()) {
-    if (job.status === 'downloading' || job.status === 'queued') {
-      if (pauseJob(job)) count++;
+    if ((job.ownerId || 'owner') === req.currentUser.userId || (req.query.all === '1' && req.currentUser.isOwner)) {
+      if (job.status === 'downloading' || job.status === 'queued') {
+        if (pauseJob(job)) count++;
+      }
     }
   }
   res.json({ success: true, pausedCount: count });
 });
 
 // 8. Resume All Jobs Endpoint
-app.post('/api/jobs/resume-all', (req, res) => {
+app.post('/api/jobs/resume-all', identifyUser, (req, res) => {
   let count = 0;
   for (const job of jobs.values()) {
-    if (job.status === 'paused') {
-      if (resumeJob(job)) count++;
+    if ((job.ownerId || 'owner') === req.currentUser.userId || (req.query.all === '1' && req.currentUser.isOwner)) {
+      if (job.status === 'paused') {
+        if (resumeJob(job)) count++;
+      }
     }
   }
   res.json({ success: true, resumedCount: count });
 });
 
 // 9. Cancel Job (Tree termination & partial cleanup)
-app.post('/api/jobs/:id/cancel', (req, res) => {
+app.post('/api/jobs/:id/cancel', identifyUser, (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  if (job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
 
   job.status = 'cancelled';
   job.logs.push('Download cancelled by user.');
@@ -6252,9 +6292,13 @@ app.post('/api/jobs/:id/cancel', (req, res) => {
 });
 
 // Remove Single Job
-app.delete('/api/jobs/:id', (req, res) => {
+app.delete('/api/jobs/:id', identifyUser, (req, res) => {
   const jobId = req.params.id;
   const job = jobs.get(jobId);
+
+  if (job && job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
 
   if (job && job.process) {
     const pid = job.process.pid;
@@ -6305,9 +6349,15 @@ app.delete('/api/jobs/:id', (req, res) => {
   res.json({ success: true, message: 'Job deleted' });
 });
 
-// Clear All Inactive Jobs
-app.delete('/api/jobs', (req, res) => {
+// Clear All Inactive Jobs (Filtered by User or Server-Wide if Owner with ?all=1)
+app.delete('/api/jobs', identifyUser, (req, res) => {
+  const clearAll = req.query.all === '1' && req.currentUser.isOwner;
+  const targetUserId = req.currentUser.userId;
+
   for (const [id, job] of jobs.entries()) {
+    const jobOwner = job.ownerId || 'owner';
+    if (!clearAll && jobOwner !== targetUserId) continue;
+
     if (job.status !== 'downloading' && job.status !== 'queued' && job.status !== 'paused') {
       try {
         const jobDir = path.join(TEMP_DIR, id);
@@ -6333,6 +6383,7 @@ app.delete('/api/jobs', (req, res) => {
     }
   }
   saveJobsHistory();
+  broadcastGlobalJobUpdate();
   res.json({ success: true, message: 'Cleared completed jobs' });
 });
 

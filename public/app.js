@@ -202,7 +202,16 @@ const modalDownloadDeviceBtn = document.getElementById('modalDownloadDeviceBtn')
 // User Authentication, Premium Features & Guest State Manager
 // ==========================================================================
 let currentUser = null; // { id, username, role, isPremium, features }
-let userAuthToken = localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || '';
+let userAuthToken = localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+
+function getClientId() {
+  let cid = localStorage.getItem('sakura_client_id');
+  if (!cid) {
+    cid = 'client_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
+    localStorage.setItem('sakura_client_id', cid);
+  }
+  return cid;
+}
 
 function canAccess(featureKey) {
   if (!currentUser) {
@@ -220,23 +229,35 @@ function canAccess(featureKey) {
   return true;
 }
 
-// Transparent API Authorization Interceptor
+// Transparent API Authorization & Client Identity Interceptor
 const originalFetch = window.fetch;
 window.fetch = function (url, options = {}) {
-  if (typeof url === 'string' && url.startsWith('/api/') && userAuthToken) {
+  if (typeof url === 'string' && url.startsWith('/api/')) {
     options = options || {};
     options.headers = options.headers || {};
+    const effectiveToken = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+    const clientId = getClientId();
+
     if (options.headers instanceof Headers) {
-      if (!options.headers.has('Authorization')) {
-        options.headers.set('Authorization', `Bearer ${userAuthToken}`);
+      if (effectiveToken && !options.headers.has('Authorization')) {
+        options.headers.set('Authorization', `Bearer ${effectiveToken}`);
+      }
+      if (clientId && !options.headers.has('X-Client-Id')) {
+        options.headers.set('X-Client-Id', clientId);
       }
     } else if (Array.isArray(options.headers)) {
-      if (!options.headers.some(([k]) => k.toLowerCase() === 'authorization')) {
-        options.headers.push(['Authorization', `Bearer ${userAuthToken}`]);
+      if (effectiveToken && !options.headers.some(([k]) => k.toLowerCase() === 'authorization')) {
+        options.headers.push(['Authorization', `Bearer ${effectiveToken}`]);
+      }
+      if (clientId && !options.headers.some(([k]) => k.toLowerCase() === 'x-client-id')) {
+        options.headers.push(['X-Client-Id', clientId]);
       }
     } else {
-      if (!options.headers['Authorization'] && !options.headers['authorization']) {
-        options.headers['Authorization'] = `Bearer ${userAuthToken}`;
+      if (effectiveToken && !options.headers['Authorization'] && !options.headers['authorization']) {
+        options.headers['Authorization'] = `Bearer ${effectiveToken}`;
+      }
+      if (clientId && !options.headers['X-Client-Id'] && !options.headers['x-client-id']) {
+        options.headers['X-Client-Id'] = clientId;
       }
     }
   }
@@ -680,6 +701,8 @@ function setupAuthModalEvents() {
 
           updateAuthUI(data.user, null);
           showToast('Signed in successfully', 'success');
+          if (typeof restartJobsSSE === 'function') restartJobsSSE();
+          if (typeof loadJobs === 'function') loadJobs();
 
           setTimeout(() => {
             closeAuthModal();
@@ -785,6 +808,8 @@ function setupAuthModalEvents() {
       sessionStorage.removeItem('sakura_user_token');
       currentUser = null;
       updateAuthUI(null, null);
+      if (typeof restartJobsSSE === 'function') restartJobsSSE();
+      if (typeof loadJobs === 'function') loadJobs();
       closeAccountModal();
       showToast('Signed out. You are now browsing as Guest.', 'info');
     });
@@ -1370,7 +1395,14 @@ function triggerDeviceDownload(job) {
 function subscribeToJob(jobId, retryCount = 0) {
   if (activeEventSources.has(jobId)) return;
 
-  const es = new EventSource(`/api/jobs/${jobId}/events`);
+  const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+  const cid = getClientId();
+  const q = new URLSearchParams();
+  if (token) q.set('token', token);
+  if (cid) q.set('client_id', cid);
+  const qs = q.toString() ? `?${q.toString()}` : '';
+
+  const es = new EventSource(`/api/jobs/${jobId}/events${qs}`);
   activeEventSources.set(jobId, es);
 
   es.onmessage = (event) => {
@@ -1407,16 +1439,11 @@ function subscribeToJob(jobId, retryCount = 0) {
 async function loadJobs() {
   try {
     const res = await fetch('/api/jobs');
-    const allJobs = await res.json();
+    const userJobs = await res.json();
 
-    // Auto-remove completed/inactive jobs on refresh:
-    // Only display jobs that are actively downloading, paused, queued, OR belong to the current session
-    const visibleJobs = allJobs.filter(j => {
-      if (j.status === 'downloading' || j.status === 'paused' || j.status === 'queued') return true;
-      return sessionJobIds.has(j.id);
-    });
-
-    renderJobsList(visibleJobs);
+    if (Array.isArray(userJobs)) {
+      renderJobsList(userJobs);
+    }
   } catch (err) {
     console.warn('Failed to load jobs:', err);
   }
@@ -1432,10 +1459,29 @@ function renderJobsList(jobs) {
     const resumeAllBtn = document.getElementById('resumeAllBtn');
     if (pauseAllBtn) pauseAllBtn.style.display = 'none';
     if (resumeAllBtn) resumeAllBtn.style.display = 'none';
+    for (const [jid, es] of activeEventSources.entries()) {
+      try { es.close(); } catch (e) {}
+    }
+    activeEventSources.clear();
+    jobsList.innerHTML = '';
     return;
   }
 
   emptyJobsState.style.display = 'none';
+
+  // Prune any existing DOM cards that are not in incoming jobs
+  const incomingIds = new Set(jobs.map(j => j.id));
+  const existingCards = jobsList.querySelectorAll('.job-card');
+  existingCards.forEach(card => {
+    const id = card.id.replace('job-card-', '');
+    if (!incomingIds.has(id)) {
+      if (activeEventSources.has(id)) {
+        try { activeEventSources.get(id).close(); } catch (e) {}
+        activeEventSources.delete(id);
+      }
+      card.remove();
+    }
+  });
 
   const activeJobs = jobs.filter(j => j.status === 'downloading');
   const pausedJobs = jobs.filter(j => j.status === 'paused');
@@ -1480,6 +1526,8 @@ function renderJobsList(jobs) {
     }
   });
 }
+
+window.renderJobs = renderJobsList;
 
 function createJobCardElement(job) {
   const card = document.createElement('div');
@@ -1950,6 +1998,19 @@ window.addEventListener('DOMContentLoaded', () => {
 // ==========================================================================
 
 let sseEventSource = null;
+let sseReconnectTimer = null;
+
+function restartJobsSSE() {
+  if (sseEventSource) {
+    try { sseEventSource.close(); } catch (e) {}
+    sseEventSource = null;
+  }
+  if (sseReconnectTimer) {
+    clearTimeout(sseReconnectTimer);
+    sseReconnectTimer = null;
+  }
+  initGlobalSSEStream();
+}
 
 function initGlobalSSEStream() {
   if (typeof EventSource === 'undefined') {
@@ -1959,21 +2020,39 @@ function initGlobalSSEStream() {
   }
 
   function connect() {
-    sseEventSource = new EventSource('/api/jobs/stream');
+    if (sseEventSource) {
+      try { sseEventSource.close(); } catch (e) {}
+      sseEventSource = null;
+    }
+
+    const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+    const cid = getClientId();
+    const q = new URLSearchParams();
+    if (token) q.set('token', token);
+    if (cid) q.set('client_id', cid);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+
+    sseEventSource = new EventSource(`/api/jobs/stream${qs}`);
 
     sseEventSource.onmessage = (event) => {
       if (!event.data || event.data.startsWith(':')) return;
       try {
         const jobs = JSON.parse(event.data);
         if (Array.isArray(jobs)) {
-          renderJobs(jobs);
+          renderJobsList(jobs);
         }
       } catch (e) {}
     };
 
     sseEventSource.onerror = () => {
-      sseEventSource.close();
-      setTimeout(connect, 4000);
+      try { sseEventSource.close(); } catch (e) {}
+      sseEventSource = null;
+      if (!sseReconnectTimer) {
+        sseReconnectTimer = setTimeout(() => {
+          sseReconnectTimer = null;
+          connect();
+        }, 4000);
+      }
     };
   }
 

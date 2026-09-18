@@ -668,7 +668,7 @@ function setupQueue() {
   if (clearBtn) {
     clearBtn.addEventListener('click', async () => {
       try {
-        await fetch('/api/jobs', {
+        await fetch('/api/jobs?all=1', {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${adminToken}` }
         });
@@ -684,7 +684,7 @@ async function loadQueueData() {
   if (!listEl) return;
 
   try {
-    const res = await fetch('/api/jobs', {
+    const res = await fetch('/api/jobs?all=1', {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
     const jobs = await res.json();
@@ -700,10 +700,10 @@ async function loadQueueData() {
           <h4>${escapeHtml(job.title || job.filename || 'Task ' + job.id)}</h4>
           <div class="queue-row-meta">
             <span>[${job.status.toUpperCase()}]</span> &bull; 
+            <span>User: <strong>${escapeHtml(job.ownerId || 'owner')}</strong></span> &bull; 
             <span>${(job.progress.percent || 0).toFixed(1)}%</span> &bull; 
             <span>${job.progress.speed || '0 MB/s'}</span> &bull; 
-            <span>ETA: ${job.progress.eta || '--'}</span> &bull; 
-            <span>PID: ${job.pid || 'N/A'}</span>
+            <span>ETA: ${job.progress.eta || '--'}</span>
           </div>
         </div>
         <div class="queue-row-actions">
