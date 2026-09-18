@@ -318,6 +318,10 @@ function setupEventListeners() {
 }
 
 function switchView(viewName) {
+  // Close any lingering overlay modals on view switch
+  const movieReleasesModal = document.getElementById('movieReleasesModal');
+  if (movieReleasesModal) movieReleasesModal.style.display = 'none';
+
   // Ephemeral Adult Hub:
   // If navigating to ANY other option, immediately hide the Adult Hub buttons from the navigation!
   if (viewName !== 'adult-search') {
@@ -1154,6 +1158,15 @@ async function clearAllCompletedJobs() {
 // 6. In-Browser Media Player
 window.playMedia = function(streamUrl, title, downloadUrl) {
   if (!playerModal) return;
+
+  // Immediately close any other open dialogs so they never cover or obscure the video player
+  const movieReleasesModal = document.getElementById('movieReleasesModal');
+  if (movieReleasesModal) movieReleasesModal.style.display = 'none';
+  const readyModal = document.getElementById('readyModal');
+  if (readyModal) readyModal.style.display = 'none';
+  const adultPreviewModal = document.getElementById('adultPreviewModal');
+  if (adultPreviewModal) adultPreviewModal.style.display = 'none';
+
   if (modalVideoTitle) modalVideoTitle.textContent = title || 'Media Player';
   if (modalFileInfo) modalFileInfo.textContent = title || '';
   if (html5Player) {
@@ -1302,11 +1315,13 @@ async function openFileInFolder(targetPath) {
 }
 
 async function initDownloadFolderUI() {
-  const sidebarFolderCard = document.getElementById('sidebarFolderCard');
+  const sidebarFolderCard = document.getElementById('sidebarFolderCard') || document.getElementById('storagePathDisplay');
   const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
 
   if (!isElectron) {
     if (sidebarFolderCard) sidebarFolderCard.style.display = 'none';
+    const legacyStorage = document.getElementById('storagePathDisplay');
+    if (legacyStorage) legacyStorage.style.display = 'none';
     return;
   }
 
@@ -2649,6 +2664,14 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
             switchView('downloader');
           };
         }
+
+        // Auto-transition to downloader after brief visual confirmation
+        setTimeout(() => {
+          if (modal && modal.style.display === 'flex') {
+            modal.style.display = 'none';
+            switchView('downloader');
+          }
+        }, 900);
       }
     } else {
       showToast(data.error || 'Failed to start download', 'error');
@@ -2732,6 +2755,14 @@ window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
             switchView('downloader');
           };
         }
+
+        // Auto-transition to downloader after brief visual confirmation
+        setTimeout(() => {
+          if (modal && modal.style.display === 'flex') {
+            modal.style.display = 'none';
+            switchView('downloader');
+          }
+        }, 900);
       }
     } else {
       showToast(data.error || 'Failed to start DDL download', 'error');

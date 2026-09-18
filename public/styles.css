@@ -1526,6 +1526,11 @@ body {
   animation: fadeIn 0.2s ease;
 }
 
+#playerModal.modal-backdrop,
+#adultPreviewModal.modal-backdrop {
+  z-index: 10050;
+}
+
 .modal-dialog {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
