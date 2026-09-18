@@ -673,6 +673,333 @@ app.get('/api/admin/me', requireAdmin, (req, res) => {
   res.json({ success: true, user: req.admin.user });
 });
 
+// ==========================================================================
+// User Authentication, Premium Tiers & Guest Limits
+// ==========================================================================
+const USERS_FILE = path.join(__dirname, '.users.json');
+const USER_SESSIONS_FILE = path.join(__dirname, '.user_sessions.json');
+const users = new Map(); // username.toLowerCase() -> { id, username, passwordHash, salt, role, createdAt }
+const userSessions = new Map(); // token -> { userId, username, role, createdAt }
+const guestDailyUsage = new Map(); // ip/guestId -> { date: 'YYYY-MM-DD', count: N }
+
+function hashPassword(password, salt) {
+  return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+}
+
+function loadUsers() {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const list = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+      if (Array.isArray(list)) {
+        for (const u of list) {
+          if (u && u.username) {
+            users.set(u.username.toLowerCase(), u);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Auth] Failed to load users:', e.message);
+  }
+}
+
+function saveUsers() {
+  try {
+    const list = Array.from(users.values());
+    fs.writeFileSync(USERS_FILE, JSON.stringify(list, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[Auth] Failed to save users:', e.message);
+  }
+}
+
+function loadUserSessions() {
+  try {
+    if (fs.existsSync(USER_SESSIONS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(USER_SESSIONS_FILE, 'utf8'));
+      const now = Date.now();
+      for (const [token, sess] of Object.entries(parsed)) {
+        if (now - (sess.createdAt || 0) < 30 * 24 * 60 * 60 * 1000) {
+          userSessions.set(token, sess);
+        }
+      }
+    }
+  } catch (e) {}
+}
+
+function saveUserSessions() {
+  try {
+    const obj = {};
+    for (const [token, sess] of userSessions.entries()) {
+      obj[token] = sess;
+    }
+    fs.writeFileSync(USER_SESSIONS_FILE, JSON.stringify(obj), 'utf8');
+  } catch (e) {}
+}
+
+loadUsers();
+loadUserSessions();
+
+function generateUserSession(user) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const sess = {
+    userId: user.id,
+    username: user.username,
+    role: user.role || 'premium',
+    createdAt: Date.now()
+  };
+  userSessions.set(token, sess);
+  saveUserSessions();
+  return token;
+}
+
+function getGuestDailyDownloads(ip) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = guestDailyUsage.get(ip);
+  if (!entry || entry.date !== today) {
+    return 0;
+  }
+  return entry.count || 0;
+}
+
+function incrementGuestDailyDownloads(ip) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = guestDailyUsage.get(ip);
+  if (!entry || entry.date !== today) {
+    guestDailyUsage.set(ip, { date: today, count: 1 });
+  } else {
+    entry.count = (entry.count || 0) + 1;
+  }
+}
+
+function resolveUserSession(req) {
+  let token = null;
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (req.headers['x-user-token']) {
+    token = req.headers['x-user-token'];
+  } else if (req.query && req.query.user_token) {
+    token = req.query.user_token;
+  }
+
+  // Admin token inherits premium role
+  const adminSess = verifyAdminToken(req);
+  if (adminSess) {
+    return {
+      userId: 'admin',
+      username: adminSess.user,
+      role: 'admin',
+      isPremium: true
+    };
+  }
+
+  if (!token) return null;
+  const sess = userSessions.get(token);
+  if (!sess) return null;
+
+  if (Date.now() - sess.createdAt > 30 * 24 * 60 * 60 * 1000) {
+    userSessions.delete(token);
+    saveUserSessions();
+    return null;
+  }
+
+  return {
+    userId: sess.userId,
+    username: sess.username,
+    role: sess.role || 'premium',
+    isPremium: sess.role === 'premium' || sess.role === 'admin'
+  };
+}
+
+function identifyUser(req, res, next) {
+  const sess = resolveUserSession(req);
+  if (sess) {
+    req.currentUser = sess;
+  } else {
+    const rawIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
+    const cleanIp = rawIp.replace(/^::ffff:/, '');
+    req.currentUser = {
+      userId: `guest_${cleanIp.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      username: 'Guest',
+      role: 'guest',
+      isPremium: false,
+      ip: cleanIp
+    };
+  }
+  next();
+}
+
+// Auth API Routes
+app.post('/api/auth/register', (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || typeof username !== 'string' || username.trim().length < 3) {
+    return res.status(400).json({ error: 'Username must be at least 3 characters long' });
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
+  const cleanUser = username.trim();
+  const lowerUser = cleanUser.toLowerCase();
+
+  if (users.has(lowerUser) || lowerUser === 'sakura' || lowerUser === 'admin') {
+    return res.status(400).json({ error: 'Username is already taken' });
+  }
+
+  const salt = crypto.randomBytes(16).toString('hex');
+  const passwordHash = hashPassword(password, salt);
+  const newUser = {
+    id: 'u_' + crypto.randomBytes(8).toString('hex'),
+    username: cleanUser,
+    passwordHash,
+    salt,
+    role: 'premium',
+    createdAt: Date.now()
+  };
+
+  users.set(lowerUser, newUser);
+  saveUsers();
+
+  const token = generateUserSession(newUser);
+  res.json({
+    success: true,
+    token,
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      role: newUser.role,
+      isPremium: true
+    }
+  });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+
+  const cleanUser = username.trim();
+  const lowerUser = cleanUser.toLowerCase();
+
+  // Sakura admin login fallback
+  const expectedAdminUser = (process.env.ADMIN_USER || 'sakura').toLowerCase();
+  const expectedAdminPass = process.env.ADMIN_PASS || 'sakura';
+  if (lowerUser === expectedAdminUser && password === expectedAdminPass) {
+    const adminToken = generateAdminToken(process.env.ADMIN_USER || 'sakura');
+    return res.json({
+      success: true,
+      token: adminToken,
+      user: {
+        id: 'admin',
+        username: process.env.ADMIN_USER || 'sakura',
+        role: 'admin',
+        isPremium: true
+      }
+    });
+  }
+
+  const user = users.get(lowerUser);
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  const testHash = hashPassword(password, user.salt);
+  if (testHash !== user.passwordHash) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  const token = generateUserSession(user);
+  res.json({
+    success: true,
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      role: user.role || 'premium',
+      isPremium: user.role === 'premium' || user.role === 'admin'
+    }
+  });
+});
+
+app.post('/api/auth/logout', identifyUser, (req, res) => {
+  let token = null;
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if (req.headers['x-user-token']) {
+    token = req.headers['x-user-token'];
+  }
+  if (token && userSessions.has(token)) {
+    userSessions.delete(token);
+    saveUserSessions();
+  }
+  res.json({ success: true });
+});
+
+app.get('/api/auth/me', identifyUser, (req, res) => {
+  const u = req.currentUser;
+  const guestCount = u.role === 'guest' ? getGuestDailyDownloads(u.ip) : 0;
+  res.json({
+    authenticated: u.role !== 'guest',
+    user: {
+      id: u.userId,
+      username: u.username,
+      role: u.role,
+      isPremium: u.isPremium
+    },
+    limits: {
+      isPremium: u.isPremium,
+      maxDailyDownloads: u.isPremium ? 'unlimited' : 10,
+      usedDailyDownloads: guestCount,
+      maxBatchUrls: u.isPremium ? 50 : 2,
+      maxConcurrent: u.isPremium ? getMaxConcurrentDownloads() : 1,
+      allowedResolutions: u.isPremium ? ['best', '2160', '1440', '1080', '720', '480', '360'] : ['720', '480', '360'],
+      allowedAudioFormats: u.isPremium ? ['mp3', 'flac', 'm4a', 'opus', 'wav'] : ['mp3', 'm4a', 'opus']
+    }
+  });
+});
+
+// Admin User Management Endpoints
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  const list = Array.from(users.values()).map(u => ({
+    id: u.id,
+    username: u.username,
+    role: u.role || 'premium',
+    createdAt: u.createdAt
+  }));
+  res.json({ success: true, users: list });
+});
+
+app.post('/api/admin/users/role', requireAdmin, (req, res) => {
+  const { id, role } = req.body || {};
+  if (!id || !role) return res.status(400).json({ error: 'User ID and role are required' });
+  for (const u of users.values()) {
+    if (u.id === id) {
+      u.role = role;
+      saveUsers();
+      return res.json({ success: true, user: { id: u.id, username: u.username, role: u.role } });
+    }
+  }
+  res.status(404).json({ error: 'User not found' });
+});
+
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  for (const [key, u] of users.entries()) {
+    if (u.id === id) {
+      users.delete(key);
+      saveUsers();
+      for (const [t, s] of userSessions.entries()) {
+        if (s.userId === id) userSessions.delete(t);
+      }
+      saveUserSessions();
+      return res.json({ success: true });
+    }
+  }
+  res.status(404).json({ error: 'User not found' });
+});
+
 // Helper: FLAC storage directories on server
 function getFlacStorageDirs() {
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
@@ -1709,11 +2036,22 @@ app.post('/api/flac-check/clear-recent', (req, res) => {
 });
 
 // Run FLAC Authenticity Analysis
-app.post('/api/flac-check', async (req, res) => {
+app.post('/api/flac-check', identifyUser, async (req, res) => {
   let targetPath = null;
   let isTempFile = false;
 
   try {
+    if (!req.currentUser.isPremium) {
+      const dailyFlac = getGuestDailyDownloads(req.currentUser.ip + '_flac');
+      if (dailyFlac >= 3) {
+        return res.status(429).json({
+          error: 'Guest limit reached (3 spectral checks per day). Please sign in or register for unlimited Nyquist lossless checks.',
+          requireAuth: true
+        });
+      }
+      incrementGuestDailyDownloads(req.currentUser.ip + '_flac');
+    }
+
     const { filePath, fileBase64, fileName, jobId } = req.body || {};
 
     if (filePath && fs.existsSync(filePath)) {
@@ -2606,7 +2944,7 @@ app.get('/api/movies/poster', async (req, res) => {
 });
 
 // Movie 1-Click Download API
-app.post('/api/movies/download', async (req, res) => {
+app.post('/api/movies/download', identifyUser, async (req, res) => {
   try {
     const item = req.body || {};
     let magnet = item.magnet || '';
@@ -2617,6 +2955,27 @@ app.post('/api/movies/download', async (req, res) => {
     const pureTitle = item.pureTitle || item.title || '';
     const releaseLabel = item.releaseLabel || item.label || '';
     const requestedQuality = (item.quality || '1080p').toLowerCase();
+
+    // Guest vs Premium enforcement: 1080p and 4K require login
+    if (!req.currentUser.isPremium && (requestedQuality.includes('4k') || requestedQuality.includes('2160') || requestedQuality.includes('1080'))) {
+      return res.status(403).json({
+        success: false,
+        error: '1080p Full HD & 4K Ultra HD movie downloads are Premium features. Sign in or register to unlock cinema releases in high definition.',
+        requireAuth: true
+      });
+    }
+
+    if (!req.currentUser.isPremium) {
+      const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
+      if (dailyCount >= 10) {
+        return res.status(429).json({
+          success: false,
+          error: 'Guest daily download quota reached (10/10). Please sign in to enjoy unlimited movie downloads.',
+          requireAuth: true
+        });
+      }
+      incrementGuestDailyDownloads(req.currentUser.ip);
+    }
 
     // 1. Detect TV Show Episode notation (e.g. S01E01, S02E03, Ep 01, Episode 1)
     const combinedText = `${rawTitle} ${releaseLabel} ${item.title || ''}`;
@@ -2757,10 +3116,31 @@ app.post('/api/movies/download', async (req, res) => {
 });
 
 // Dedicated Direct DDL Movie Cloud Stream Resolver Endpoint (Non-Torrent)
-app.post('/api/movies/resolve-ddl', async (req, res) => {
+app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
   try {
     const { link, url, title, pureTitle, year, poster, quality, filename, imdbId } = req.body || {};
     if (!title && !filename) return res.status(400).json({ success: false, error: 'Title or filename is required' });
+
+    const qStr = String(quality || '').toLowerCase();
+    if (!req.currentUser.isPremium && (qStr.includes('4k') || qStr.includes('2160') || qStr.includes('1080'))) {
+      return res.status(403).json({
+        success: false,
+        error: '1080p Full HD & 4K Ultra HD cloud releases are Premium features. Sign in or register to unlock.',
+        requireAuth: true
+      });
+    }
+
+    if (!req.currentUser.isPremium) {
+      const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
+      if (dailyCount >= 10) {
+        return res.status(429).json({
+          success: false,
+          error: 'Guest daily download quota reached (10/10). Please sign in to enjoy unlimited movie downloads.',
+          requireAuth: true
+        });
+      }
+      incrementGuestDailyDownloads(req.currentUser.ip);
+    }
 
     let rawTitle = (filename || title || 'Movie Media').replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!rawTitle.endsWith('.mkv') && !rawTitle.endsWith('.mp4')) {
@@ -2783,6 +3163,8 @@ app.post('/api/movies/resolve-ddl', async (req, res) => {
       filename: rawTitle,
       code: 'DDL_DIRECT',
       mode: 'ddl_direct',
+      ownerId: req.currentUser.userId,
+      isPremium: req.currentUser.isPremium,
       status: 'resolving_ddl',
       progress: {
         percent: 15,
@@ -2976,7 +3358,7 @@ app.get('/api/music/search', async (req, res) => {
 });
 
 // Music 1-Click Multi-Format Download API
-app.post('/api/music/download', async (req, res) => {
+app.post('/api/music/download', identifyUser, async (req, res) => {
   try {
     const item = req.body || {};
     const {
@@ -2988,6 +3370,32 @@ app.post('/api/music/download', async (req, res) => {
     }
 
     const isTorrent = source === 'torrent' || !!magnet || !!torrentUrl;
+    const requestedFormat = (format || 'mp3').toLowerCase();
+    const requestedQuality = (quality || '320k').toLowerCase();
+    const isFlac = requestedFormat === 'flac';
+
+    // Guest vs Premium enforcement for Music Hub
+    if (!req.currentUser.isPremium && (isFlac || isTorrent)) {
+      return res.status(403).json({
+        success: false,
+        error: isFlac
+          ? '24-bit Studio Master FLAC & CDDA Lossless downloads are a Premium feature. Please sign in or register to unlock studio audio.'
+          : 'Full Album Torrent downloads are a Premium feature. Please sign in or register to download complete discographies.',
+        requireAuth: true
+      });
+    }
+
+    if (!req.currentUser.isPremium) {
+      const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
+      if (dailyCount >= 10) {
+        return res.status(429).json({
+          success: false,
+          error: 'Guest daily download quota reached (10/10). Please sign in to enjoy unlimited music downloads.',
+          requireAuth: true
+        });
+      }
+      incrementGuestDailyDownloads(req.currentUser.ip);
+    }
 
     if (isTorrent) {
       const jobPayload = {
@@ -2998,7 +3406,9 @@ app.post('/api/music/download', async (req, res) => {
         poster: cover || '',
         code: 'MUSIC_ALBUM',
         mode: 'torrent',
-        type: 'torrent'
+        type: 'torrent',
+        ownerId: req.currentUser.userId,
+        isPremium: req.currentUser.isPremium
       };
       const job = createAndStartJob(jobPayload);
       return res.json({
@@ -3013,10 +3423,6 @@ app.post('/api/music/download', async (req, res) => {
     const cleanArtist = (artist || '').trim();
     const cleanTitle = (title || '').trim();
     const fullName = cleanArtist ? `${cleanArtist} - ${cleanTitle}` : cleanTitle;
-    const requestedFormat = (format || 'mp3').toLowerCase();
-    const requestedQuality = (quality || '320k').toLowerCase();
-
-    const isFlac = requestedFormat === 'flac';
 
     const jobPayload = {
       title: fullName,
@@ -3033,7 +3439,9 @@ app.post('/api/music/download', async (req, res) => {
       audioFormat: isFlac ? 'flac' : requestedFormat,
       audioBitrate: requestedQuality === '320k' ? '320k' : (requestedQuality === '256k' ? '256k' : '160k'),
       type: 'audio',
-      isMusicTrack: true
+      isMusicTrack: true,
+      ownerId: req.currentUser.userId,
+      isPremium: req.currentUser.isPremium
     };
 
     const job = createAndStartJob(jobPayload);
@@ -3119,9 +3527,16 @@ app.get('/api/adult/search', async (req, res) => {
 });
 
 // Adult Direct 1-Click Download API
-app.post('/api/adult/download', async (req, res) => {
+app.post('/api/adult/download', identifyUser, async (req, res) => {
   try {
     const item = req.body || {};
+    if (!req.currentUser.isPremium) {
+      return res.status(403).json({
+        error: 'Adult & JAV Hub downloads require an authenticated user account. Please sign in or register.',
+        requireAuth: true
+      });
+    }
+
     if (!item.url && !item.magnet && !item.torrentUrl) {
       return res.status(400).json({ error: 'Valid URL or magnet link is required' });
     }
@@ -3136,7 +3551,9 @@ app.post('/api/adult/download', async (req, res) => {
       code: item.code || 'ADULT',
       mode: 'video',
       videoQuality: 'best',
-      type: isTorrent ? 'torrent' : 'tube'
+      type: isTorrent ? 'torrent' : 'tube',
+      ownerId: req.currentUser.userId,
+      isPremium: true
     };
 
     const job = createAndStartJob(jobPayload);
@@ -4152,6 +4569,8 @@ function createAndStartJob(opts) {
   const ext = (mode === 'audio' || mode === 'audiophile_flac') ? (audioFormat || (mode === 'audiophile_flac' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
   const finalFilename = `${safeTitle}.${ext}`;
   const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
+  const isPremium = !!opts.isPremium;
+  const ownerId = opts.ownerId || 'guest';
 
   const job = {
     id: jobId,
@@ -4161,6 +4580,8 @@ function createAndStartJob(opts) {
     code: code || 'MEDIA',
     poster: poster || '',
     mode,
+    ownerId,
+    isPremium,
     filePath,
     filename: finalFilename,
     filesize: '',
@@ -4174,7 +4595,7 @@ function createAndStartJob(opts) {
       currentFrag: 0,
       totalFrag: 0
     },
-    logs: [],
+    logs: isPremium ? ['🌟 Priority bandwidth allocated (Premium User)'] : [],
     error: null,
     startTime: Date.now(),
     completedTime: null,
@@ -4203,12 +4624,59 @@ function createAndStartJob(opts) {
 }
 
 // 2. Start Download Job
-app.post('/api/download', async (req, res) => {
+app.post('/api/download', identifyUser, async (req, res) => {
   try {
-    const payload = req.body;
+    const payload = req.body || {};
     let { url, title } = payload;
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    // Guest vs Premium Enforcement
+    if (!req.currentUser.isPremium) {
+      // 1. Audio check: FLAC / WAV
+      const audioFmt = (payload.audioFormat || '').toLowerCase();
+      if (audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') {
+        return res.status(403).json({
+          error: 'Lossless Studio Master FLAC and Uncompressed WAV are Premium features. Sign in or register to unlock lossless audio downloads.',
+          requireAuth: true
+        });
+      }
+
+      // 2. Video quality clamp: 2160 (4K), 1440 (2K), 1080 -> 720p HD
+      const vidQ = String(payload.videoQuality || '').toLowerCase();
+      if (['2160', '1440', '1080', 'best'].includes(vidQ)) {
+        payload.videoQuality = '720';
+        payload.qualityNotice = 'Resolution capped at 720p HD for Guest. Sign in to download in Full HD & 4K Ultra HD.';
+      }
+
+      // 3. Concurrency check: max 1 active download for guests
+      let activeGuestJobs = 0;
+      for (const j of jobs.values()) {
+        if (['downloading', 'processing', 'resolving', 'queued'].includes(j.status) && j.ownerId === req.currentUser.userId) {
+          activeGuestJobs++;
+        }
+      }
+      if (activeGuestJobs >= 1) {
+        return res.status(429).json({
+          error: 'Guest limit reached: only 1 active download at a time is permitted. Sign in for unlimited concurrent downloads.',
+          requireAuth: true
+        });
+      }
+
+      // 4. Daily quota check (10 downloads)
+      const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
+      if (dailyCount >= 10) {
+        return res.status(429).json({
+          error: 'Guest daily download quota reached (10/10). Please sign in or register to enjoy unlimited high-speed downloads.',
+          requireAuth: true
+        });
+      }
+
+      incrementGuestDailyDownloads(req.currentUser.ip);
+    }
+
+    payload.ownerId = req.currentUser.userId;
+    payload.isPremium = req.currentUser.isPremium;
 
     const isDirectStream = url.includes('workers.dev') || url.includes('archive.org');
 
@@ -4234,7 +4702,8 @@ app.post('/api/download', async (req, res) => {
       jobId: job.id,
       title: job.title,
       filename: job.filename,
-      mode: job.mode
+      mode: job.mode,
+      qualityNotice: payload.qualityNotice || null
     });
   } catch (err) {
     console.error('Download dispatch error:', err);
@@ -4243,11 +4712,30 @@ app.post('/api/download', async (req, res) => {
 });
 
 // 3. Batch Download
-app.post('/api/batch-download', async (req, res) => {
+app.post('/api/batch-download', identifyUser, async (req, res) => {
   try {
-    const { urls, ...opts } = req.body;
+    let { urls, ...opts } = req.body || {};
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return res.status(400).json({ error: 'No URLs provided' });
+    }
+
+    let cappedNotice = null;
+    if (!req.currentUser.isPremium) {
+      if (urls.length > 2) {
+        urls = urls.slice(0, 2);
+        cappedNotice = 'Guest batch download capped at 2 URLs. Sign in to process unlimited links at once.';
+      }
+      const audioFmt = (opts.audioFormat || '').toLowerCase();
+      if (audioFmt === 'flac' || audioFmt === 'wav' || opts.mode === 'audiophile_flac') {
+        return res.status(403).json({
+          error: 'Lossless Studio FLAC batch downloads are a Premium feature. Please sign in or register.',
+          requireAuth: true
+        });
+      }
+      if (['2160', '1440', '1080', 'best'].includes(String(opts.videoQuality || '').toLowerCase())) {
+        opts.videoQuality = '720';
+      }
+      incrementGuestDailyDownloads(req.currentUser.ip);
     }
 
     const createdJobs = [];
@@ -4265,7 +4753,9 @@ app.post('/api/batch-download', async (req, res) => {
         title: meta ? meta.title : '',
         code: meta ? meta.code : '',
         poster: meta ? meta.poster : '',
-        downloadTargetUrl: meta ? meta.downloadTargetUrl : ''
+        downloadTargetUrl: meta ? meta.downloadTargetUrl : '',
+        ownerId: req.currentUser.userId,
+        isPremium: req.currentUser.isPremium
       };
 
       const job = createAndStartJob(jobOpts);
@@ -4277,7 +4767,7 @@ app.post('/api/batch-download', async (req, res) => {
       });
     }
 
-    res.json({ success: true, count: createdJobs.length, jobs: createdJobs });
+    res.json({ success: true, count: createdJobs.length, jobs: createdJobs, notice: cappedNotice });
   } catch (err) {
     console.error('Batch error:', err);
     res.status(500).json({ error: err.message || 'Failed to process batch' });

@@ -198,9 +198,385 @@ const modalFileInfo = document.getElementById('modalFileInfo');
 const closeModalBtn = document.getElementById('closeModalBtn');
 const modalDownloadDeviceBtn = document.getElementById('modalDownloadDeviceBtn');
 
+// ==========================================================================
+// User Authentication, Premium Features & Guest State Manager
+// ==========================================================================
+let currentUser = null; // { id, username, role, isPremium }
+let userAuthToken = localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || '';
+
+// Transparent API Authorization Interceptor
+const originalFetch = window.fetch;
+window.fetch = function (url, options = {}) {
+  if (typeof url === 'string' && url.startsWith('/api/') && userAuthToken) {
+    options = options || {};
+    options.headers = options.headers || {};
+    if (options.headers instanceof Headers) {
+      if (!options.headers.has('Authorization')) {
+        options.headers.set('Authorization', `Bearer ${userAuthToken}`);
+      }
+    } else if (Array.isArray(options.headers)) {
+      if (!options.headers.some(([k]) => k.toLowerCase() === 'authorization')) {
+        options.headers.push(['Authorization', `Bearer ${userAuthToken}`]);
+      }
+    } else {
+      if (!options.headers['Authorization'] && !options.headers['authorization']) {
+        options.headers['Authorization'] = `Bearer ${userAuthToken}`;
+      }
+    }
+  }
+  return originalFetch.call(this, url, options);
+};
+
+function updateAuthUI(user, limits) {
+  currentUser = user;
+
+  const sidebarUserName = document.getElementById('sidebarUserName');
+  const sidebarUserRole = document.getElementById('sidebarUserRole');
+  const sidebarUserAvatar = document.getElementById('sidebarUserAvatar');
+  const sidebarAuthBtnText = document.getElementById('sidebarAuthBtnText');
+  const sidebarAuthBtn = document.getElementById('sidebarAuthBtn');
+
+  const mobileAuthBtnText = document.getElementById('mobileAuthBtnText');
+  const drawerUserName = document.getElementById('drawerUserName');
+  const drawerUserRole = document.getElementById('drawerUserRole');
+  const drawerUserAvatar = document.getElementById('drawerUserAvatar');
+  const drawerAuthBtnText = document.getElementById('drawerAuthBtnText');
+
+  if (user && (user.isPremium || user.role === 'premium' || user.role === 'admin')) {
+    // Logged in Premium User
+    const badgeText = user.role === 'admin' ? '★ ADMIN ACCESS' : '★ PREMIUM';
+    if (sidebarUserName) sidebarUserName.textContent = user.username;
+    if (sidebarUserRole) {
+      sidebarUserRole.textContent = badgeText;
+      sidebarUserRole.className = 'badge-tier badge-tier-premium';
+    }
+    if (sidebarUserAvatar) sidebarUserAvatar.classList.add('is-premium');
+    if (sidebarAuthBtnText) sidebarAuthBtnText.textContent = 'Account';
+    if (sidebarAuthBtn) sidebarAuthBtn.classList.add('btn-user-active');
+
+    if (mobileAuthBtnText) mobileAuthBtnText.textContent = user.username;
+    if (drawerUserName) drawerUserName.textContent = user.username;
+    if (drawerUserRole) {
+      drawerUserRole.textContent = badgeText;
+      drawerUserRole.className = 'badge-tier badge-tier-premium';
+    }
+    if (drawerUserAvatar) drawerUserAvatar.classList.add('is-premium');
+    if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account Profile';
+  } else {
+    // Guest User
+    if (sidebarUserName) sidebarUserName.textContent = 'Guest Visitor';
+    if (sidebarUserRole) {
+      sidebarUserRole.textContent = 'GUEST ACCESS';
+      sidebarUserRole.className = 'badge-tier badge-tier-guest';
+    }
+    if (sidebarUserAvatar) sidebarUserAvatar.classList.remove('is-premium');
+    if (sidebarAuthBtnText) sidebarAuthBtnText.textContent = 'Sign In / Join';
+    if (sidebarAuthBtn) sidebarAuthBtn.classList.remove('btn-user-active');
+
+    if (mobileAuthBtnText) mobileAuthBtnText.textContent = 'Sign In';
+    if (drawerUserName) drawerUserName.textContent = 'Guest Visitor';
+    if (drawerUserRole) {
+      drawerUserRole.textContent = 'GUEST ACCESS';
+      drawerUserRole.className = 'badge-tier badge-tier-guest';
+    }
+    if (drawerUserAvatar) drawerUserAvatar.classList.remove('is-premium');
+    if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Sign In / Join';
+  }
+}
+
+async function checkUserSession() {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.authenticated && data.user) {
+        updateAuthUI(data.user, data.limits);
+      } else {
+        updateAuthUI(null, data.limits);
+      }
+    } else {
+      updateAuthUI(null, null);
+    }
+  } catch (e) {
+    updateAuthUI(null, null);
+  }
+}
+
+// Auth Modal Management
+let currentAuthTab = 'login'; // 'login' | 'register'
+
+function openAuthModal(tab = 'login', notice = '') {
+  const modal = document.getElementById('authModal');
+  if (!modal) return;
+
+  setAuthTab(tab);
+  const alertEl = document.getElementById('authAlert');
+  if (alertEl) {
+    if (notice) {
+      alertEl.textContent = notice;
+      alertEl.className = 'auth-alert auth-alert-error';
+      alertEl.style.display = 'block';
+    } else {
+      alertEl.style.display = 'none';
+      alertEl.textContent = '';
+    }
+  }
+
+  modal.style.display = 'flex';
+  const userInput = document.getElementById('authUsername');
+  if (userInput) setTimeout(() => userInput.focus(), 50);
+}
+
+function closeAuthModal() {
+  const modal = document.getElementById('authModal');
+  if (modal) modal.style.display = 'none';
+  const alertEl = document.getElementById('authAlert');
+  if (alertEl) alertEl.style.display = 'none';
+}
+
+function setAuthTab(tab) {
+  currentAuthTab = tab;
+  const tabLogin = document.getElementById('authTabLogin');
+  const tabRegister = document.getElementById('authTabRegister');
+  const confirmGroup = document.getElementById('authConfirmPasswordGroup');
+  const submitText = document.getElementById('authSubmitText');
+  const switchPrompt = document.getElementById('authSwitchPrompt');
+  const switchLink = document.getElementById('authSwitchLink');
+  const alertEl = document.getElementById('authAlert');
+
+  if (alertEl) alertEl.style.display = 'none';
+
+  if (tab === 'register') {
+    if (tabLogin) tabLogin.classList.remove('active');
+    if (tabRegister) tabRegister.classList.add('active');
+    if (confirmGroup) confirmGroup.style.display = 'flex';
+    if (submitText) submitText.textContent = 'Create Premium Account';
+    if (switchPrompt) switchPrompt.textContent = 'Already have an account?';
+    if (switchLink) switchLink.textContent = 'Sign In';
+  } else {
+    if (tabLogin) tabLogin.classList.add('active');
+    if (tabRegister) tabRegister.classList.remove('active');
+    if (confirmGroup) confirmGroup.style.display = 'none';
+    if (submitText) submitText.textContent = 'Sign In to Universal';
+    if (switchPrompt) switchPrompt.textContent = "Don't have an account yet?";
+    if (switchLink) switchLink.textContent = 'Create Account';
+  }
+}
+
+function openAccountModal() {
+  const modal = document.getElementById('accountModal');
+  if (!modal) return;
+  const nameEl = document.getElementById('accountModalUsername');
+  const roleEl = document.getElementById('accountModalRoleBadge');
+  if (nameEl && currentUser) nameEl.textContent = currentUser.username;
+  if (roleEl && currentUser) {
+    roleEl.textContent = currentUser.role === 'admin' ? '★ ADMIN ACCESS' : '★ PREMIUM MEMBER';
+  }
+  modal.style.display = 'flex';
+}
+
+function closeAccountModal() {
+  const modal = document.getElementById('accountModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function setupAuthModalEvents() {
+  const sidebarAuthBtn = document.getElementById('sidebarAuthBtn');
+  const mobileAuthBtn = document.getElementById('mobileAuthBtn');
+  const drawerAuthBtn = document.getElementById('drawerAuthBtn');
+  const closeAuthBtn = document.getElementById('btnCloseAuthModal');
+  const closeAccountBtn = document.getElementById('btnCloseAccountModal');
+  const authModal = document.getElementById('authModal');
+  const accountModal = document.getElementById('accountModal');
+  const tabLogin = document.getElementById('authTabLogin');
+  const tabRegister = document.getElementById('authTabRegister');
+  const switchLink = document.getElementById('authSwitchLink');
+  const authForm = document.getElementById('authForm');
+  const logoutBtn = document.getElementById('btnLogoutBtn');
+
+  function handleAuthClick() {
+    if (currentUser && (currentUser.isPremium || currentUser.role === 'premium' || currentUser.role === 'admin')) {
+      openAccountModal();
+    } else {
+      openAuthModal('login');
+    }
+  }
+
+  if (sidebarAuthBtn) sidebarAuthBtn.addEventListener('click', handleAuthClick);
+  if (mobileAuthBtn) mobileAuthBtn.addEventListener('click', handleAuthClick);
+  if (drawerAuthBtn) {
+    drawerAuthBtn.addEventListener('click', () => {
+      const drawer = document.getElementById('mobileDrawerBackdrop');
+      if (drawer) drawer.style.display = 'none';
+      handleAuthClick();
+    });
+  }
+
+  if (closeAuthBtn) closeAuthBtn.addEventListener('click', closeAuthModal);
+  if (closeAccountBtn) closeAccountBtn.addEventListener('click', closeAccountModal);
+
+  if (authModal) {
+    authModal.addEventListener('click', (e) => {
+      if (e.target === authModal) closeAuthModal();
+    });
+  }
+  if (accountModal) {
+    accountModal.addEventListener('click', (e) => {
+      if (e.target === accountModal) closeAccountModal();
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeAuthModal();
+      closeAccountModal();
+    }
+  });
+
+  if (tabLogin) tabLogin.addEventListener('click', () => setAuthTab('login'));
+  if (tabRegister) tabRegister.addEventListener('click', () => setAuthTab('register'));
+  if (switchLink) {
+    switchLink.addEventListener('click', () => {
+      setAuthTab(currentAuthTab === 'login' ? 'register' : 'login');
+    });
+  }
+
+  if (authForm) {
+    authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const usernameInput = document.getElementById('authUsername');
+      const passwordInput = document.getElementById('authPassword');
+      const confirmInput = document.getElementById('authConfirmPassword');
+      const alertEl = document.getElementById('authAlert');
+      const spinner = document.getElementById('authSpinner');
+      const submitText = document.getElementById('authSubmitText');
+
+      const username = usernameInput ? usernameInput.value.trim() : '';
+      const password = passwordInput ? passwordInput.value : '';
+      const confirmPassword = confirmInput ? confirmInput.value : '';
+
+      if (!username || username.length < 3) {
+        if (alertEl) {
+          alertEl.textContent = 'Username must be at least 3 characters long.';
+          alertEl.className = 'auth-alert auth-alert-error';
+          alertEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (!password || password.length < 6) {
+        if (alertEl) {
+          alertEl.textContent = 'Password must be at least 6 characters long.';
+          alertEl.className = 'auth-alert auth-alert-error';
+          alertEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (currentAuthTab === 'register' && password !== confirmPassword) {
+        if (alertEl) {
+          alertEl.textContent = 'Passwords do not match.';
+          alertEl.className = 'auth-alert auth-alert-error';
+          alertEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (spinner) spinner.style.display = 'inline-block';
+      if (submitText) submitText.style.opacity = '0.5';
+
+      try {
+        const endpoint = currentAuthTab === 'register' ? '/api/auth/register' : '/api/auth/login';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success && data.token) {
+          userAuthToken = data.token;
+          localStorage.setItem('sakura_user_token', data.token);
+          sessionStorage.setItem('sakura_user_token', data.token);
+
+          if (alertEl) {
+            alertEl.textContent = currentAuthTab === 'register'
+              ? '🎉 Account created! Welcome to Premium access.'
+              : '🌟 Welcome back!';
+            alertEl.className = 'auth-alert auth-alert-success';
+            alertEl.style.display = 'block';
+          }
+
+          updateAuthUI(data.user, null);
+          showToast(currentAuthTab === 'register' ? 'Premium Account Registered!' : 'Signed in successfully', 'success');
+
+          setTimeout(() => {
+            closeAuthModal();
+            if (passwordInput) passwordInput.value = '';
+            if (confirmInput) confirmInput.value = '';
+          }, 700);
+        } else {
+          if (alertEl) {
+            alertEl.textContent = data.error || 'Authentication failed. Please check your credentials.';
+            alertEl.className = 'auth-alert auth-alert-error';
+            alertEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (alertEl) {
+          alertEl.textContent = 'Connection error. Please try again.';
+          alertEl.className = 'auth-alert auth-alert-error';
+          alertEl.style.display = 'block';
+        }
+      } finally {
+        if (spinner) spinner.style.display = 'none';
+        if (submitText) submitText.style.opacity = '1';
+      }
+    });
+  }
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      userAuthToken = '';
+      localStorage.removeItem('sakura_user_token');
+      sessionStorage.removeItem('sakura_user_token');
+      currentUser = null;
+      updateAuthUI(null, null);
+      closeAccountModal();
+      showToast('Signed out. You are now browsing as Guest.', 'info');
+    });
+  }
+
+  // Interactivity warning / modal open on selecting premium items
+  const videoQualitySelect = document.getElementById('videoQualitySelect');
+  if (videoQualitySelect) {
+    videoQualitySelect.addEventListener('change', (e) => {
+      const val = String(e.target.value).toLowerCase();
+      if (['2160', '1440', '1080'].includes(val) && (!currentUser || !currentUser.isPremium)) {
+        showToast('👑 4K & Full HD resolutions require Premium. Sign in or register to unlock full quality.', 'info');
+      }
+    });
+  }
+
+  const audioFormatSelect = document.getElementById('audioFormatSelect');
+  if (audioFormatSelect) {
+    audioFormatSelect.addEventListener('change', (e) => {
+      const val = String(e.target.value).toLowerCase();
+      if ((val === 'flac' || val === 'wav') && (!currentUser || !currentUser.isPremium)) {
+        showToast('👑 Lossless Studio Master FLAC is a Premium feature. Sign in or register to unlock.', 'info');
+      }
+    });
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
+  setupAuthModalEvents();
+  checkUserSession();
   loadJobs();
   setInterval(loadJobs, 4000);
 });
@@ -627,7 +1003,14 @@ async function startDownload() {
 
     const data = await res.json();
     if (!res.ok || data.error) {
+      if (data.requireAuth) {
+        openAuthModal('login', data.error);
+      }
       throw new Error(data.error || 'Failed to dispatch download');
+    }
+
+    if (data.qualityNotice) {
+      showToast(data.qualityNotice, 'info');
     }
 
     previewCard.style.display = 'none';
@@ -680,7 +1063,14 @@ async function startBatchDownload() {
 
     const data = await res.json();
     if (!res.ok || data.error) {
+      if (data.requireAuth) {
+        openAuthModal('login', data.error);
+      }
       throw new Error(data.error || 'Batch download failed');
+    }
+
+    if (data.notice) {
+      showToast(data.notice, 'info');
     }
 
     batchUrlsInput.value = '';
@@ -2744,6 +3134,9 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
         }, 900);
       }
     } else {
+      if (data.requireAuth) {
+        openAuthModal('login', data.error);
+      }
       showToast(data.error || 'Failed to start download', 'error');
       if (clickedBtn) {
         clickedBtn.disabled = false;
@@ -2773,30 +3166,33 @@ window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
   const release = (item.releases && item.releases[rIdx]) || {};
 
   const clickedBtn = event ? event.currentTarget : null;
-  const mainCardBtn = document.getElementById(`btnMovieDl_${idx}`);
+  const mainCardBtn = document.getElementById(`btnMovieDdl_${item.id}`);
+
   if (clickedBtn) {
     clickedBtn.disabled = true;
-    clickedBtn.innerHTML = `<span>⏳ Resolving DDL...</span>`;
-  } else if (mainCardBtn) {
-    mainCardBtn.disabled = true;
-    mainCardBtn.innerHTML = `<span>Connecting DDL...</span>`;
+    clickedBtn.innerHTML = `<span>⏳ Resolving...</span>`;
   }
+  if (mainCardBtn && !clickedBtn) {
+    mainCardBtn.disabled = true;
+    mainCardBtn.innerHTML = `<span>⏳ Resolving...</span>`;
+  }
+
+  const payload = {
+    title: item.title,
+    pureTitle: item.pureTitle || item.title,
+    year: item.year || '',
+    poster: item.poster || '',
+    quality: release.quality || '1080p',
+    filename: release.filename || '',
+    imdbId: item.imdbId || '',
+    url: release.url || ''
+  };
 
   try {
     const res = await fetch('/api/movies/resolve-ddl', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: item.title,
-        pureTitle: item.pureTitle || item.title,
-        year: item.year || '',
-        filename: release.filename || `${item.pureTitle || item.title} [${release.quality || '1080p'}]`,
-        quality: release.quality || '1080p',
-        poster: item.poster || '',
-        imdbId: item.imdbId || release.imdbId || '',
-        link: release.href || release.url || '',
-        url: release.href || release.url || ''
-      })
+      body: JSON.stringify(payload)
     });
 
     const data = await res.json();
@@ -2835,6 +3231,9 @@ window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
         }, 900);
       }
     } else {
+      if (data.requireAuth) {
+        openAuthModal('login', data.error);
+      }
       showToast(data.error || 'Failed to start DDL download', 'error');
       if (clickedBtn) {
         clickedBtn.disabled = false;
@@ -3493,6 +3892,9 @@ window.dispatchTrackDownload = async function(idx, format, quality, event = null
         footerEl.style.display = 'flex';
       }
     } else {
+      if (data.requireAuth) {
+        openAuthModal('login', data.error);
+      }
       showToast(`Download failed: ${data.error || 'Server error'}`, 'error');
       if (clickedBtn) {
         clickedBtn.disabled = false;
@@ -3543,6 +3945,9 @@ window.dispatchTorrentAlbumDownload = async function(idx, event = null) {
         clickedBtn.classList.add('btn-success');
       }
     } else {
+      if (data.requireAuth) {
+        openAuthModal('login', data.error);
+      }
       showToast(`Album download error: ${data.error || 'Server error'}`, 'error');
       if (clickedBtn) {
         clickedBtn.disabled = false;

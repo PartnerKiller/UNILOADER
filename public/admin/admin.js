@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCreds();
   setupQueue();
   setupFlacLab();
+  setupUsersTab();
 
   if (adminToken) {
     verifySession();
@@ -161,6 +162,7 @@ function loadAllAdminData() {
   loadSystemMetrics();
   loadCredsData();
   loadRecentFlacFiles();
+  loadAdminUsers();
   updateSandboxIframe();
 }
 
@@ -1643,3 +1645,97 @@ function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ==========================================================================
+// User Accounts & Tier Administration
+// ==========================================================================
+function setupUsersTab() {
+  const btnRefresh = document.getElementById('btnRefreshUsers');
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', loadAdminUsers);
+  }
+}
+
+async function loadAdminUsers() {
+  try {
+    const res = await fetch('/api/admin/users', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const users = data.users || [];
+
+    const badge = document.getElementById('userCountBadge');
+    if (badge) badge.textContent = `${users.length} Users`;
+
+    const tbody = document.getElementById('usersTableBody');
+    if (!tbody) return;
+
+    if (users.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No registered members yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = users.map(u => {
+      const dateStr = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A';
+      const isPrem = u.role === 'premium';
+      return `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <td style="padding: 12px 14px;"><strong>${escapeHtml(u.username)}</strong></td>
+          <td style="padding: 12px 14px;"><code style="font-size: 0.8rem; color: #93c5fd;">${escapeHtml(u.id)}</code></td>
+          <td style="padding: 12px 14px;">
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; ${isPrem ? 'background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4);' : 'background: rgba(255,255,255,0.08); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12);'}">
+              ${escapeHtml(u.role ? u.role.toUpperCase() : 'USER')}
+            </span>
+          </td>
+          <td style="padding: 12px 14px; color: var(--text-muted);">${dateStr}</td>
+          <td style="padding: 12px 14px; text-align: right;">
+            <div style="display: inline-flex; gap: 8px;">
+              <button type="button" class="btn btn-outline btn-xs" onclick="toggleUserRole('${escapeHtml(u.id)}', '${isPrem ? 'user' : 'premium'}')">
+                ${isPrem ? 'Demote to Standard' : 'Make Premium'}
+              </button>
+              <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteUserAccount('${escapeHtml(u.id)}', '${escapeHtml(u.username)}')">
+                Delete
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {}
+}
+
+window.toggleUserRole = async function(id, newRole) {
+  try {
+    const res = await fetch('/api/admin/users/role', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ id, role: newRole })
+    });
+    if (res.ok) {
+      showToast(`User membership updated to ${newRole.toUpperCase()}`, 'success');
+      loadAdminUsers();
+    }
+  } catch (e) {
+    showToast('Failed to update user role', 'error');
+  }
+};
+
+window.deleteUserAccount = async function(id, username) {
+  if (!confirm(`Are you sure you want to delete user account "${username}"?`)) return;
+  try {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      showToast(`User "${username}" deleted`, 'info');
+      loadAdminUsers();
+    }
+  } catch (e) {
+    showToast('Failed to delete user', 'error');
+  }
+};

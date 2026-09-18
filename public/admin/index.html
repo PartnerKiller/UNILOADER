@@ -108,6 +108,9 @@
       <button class="tab-btn" data-tab="flac-lab">
         <span>🔬 FLAC Analyzer</span>
       </button>
+      <button class="tab-btn" data-tab="users">
+        <span>👥 User Accounts</span>
+      </button>
     </nav>
 
     <!-- Main Content Panels -->
@@ -877,9 +880,47 @@
           <div id="flacTestReport" class="flac-report-container" style="display: none;"></div>
         </div>
       </section>
+
+      <!-- 6. USER ACCOUNTS MANAGEMENT TAB -->
+      <section class="tab-panel" id="tab-users">
+        <div class="panel-header">
+          <div>
+            <h2>User Accounts &amp; Membership Tiers</h2>
+            <p>Inspect registered user accounts, manage membership levels (Premium vs Standard), and revoke access.</p>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-outline btn-sm" id="btnRefreshUsers">↻ Refresh Users</button>
+          </div>
+        </div>
+
+        <div class="admin-card" style="background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: 12px; padding: 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+            <h3 style="margin: 0; font-size: 1.05rem;">Registered Members</h3>
+            <span class="badge-tag" id="userCountBadge" style="background: rgba(37, 99, 235, 0.2); color: #60a5fa; border: 1px solid rgba(37, 99, 235, 0.4); padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;">0 Users</span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;" id="usersTable">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--admin-border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
+                  <th style="padding: 10px 14px;">Username</th>
+                  <th style="padding: 10px 14px;">User ID</th>
+                  <th style="padding: 10px 14px;">Membership Tier</th>
+                  <th style="padding: 10px 14px;">Joined</th>
+                  <th style="padding: 10px 14px; text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="usersTableBody">
+                <tr>
+                  <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading user accounts...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
-  <script src="/admin/admin.js?v=4.3.6"></script>
+  <script src="/admin/admin.js?v=4.6.0"></script>
 </body>
 </html>

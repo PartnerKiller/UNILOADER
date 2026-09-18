@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.5.3">
+  <link rel="stylesheet" href="styles.css?v=4.6.0">
 </head>
 <body>
   <div class="app-layout">
@@ -37,6 +37,27 @@
           <span class="brand-title">UNIVERSAL</span>
           <span class="brand-subtitle">Media Downloader</span>
         </div>
+      </div>
+
+      <!-- User Profile / Guest Access Status Card -->
+      <div class="sidebar-user-card" id="sidebarUserCard">
+        <div class="user-card-info">
+          <div class="user-avatar-badge" id="sidebarUserAvatar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          </div>
+          <div class="user-card-meta">
+            <div class="user-name-line">
+              <span class="user-card-name" id="sidebarUserName">Guest Visitor</span>
+            </div>
+            <div class="user-status-line">
+              <span class="badge-tier badge-tier-guest" id="sidebarUserRole">GUEST ACCESS</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn-user-auth" id="sidebarAuthBtn" title="Sign in or join to unlock Premium 4K & Lossless FLAC">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          <span id="sidebarAuthBtnText">Sign In / Join</span>
+        </button>
       </div>
 
       <!-- Navigation Links -->
@@ -82,7 +103,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.5.3 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.6.0 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -109,6 +130,10 @@
         <span class="brand-title" id="mobileBrandTitle">UNIVERSAL DOWNLOADER</span>
       </div>
       <div class="mobile-header-right" style="display: flex; align-items: center; gap: 8px;">
+        <button type="button" class="mobile-user-btn" id="mobileAuthBtn" title="Account / Sign In">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          <span id="mobileAuthBtnText">Sign In</span>
+        </button>
         <div class="status-pill-ready">
           <span class="status-dot active"></span>
           <span>Online</span>
@@ -137,6 +162,22 @@
         </div>
 
         <div class="mobile-drawer-content">
+          <!-- Mobile Drawer User Card -->
+          <div class="mobile-drawer-user-card" id="drawerUserCard">
+            <div class="drawer-user-info">
+              <div class="user-avatar-badge" id="drawerUserAvatar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              </div>
+              <div class="drawer-user-meta">
+                <span class="drawer-user-name" id="drawerUserName">Guest Visitor</span>
+                <span class="badge-tier badge-tier-guest" id="drawerUserRole">GUEST ACCESS</span>
+              </div>
+            </div>
+            <button type="button" class="btn-drawer-auth" id="drawerAuthBtn">
+              <span id="drawerAuthBtnText">Sign In / Join</span>
+            </button>
+          </div>
+
           <div class="drawer-section-title">Navigation Hubs</div>
           <nav class="mobile-drawer-nav">
             <button type="button" class="drawer-nav-item active" data-view="downloader">
@@ -221,7 +262,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.5.3 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.6.0 &bull; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -296,7 +337,7 @@
             <div class="batch-input-box">
               <textarea id="batchUrlsInput" class="batch-textarea" placeholder="Paste multiple links (one URL per line)&#10;https://...&#10;https://..."></textarea>
               <div class="batch-actions-bar">
-                <span class="batch-count-hint" id="batchCountHint">0 URLs detected</span>
+                <span class="batch-count-hint" id="batchCountHint">0 URLs detected (Guest: max 2 &bull; Sign in for unlimited)</span>
                 <button type="button" class="btn btn-download" id="startBatchBtn">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   <span>Process & Download All</span>
@@ -314,19 +355,19 @@
             <button type="button" class="preset-chip" id="presetAudioMp3" title="Extract Audio as high quality 320k MP3 with embedded album art">
               🎧 MP3 Audio (320k)
             </button>
-            <button type="button" class="preset-chip" id="presetAudioFlac" title="Lossless Studio FLAC Audio via SpotiFLAC">
-              🎼 Lossless FLAC
+            <button type="button" class="preset-chip" id="presetAudioFlac" title="Lossless Studio FLAC Audio (Premium)">
+              🎼 Lossless FLAC 👑
             </button>
             <button type="button" class="preset-chip" id="presetSubtitles" title="Embed available subtitles into MP4/MKV">
-              📝 With Subtitles
+              📝 Embedded Subtitles
             </button>
-            <button type="button" class="preset-chip" id="presetSponsorBlock" title="Automatically remove sponsored segments">
-              ⚡ SponsorBlock Cut
+            <button type="button" class="preset-chip" id="presetSponsorBlock" title="Automatically skip sponsor and intro segments">
+              ⚡ SponsorBlock
             </button>
           </div>
 
-          <!-- Quick Presets Mobile Dropdown -->
-          <div class="presets-mobile-group">
+          <!-- Quick Presets Mobile Compact Dropdown -->
+          <div class="presets-mobile-select-group">
             <label for="mobilePresetSelect" class="presets-mobile-label">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
               <span>Quick Preset Mode:</span>
@@ -335,7 +376,7 @@
               <select id="mobilePresetSelect" class="mobile-preset-select">
                 <option value="bestVideo" selected>🎬 Best Video (1080p / 4K Ultra HD)</option>
                 <option value="audioMp3">🎧 MP3 Audio (320k Extreme Quality)</option>
-                <option value="audioFlac">🎼 Lossless FLAC (Studio 24-bit Master)</option>
+                <option value="audioFlac">🎼 Lossless FLAC (Studio 24-bit Master 👑)</option>
                 <option value="subtitles">📝 Video with Embedded Subtitles</option>
                 <option value="sponsorBlock">⚡ SponsorBlock Trimming</option>
               </select>
@@ -373,13 +414,13 @@
                 <div class="config-item" id="cfgVideoQualityGroup">
                   <label for="videoQualitySelect" class="config-label">Video Quality / Resolution</label>
                   <select id="videoQualitySelect" class="config-select">
-                    <option value="best" selected>Best Available (Auto 4K/1080p)</option>
-                    <option value="2160">4K Ultra HD (2160p)</option>
-                    <option value="1440">2K Quad HD (1440p)</option>
-                    <option value="1080">Full HD (1080p)</option>
-                    <option value="720">HD (720p)</option>
-                    <option value="480">SD (480p)</option>
-                    <option value="360">Low (360p)</option>
+                    <option value="best" selected>Best Available (Auto 4K/1080p) ★</option>
+                    <option value="2160">4K Ultra HD (2160p) 👑 Premium</option>
+                    <option value="1440">2K Quad HD (1440p) 👑 Premium</option>
+                    <option value="1080">Full HD (1080p) 👑 Premium</option>
+                    <option value="720">HD (720p) • Free</option>
+                    <option value="480">SD (480p) • Free</option>
+                    <option value="360">Low (360p) • Free</option>
                   </select>
                 </div>
 
@@ -397,10 +438,10 @@
                   <label for="audioFormatSelect" class="config-label">Audio Extraction Format</label>
                   <select id="audioFormatSelect" class="config-select">
                     <option value="mp3" selected>MP3 (320k High Quality)</option>
-                    <option value="flac">Lossless FLAC (Studio 24-bit)</option>
+                    <option value="flac">Lossless FLAC (Studio 24-bit) 👑 Premium</option>
                     <option value="m4a">M4A / AAC (Apple Audio)</option>
                     <option value="opus">Opus (High Efficiency)</option>
-                    <option value="wav">WAV (Raw PCM Uncompressed)</option>
+                    <option value="wav">WAV (Raw PCM Uncompressed) 👑 Premium</option>
                   </select>
                 </div>
 
@@ -1435,8 +1476,142 @@
       </div>
     </div>
 
+    <!-- User Authentication & Premium Modal -->
+    <div class="modal-backdrop" id="authModal" style="display: none;">
+      <div class="modal-dialog auth-modal-dialog">
+        <div class="auth-modal-header">
+          <div class="auth-header-brand">
+            <div class="brand-icon auth-brand-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            </div>
+            <div>
+              <h3 class="auth-title">Universal Member Access</h3>
+              <p class="auth-subtitle">Sign in or register to unlock Premium high-speed downloads</p>
+            </div>
+          </div>
+          <button class="modal-close" id="btnCloseAuthModal" title="Close modal">&times;</button>
+        </div>
+
+        <!-- Premium Perks Banner -->
+        <div class="auth-perks-banner">
+          <div class="auth-perk-item">
+            <span class="perk-icon">🎬</span>
+            <div class="perk-text">
+              <strong>4K UHD &amp; 1080p</strong>
+              <span>Full resolution video</span>
+            </div>
+          </div>
+          <div class="auth-perk-item">
+            <span class="perk-icon">🎼</span>
+            <div class="perk-text">
+              <strong>24-bit Hi-Res FLAC</strong>
+              <span>Tidal &amp; Deezer Lossless</span>
+            </div>
+          </div>
+          <div class="auth-perk-item">
+            <span class="perk-icon">⚡</span>
+            <div class="perk-text">
+              <strong>Unlimited Batch</strong>
+              <span>Bulk URL queue</span>
+            </div>
+          </div>
+          <div class="auth-perk-item">
+            <span class="perk-icon">🚀</span>
+            <div class="perk-text">
+              <strong>Priority Queue</strong>
+              <span>Max concurrent bandwidth</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Auth Form Body -->
+        <div class="auth-modal-body">
+          <!-- Tab Switcher: Login vs Register -->
+          <div class="auth-tabs">
+            <button type="button" class="auth-tab active" id="authTabLogin">Sign In</button>
+            <button type="button" class="auth-tab" id="authTabRegister">Create Account</button>
+          </div>
+
+          <div class="auth-alert" id="authAlert" style="display: none;"></div>
+
+          <form id="authForm" onsubmit="return false;">
+            <div class="auth-input-group">
+              <label for="authUsername" class="auth-label">Username</label>
+              <input type="text" id="authUsername" class="auth-input" placeholder="Enter your username" autocomplete="username" required minlength="3" />
+            </div>
+
+            <div class="auth-input-group">
+              <label for="authPassword" class="auth-label">Password</label>
+              <input type="password" id="authPassword" class="auth-input" placeholder="Enter your password" autocomplete="current-password" required minlength="6" />
+            </div>
+
+            <div class="auth-input-group" id="authConfirmPasswordGroup" style="display: none;">
+              <label for="authConfirmPassword" class="auth-label">Confirm Password</label>
+              <input type="password" id="authConfirmPassword" class="auth-input" placeholder="Re-enter your password" autocomplete="new-password" minlength="6" />
+            </div>
+
+            <button type="submit" class="btn btn-primary auth-submit-btn" id="authSubmitBtn">
+              <span id="authSubmitText">Sign In to Universal</span>
+              <div class="btn-spinner" id="authSpinner" style="display: none;"></div>
+            </button>
+          </form>
+
+          <div class="auth-footer-hint">
+            <span id="authSwitchPrompt">Don't have an account yet?</span>
+            <a href="javascript:void(0)" id="authSwitchLink" class="auth-switch-link">Create Account</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Account Modal (For Logged-in Users) -->
+    <div class="modal-backdrop" id="accountModal" style="display: none;">
+      <div class="modal-dialog auth-modal-dialog">
+        <div class="auth-modal-header">
+          <div class="auth-header-brand">
+            <div class="user-avatar-badge" style="width: 38px; height: 38px; font-size: 1.1rem;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            </div>
+            <div>
+              <h3 class="auth-title" id="accountModalUsername">Username</h3>
+              <span class="badge-tier badge-tier-premium" id="accountModalRoleBadge">★ PREMIUM MEMBER</span>
+            </div>
+          </div>
+          <button class="modal-close" id="btnCloseAccountModal" title="Close modal">&times;</button>
+        </div>
+
+        <div class="auth-modal-body">
+          <div class="account-details-grid">
+            <div class="account-stat-card">
+              <span class="account-stat-label">Video Tier</span>
+              <span class="account-stat-val text-emerald">4K Ultra HD &amp; 8K</span>
+            </div>
+            <div class="account-stat-card">
+              <span class="account-stat-label">Audio Tier</span>
+              <span class="account-stat-val text-emerald">24-bit Studio Master FLAC</span>
+            </div>
+            <div class="account-stat-card">
+              <span class="account-stat-label">Batch Limit</span>
+              <span class="account-stat-val text-emerald">Unlimited URLs</span>
+            </div>
+            <div class="account-stat-card">
+              <span class="account-stat-label">Concurrency</span>
+              <span class="account-stat-val text-emerald">Unthrottled Priority</span>
+            </div>
+          </div>
+
+          <div class="account-actions">
+            <button type="button" class="btn btn-danger auth-logout-btn" id="btnLogoutBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
-  <script src="app.js?v=4.5.0"></script>
+  <script src="app.js?v=4.6.0"></script>
 </body>
 </html>
