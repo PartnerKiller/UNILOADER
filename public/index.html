@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.4.2">
+  <link rel="stylesheet" href="styles.css?v=4.4.3">
 </head>
 <body>
   <div class="app-layout">
@@ -78,7 +78,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.4.2 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.4.3 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -1128,25 +1128,39 @@
     <!-- Movie Releases Modal -->
     <div class="modal-backdrop" id="movieReleasesModal" style="display: none;">
       <div class="modal-dialog movie-releases-dialog">
-        <div class="modal-header">
-          <div class="movie-modal-title-wrap">
-            <div class="badge-tag movie-modal-badge" id="movieModalProviderBadge">Direct DDL</div>
-            <h3 class="modal-title" id="movieModalTitle">Movie Releases</h3>
+        <!-- Modern Cinema Hero Header -->
+        <div class="movie-modal-hero">
+          <div class="movie-modal-hero-bg" id="movieModalHeroBg"></div>
+          <div class="movie-modal-hero-content">
+            <img src="/icon.svg" alt="Poster" class="movie-modal-poster" id="movieModalPoster" onerror="this.src='/icon.svg'" />
+            <div class="movie-modal-meta">
+              <div class="movie-modal-tags">
+                <span class="movie-modal-badge" id="movieModalProviderBadge">Direct DDL Cloud</span>
+                <span class="movie-modal-tag" id="movieModalYear">2019</span>
+                <span class="movie-modal-tag tag-rating" id="movieModalRating">⭐ 7.3</span>
+              </div>
+              <h3 class="movie-modal-title" id="movieModalTitle">Movie Releases</h3>
+              <p class="movie-modal-subtitle" id="movieModalSubtitle">Select your preferred quality and file size</p>
+            </div>
           </div>
-          <button class="modal-close" id="btnCloseMovieReleasesModal" title="Close modal">&times;</button>
+          <button class="modal-close movie-modal-close" id="btnCloseMovieReleasesModal" title="Close modal">&times;</button>
         </div>
-        <div class="modal-body movie-releases-body">
+
+        <!-- Clean Quality Toolbar & Releases List -->
+        <div class="movie-releases-body">
           <div class="movie-modal-toolbar">
             <div class="movie-modal-filters" id="movieModalFilters">
-              <!-- Rendered dynamically: All, 4K, 1080p, 720p -->
+              <!-- Rendered dynamically: All Qualities, 4K, 1080p, 720p -->
             </div>
-            <div class="movie-modal-search-wrap">
+            <div class="movie-modal-search-wrap" id="movieModalSearchWrap">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="movie-modal-search-icon"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-              <input type="text" id="movieModalSearchInput" class="movie-modal-search" placeholder="Filter releases or episodes (e.g. S01E01, 1080p, Hindi)..." autocomplete="off" />
+              <input type="text" id="movieModalSearchInput" class="movie-modal-search" placeholder="Filter releases..." autocomplete="off" />
             </div>
           </div>
           <div class="movie-releases-list" id="movieReleasesList"></div>
         </div>
+
+        <!-- Modal Footer -->
         <div class="modal-footer movie-modal-footer" id="movieModalFooter" style="display: none;">
           <div class="modal-footer-status" id="movieModalFooterStatus">
             <span class="status-dot active"></span>
@@ -1162,6 +1176,6 @@
 
   </div>
 
-  <script src="app.js?v=4.4.2"></script>
+  <script src="app.js?v=4.4.3"></script>
 </body>
 </html>

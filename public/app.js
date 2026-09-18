@@ -2824,36 +2824,42 @@ function renderModalReleasesList() {
   const curItem = currentModalItemIdx >= 0 ? currentMovieResults[currentModalItemIdx] : null;
   const isDdl = (curItem && curItem.provider === 'ddl');
 
-  const bannerHtml = isDdl ? `
-    <div class="modal-ddl-banner">
-      <span class="banner-icon">⚡</span>
-      <span style="flex: 1;"><strong>Direct DDL Engine:</strong> Multi-threaded segmented cloud downloading with zero script requirements and zero torrent gating.</span>
-    </div>
-  ` : '';
-
   if (filtered.length === 0) {
-    listEl.innerHTML = bannerHtml + `
-      <div style="text-align: center; padding: 28px 14px; color: var(--text-muted); font-size: 0.85rem;">
-        No releases match your filter. Try clearing your search or choosing "All Qualities".
+    listEl.innerHTML = `
+      <div style="text-align: center; padding: 36px 16px; color: var(--text-muted); font-size: 0.88rem;">
+        No releases match your filter. Try clearing your search or choosing "All".
       </div>
     `;
     return;
   }
 
-  listEl.innerHTML = bannerHtml + filtered.map(({ rel, rIdx }) => {
+  listEl.innerHTML = filtered.map(({ rel, rIdx }) => {
+    const qStr = (rel.quality || '1080p').toUpperCase();
+    let qClass = 'quality-default';
+    if (qStr.includes('4K') || qStr.includes('2160')) {
+      qClass = 'quality-4k';
+    } else if (qStr.includes('1080')) {
+      qClass = 'quality-1080p';
+    } else if (qStr.includes('720')) {
+      qClass = 'quality-720p';
+    }
+
+    const relTitle = rel.label || rel.filename || (curItem ? `${curItem.title} [${rel.quality || 'HD'}]` : 'Movie Release');
+
     return `
       <div class="movie-release-item" data-release-index="${rIdx}">
         <div class="release-info">
-          <div class="release-primary-row">
-            <span class="release-badge badge-${(rel.quality || '1080p').toLowerCase().replace(/[^a-z0-9]/g, '')}">${escapeHtml(rel.quality || 'HD')}</span>
-            <span class="release-label">${escapeHtml(rel.label || rel.filename || 'Release')}</span>
-          </div>
-          <div class="release-secondary-row">
-            ${rel.size ? `<span class="release-size">💾 ${escapeHtml(rel.size)}</span>` : ''}
-            ${rel.seeders !== undefined ? `<span class="release-seeds">🟢 ${rel.seeders} Seeds</span>` : ''}
-            ${rel.isMultiAudio ? `<span class="release-tag">Multi-Audio</span>` : ''}
-            ${rel.isHevc ? `<span class="release-tag">HEVC 10-bit</span>` : ''}
-            ${rel.isHdr ? `<span class="release-tag">HDR / DV</span>` : ''}
+          <div class="release-quality-pill ${qClass}">${escapeHtml(rel.quality || 'HD')}</div>
+          <div class="release-text-block">
+            <span class="release-label" title="${escapeHtml(relTitle)}">${escapeHtml(relTitle)}</span>
+            <div class="release-secondary-row">
+              ${rel.size ? `<span class="release-meta-badge meta-size">💾 ${escapeHtml(rel.size)}</span>` : ''}
+              ${rel.seeders !== undefined ? `<span class="release-meta-badge">🟢 ${rel.seeders} Seeds</span>` : ''}
+              ${isDdl ? `<span class="release-meta-badge">⚡ Direct Cloud</span>` : ''}
+              ${rel.isMultiAudio ? `<span class="release-tag">Multi-Audio</span>` : ''}
+              ${rel.isHevc ? `<span class="release-tag">HEVC 10-bit</span>` : ''}
+              ${rel.isHdr ? `<span class="release-tag">HDR / DV</span>` : ''}
+            </div>
           </div>
         </div>
         <div class="release-actions">
@@ -2893,11 +2899,48 @@ window.openMovieReleasesModal = function(idx) {
   const searchInput = document.getElementById('movieModalSearchInput');
   const footerEl = document.getElementById('movieModalFooter');
 
+  const posterEl = document.getElementById('movieModalPoster');
+  const heroBgEl = document.getElementById('movieModalHeroBg');
+  const yearEl = document.getElementById('movieModalYear');
+  const ratingEl = document.getElementById('movieModalRating');
+  const subEl = document.getElementById('movieModalSubtitle');
+
   if (!modal) return;
 
   if (titleEl) titleEl.textContent = item.title;
   if (badgeEl) {
     badgeEl.textContent = item.provider === 'ddl' ? 'Direct DDL Cloud' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
+  }
+
+  // Populate hero elements
+  if (posterEl) {
+    posterEl.src = item.poster || '/icon.svg';
+  }
+  if (heroBgEl) {
+    heroBgEl.style.backgroundImage = item.poster ? `url('${item.poster}')` : 'none';
+  }
+  if (yearEl) {
+    if (item.year) {
+      yearEl.textContent = item.year;
+      yearEl.style.display = 'inline-block';
+    } else {
+      yearEl.style.display = 'none';
+    }
+  }
+  if (ratingEl) {
+    if (item.rating) {
+      ratingEl.textContent = `⭐ ${item.rating}`;
+      ratingEl.style.display = 'inline-flex';
+    } else {
+      ratingEl.style.display = 'none';
+    }
+  }
+  if (subEl) {
+    if (item.genres && item.genres.length > 0) {
+      subEl.textContent = item.genres.join(' • ');
+    } else {
+      subEl.textContent = 'Select preferred quality and download directly';
+    }
   }
 
   // Reset search input
@@ -2933,7 +2976,7 @@ window.openMovieReleasesModal = function(idx) {
   if (filtersEl) {
     if (sortedQualities.length > 1) {
       filtersEl.innerHTML = [
-        `<button type="button" class="modal-q-chip active" data-quality="ALL">All Qualities (${currentModalReleases.length})</button>`,
+        `<button type="button" class="modal-q-chip active" data-quality="ALL">All (${currentModalReleases.length})</button>`,
         ...sortedQualities.map(q => {
           const count = currentModalReleases.filter(r => (r.quality || '').toUpperCase() === q).length;
           return `<button type="button" class="modal-q-chip" data-quality="${escapeHtml(q)}">${escapeHtml(q)} (${count})</button>`;
