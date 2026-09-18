@@ -17,6 +17,7 @@ config.json
 *.keystore
 
 # Deployment & Local Scripts
+ola/
 deploy.ps1
 *.local.ps1
 *.local.bat

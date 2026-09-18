@@ -1282,6 +1282,8 @@ if ('serviceWorker' in navigator) {
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
+  const drawerDownloadsSection = document.getElementById('drawerSectionAppDownloads');
+  if (drawerDownloadsSection) drawerDownloadsSection.style.display = 'block';
   const installButtons = document.querySelectorAll('.btn-install-app');
   installButtons.forEach(btn => {
     btn.style.display = 'flex';
@@ -1294,6 +1296,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
         }
         deferredInstallPrompt = null;
         installButtons.forEach(b => b.style.display = 'none');
+        if (drawerDownloadsSection) drawerDownloadsSection.style.display = 'none';
       }
     };
   });

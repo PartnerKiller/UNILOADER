@@ -520,27 +520,6 @@ body {
   border-color: var(--accent-primary);
 }
 
-.mobile-apk-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
-  border-radius: 14px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  text-decoration: none;
-  transition: all 0.2s ease;
-}
-
-.mobile-apk-pill:hover {
-  background: rgba(16, 185, 129, 0.22);
-  border-color: #34d399;
-  transform: translateY(-1px);
-}
 
 /* Mobile Slide-Over Navigation Drawer */
 .mobile-drawer-backdrop {
@@ -747,16 +726,6 @@ body {
   box-sizing: border-box;
 }
 
-.btn-apk-download {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
-}
-
-.btn-apk-download:hover {
-  background: rgba(16, 185, 129, 0.2);
-  border-color: #34d399;
-}
 
 .mobile-drawer-footer {
   padding: 14px 18px;
