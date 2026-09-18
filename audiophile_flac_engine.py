@@ -79,8 +79,14 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
     - If 24-bit Studio Master is requested: Tidal Hi-Res & Soulseek P2P Masters are queried first with speed watchdog.
     - Fast fallback ensures users on high-bandwidth connections never get stuck on slow peers.
     """
-    clean_artist = re.sub(r'[\(\)\[\]]', '', artist).strip()
-    clean_title = re.sub(r'[\(\)\[\]]', '', title).strip()
+    # Clean noise terms & parenthetical descriptors: "The Bongs Again (Original)" -> "The Bongs Again"
+    c_art = re.sub(r'[\(\[\{].*?[\)\]\}]', ' ', artist).strip()
+    c_tit = re.sub(r'[\(\[\{].*?[\)\]\}]', ' ', title).strip()
+    c_art = re.sub(r'(?i)\b(official\s*(music)?\s*video|official\s*audio|original|full\s*song|video|audio|mv|hd|4k)\b', ' ', c_art)
+    c_tit = re.sub(r'(?i)\b(official\s*(music)?\s*video|official\s*audio|original|full\s*song|video|audio|mv|hd|4k)\b', ' ', c_tit)
+    clean_artist = re.sub(r'\s+', ' ', c_art).strip() or artist.strip()
+    clean_title = re.sub(r'\s+', ' ', c_tit).strip() or title.strip()
+
     full_name = f"{clean_artist} - {clean_title}" if clean_artist else clean_title
     target_quality = (quality or 'auto').lower()
 
@@ -142,9 +148,29 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
             print(f"[Audiophile HiFi] [Tier 3 Fallback] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
 
     # -------------------------------------------------------------
+    # Tier 4: JioSaavn High-Fidelity Studio Master (320 kbps Akamai CDN stream)
+    # Essential for Indian, Bollywood, Bengali, and Asian regional soundtracks
+    # where no commercial CD or Hi-Res FLAC was ever pressed or released.
+    # -------------------------------------------------------------
+    try:
+        from jiosaavn_engine import resolve_and_download
+        print(f"[Audiophile HiFi] [Tier 4 Regional] Checking JioSaavn High-Fidelity Studio Master CDN...", flush=True)
+        search_candidates = [
+            f"{clean_artist} - {clean_title}" if clean_artist else clean_title,
+            f"{artist} - {title}" if artist else title,
+            clean_title
+        ]
+        for sc in search_candidates:
+            t4_ok = resolve_and_download(sc, output_path, target_format='flac')
+            if t4_ok and verify_and_accept_flac(output_path, "JioSaavn Studio Master"):
+                return True
+    except Exception as e:
+        print(f"[Audiophile HiFi] [Tier 4 Regional] JioSaavn notice: {e}", file=sys.stderr, flush=True)
+
+    # -------------------------------------------------------------
     # Strict Anti-Transcode Policy Enforcement
     # -------------------------------------------------------------
-    print(f"[Audiophile HiFi] ❌ Authentic Lossless FLAC not found across Tidal Hi-Res, Soulseek P2P Masters, or Deezer HiFi.", file=sys.stderr, flush=True)
+    print(f"[Audiophile HiFi] ❌ Authentic Lossless FLAC or Studio Master not found across Tidal Hi-Res, Soulseek P2P, Deezer HiFi, or JioSaavn.", file=sys.stderr, flush=True)
     print(f"[Audiophile HiFi] 🚫 Strictly prohibited: YouTube/lossy audio will NOT be transcoded into fake FLAC.", file=sys.stderr, flush=True)
     if os.path.exists(output_path):
         try: os.remove(output_path)

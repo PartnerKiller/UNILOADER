@@ -5174,8 +5174,31 @@ function startJobProcess(job) {
   const isAppleOrDeezer = url && (url.includes('music.apple.com') || (isDeezer && !isAudioFlac));
   const isInstagram = url && url.includes('instagram.com');
   const isTikTok = url && url.includes('tiktok.com');
+  const isJioSaavn = url && (url.includes('jiosaavn.com') || url.includes('saavn.com'));
 
-  if (isTikTok) {
+  if (isJioSaavn) {
+    const pythonBin = getPythonBin();
+    const saavnScript = path.join(__dirname, 'jiosaavn_engine.py');
+    const isFlac = (mode === 'audio' && audioFormat === 'flac');
+    const ext = isFlac ? 'flac' : (audioFormat || 'm4a');
+    const safeTitle = (job.title || 'jiosaavn_track').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.${ext}`);
+
+    job.logs.push(`Starting JioSaavn High-Fidelity Music Engine...`);
+    job.logs.push(`Target: ${url}`);
+
+    const child = spawn(pythonBin, [
+      saavnScript,
+      url,
+      finalOutPath,
+      isFlac ? 'flac' : (audioFormat || 'auto')
+    ], { 
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
+    job.process = child;
+    attachProcessListeners(job, child);
+  } else if (isTikTok) {
     const pythonBin = getPythonBin();
     const ttScript = path.join(__dirname, 'tiktok_engine.py');
     const safeTitle = (job.title || 'tiktok_media').replace(/[\\/:*?"<>|]/g, '_').trim();

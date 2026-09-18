@@ -1297,6 +1297,51 @@ def extract_all(url):
             pass
 
     # -------------------------------------------------------------
+    # 13.5. JioSaavn (jiosaavn.com) - 320kbps Studio Master Audio
+    # -------------------------------------------------------------
+    if 'jiosaavn.com' in url or 'saavn' in url:
+        try:
+            m = re.search(r'jiosaavn\.com/song/[^/]+/([a-zA-Z0-9_-]+)', url)
+            token = m.group(1) if m else None
+            song_id = None
+            if token:
+                api_u = f"https://www.jiosaavn.com/api.php?__call=webapi.get&token={token}&type=song&_format=json"
+                res_t = session.get(api_u, headers=headers, timeout=10)
+                data_t = res_t.json()
+                if data_t.get('songs'):
+                    song_id = data_t['songs'][0].get('id')
+
+            if song_id:
+                details_u = f"https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0%3F_marker%3D0&_format=json&pids={song_id}"
+                res_d = session.get(details_u, headers=headers, timeout=10)
+                data_d = res_d.json()
+                song = data_d.get(song_id, {})
+                title = song.get('song') or song.get('title') or 'JioSaavn Track'
+                artist = song.get('singers') or song.get('primary_artists') or ''
+                album = song.get('album') or ''
+                poster = (song.get('image') or '').replace('150x150', '500x500')
+                enc_url = song.get('encrypted_media_url')
+                stream_url = ''
+                if enc_url:
+                    from jiosaavn_engine import decrypt_media_url
+                    stream_url = decrypt_media_url(enc_url) or ''
+
+                return {
+                    'title': f"{artist} - {title}" if artist else title,
+                    'code': 'JIOSAAVN',
+                    'poster': poster,
+                    'hlsUrl': stream_url,
+                    'downloadTargetUrl': stream_url or url,
+                    'tags': ['JioSaavn', '320kbps', album] if album else ['JioSaavn', '320kbps'],
+                    'model': artist,
+                    'duration': song.get('duration', ''),
+                    'extractor': 'JioSaavn',
+                    'sourceUrl': url
+                }
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------
     # 14. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
     # -------------------------------------------------------------
     try:
