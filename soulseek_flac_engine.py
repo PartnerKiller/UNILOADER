@@ -308,33 +308,70 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                     f_lower = f.lower()
                     root_lower = root.lower()
                     if title_lower_words and all(tw in f_lower or tw in root_lower for tw in title_lower_words):
-                        if not art_lower_words or any(aw in f_lower or aw in root_lower for aw in art_lower_words):
-                            local_flac = os.path.join(root, f)
+                        local_flac = os.path.join(root, f)
+                        try:
+                            flac_sz = os.path.getsize(local_flac)
+                        except (OSError, FileNotFoundError):
+                            continue
+                        if flac_sz < 5 * 1024 * 1024:
+                            continue
+
+                        # Check artist match: in filename, folder path, or Vorbis tags (e.g. vinyl/audiophile rips)
+                        has_art = not art_lower_words or any(aw in f_lower or aw in root_lower for aw in art_lower_words)
+                        aud_tags = None
+                        if not has_art and HAS_MUTAGEN:
                             try:
-                                flac_sz = os.path.getsize(local_flac)
-                            except (OSError, FileNotFoundError):
-                                continue
-                            if flac_sz >= 5 * 1024 * 1024:
-                                is_v, qual = verify_flac_integrity(local_flac)
-                                if is_v:
-                                    bps = 16
-                                    sr = 44100
-                                    br = 0
-                                    if HAS_MUTAGEN:
-                                        try:
-                                            aud = FLAC(local_flac)
-                                            bps = aud.info.bits_per_sample or 16
-                                            sr = aud.info.sample_rate or 44100
-                                            br = aud.info.bitrate or 0
-                                        except Exception:
-                                            pass
-                                    q_score = (bps * 100000) + sr + (br / 1000)
-                                    matched_local_flacs.append({
-                                        'path': local_flac,
-                                        'filename': f,
-                                        'qual': qual,
-                                        'score': q_score
-                                    })
+                                aud_tags = FLAC(local_flac)
+                                tag_artist = ' '.join(
+                                    aud_tags.get('artist', []) + 
+                                    aud_tags.get('albumartist', []) + 
+                                    aud_tags.get('album', [])
+                                ).lower()
+                                if any(aw in tag_artist for aw in art_lower_words):
+                                    has_art = True
+                            except Exception:
+                                pass
+
+                        if not has_art:
+                            continue
+
+                        is_v, qual = verify_flac_integrity(local_flac)
+                        if is_v:
+                            bps = 16
+                            sr = 44100
+                            br = 0
+                            if aud_tags is not None:
+                                aud = aud_tags
+                            elif HAS_MUTAGEN:
+                                try:
+                                    aud = FLAC(local_flac)
+                                except Exception:
+                                    aud = None
+                            else:
+                                aud = None
+
+                            if aud:
+                                try:
+                                    bps = aud.info.bits_per_sample or 16
+                                    sr = aud.info.sample_rate or 44100
+                                    br = aud.info.bitrate or 0
+                                except Exception:
+                                    pass
+
+                            # Strict Quality Ranking (Rule #1):
+                            # Prioritize 24-bit / 32-bit Studio Masters (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz)
+                            # and higher uncompressed bitrate / filesize
+                            q_score = (bps * 1000000) + (sr * 10) + (br / 100) + (flac_sz / (1024 * 1024))
+                            matched_local_flacs.append({
+                                'path': local_flac,
+                                'filename': f,
+                                'qual': qual,
+                                'score': q_score,
+                                'bps': bps,
+                                'sr': sr,
+                                'br': br,
+                                'size_mb': flac_sz / (1024 * 1024)
+                            })
                                     
     if matched_local_flacs:
         matched_local_flacs.sort(key=lambda x: x['score'], reverse=True)
@@ -343,7 +380,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         qual = best_local['qual']
         f = best_local['filename']
         f_sz_mb = os.path.getsize(local_flac) / (1024 * 1024)
-        print(f"[Soulseek HiFi] ⚡ Found existing authentic {qual} Lossless FLAC in local archive: '{f}'", flush=True)
+        print(f"[Soulseek HiFi] ⚡ Found existing authentic {qual} Lossless FLAC in local archive: '{f}' ({best_local.get('bps')}bit / {best_local.get('sr')/1000:.1f}kHz)", flush=True)
         print(f"[download] 100.0% of {f_sz_mb:.1f}MiB at 30.00MiB/s ETA 00:00 (Soulseek HiFi)", flush=True)
         if os.path.exists(output_path):
             try: os.remove(output_path)
@@ -448,8 +485,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 bit_depth = f.get('bitDepth') or 0
                 sample_rate = f.get('sampleRate') or 0
                 
-                # Must be a FLAC file of realistic size (8MB - 250MB)
-                if ('flac' in ext or fname.lower().endswith('.flac')) and (8 * 1024 * 1024 <= size <= 250 * 1024 * 1024):
+                # Must be a FLAC file of realistic size (8MB - 500MB for 24-bit / 192kHz Studio Masters)
+                if ('flac' in ext or fname.lower().endswith('.flac')) and (8 * 1024 * 1024 <= size <= 500 * 1024 * 1024):
                     fn_lower = fname.lower()
                     
                     # 1. MANDATORY TITLE CHECK: All title words must appear in file/path
@@ -462,30 +499,30 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                         if not has_art:
                             continue  # REJECT: Wrong artist!
                             
-                    # Best Quality FLAC Scoring:
+                    # Best Quality FLAC Scoring (Rule #1: Studio Masters & Vinyl Rips):
                     # 24-bit / 32-bit Studio Master priority
                     quality_bonus = 0
                     if bit_depth >= 24 or any(k in fn_lower for k in ['24bit', '24-bit', '24 bit', '24/']):
-                        quality_bonus += 15000
+                        quality_bonus += 50000
                     if bit_depth >= 32:
-                        quality_bonus += 2000
+                        quality_bonus += 5000
                         
                     # Sample Rate priority (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz)
                     if sample_rate >= 192000 or '192khz' in fn_lower or '192 khz' in fn_lower:
-                        quality_bonus += 8000
+                        quality_bonus += 40000
                     elif sample_rate >= 96000 or '96khz' in fn_lower or '96 khz' in fn_lower:
-                        quality_bonus += 6000
+                        quality_bonus += 30000
                     elif sample_rate >= 88200 or '88.2khz' in fn_lower:
-                        quality_bonus += 5000
+                        quality_bonus += 25000
                     elif sample_rate >= 48000 or '48khz' in fn_lower:
-                        quality_bonus += 3000
+                        quality_bonus += 15000
 
-                    # Audiophile keywords
-                    if any(k in fn_lower for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz']):
-                        quality_bonus += 4000
+                    # Audiophile keywords (Studio Master, Vinyl, SACD, DSD, Hi-Res)
+                    if any(k in fn_lower for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz', 'dsd']):
+                        quality_bonus += 15000
                         
                     # Size bonus (higher resolution streams have larger file sizes)
-                    quality_bonus += min((size / (1024 * 1024)) * 20, 2000)
+                    quality_bonus += min((size / (1024 * 1024)) * 50, 10000)
                     
                     # Bandwidth & Peer Speed Scoring (Crucial for high-speed connections):
                     peer_kbps = speed / 1024.0
