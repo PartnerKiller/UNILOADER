@@ -886,13 +886,46 @@
         <div class="panel-header">
           <div>
             <h2>User Accounts &amp; Membership Tiers</h2>
-            <p>Inspect registered user accounts, manage membership levels (Premium vs Standard), and revoke access.</p>
+            <p>Inspect registered user accounts, approve guest access applications, and provision new accounts.</p>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button class="btn btn-outline btn-sm" id="btnRefreshUsers">↻ Refresh Users</button>
+            <button class="btn btn-primary btn-sm" id="btnOpenCreateUserModal">+ Create User</button>
+            <button class="btn btn-outline btn-sm" id="btnRefreshUsers">↻ Refresh</button>
           </div>
         </div>
 
+        <!-- PENDING ACCESS APPLICATIONS CARD -->
+        <div class="admin-card" style="background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.05rem;">📥 Guest Access Applications</h3>
+              <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: var(--text-muted);">
+                Applications submitted by guests in About &amp; Privacy. Owner approval creates the account.
+              </p>
+            </div>
+            <span class="badge-tag" id="requestsCountBadge" style="background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;">0 Requests</span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;" id="accessRequestsTable">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--admin-border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
+                  <th style="padding: 10px 14px;">Applicant Username</th>
+                  <th style="padding: 10px 14px;">Reason / Note</th>
+                  <th style="padding: 10px 14px;">Applied</th>
+                  <th style="padding: 10px 14px;">Status</th>
+                  <th style="padding: 10px 14px; text-align: right;">Owner Decision</th>
+                </tr>
+              </thead>
+              <tbody id="accessRequestsTableBody">
+                <tr>
+                  <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading access applications...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- REGISTERED USERS CARD -->
         <div class="admin-card" style="background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: 12px; padding: 20px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
             <h3 style="margin: 0; font-size: 1.05rem;">Registered Members</h3>
@@ -921,6 +954,45 @@
     </main>
   </div>
 
-  <script src="/admin/admin.js?v=4.6.1"></script>
+  <!-- Create User Modal (Owner Only) -->
+  <div class="login-backdrop" id="createUserModal" style="display: none; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); z-index: 9999; backdrop-filter: blur(8px);">
+    <div class="login-card" style="max-width: 440px; width: 92%; margin: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Create User Account</h3>
+        <button type="button" id="btnCloseCreateUserModal" style="background: none; border: none; font-size: 1.4rem; color: var(--text-muted); cursor: pointer;">&times;</button>
+      </div>
+      <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0; margin-bottom: 16px;">
+        Owner provisioned account. The user will be able to sign in and access all platform tools.
+      </p>
+      <form id="createUserForm" onsubmit="return false;">
+        <div class="form-group" style="margin-bottom: 14px;">
+          <label for="newAccountUsername" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px;">Username</label>
+          <input type="text" id="newAccountUsername" placeholder="e.g. audiophile_jane" class="form-control" style="width: 100%; padding: 9px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 6px; color: #fff;" required minlength="3">
+        </div>
+        <div class="form-group" style="margin-bottom: 14px;">
+          <label for="newAccountPassword" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px;">Initial Password</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="newAccountPassword" placeholder="Minimum 6 characters" class="form-control" style="flex: 1; padding: 9px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 6px; color: #fff;" required minlength="6">
+            <button type="button" class="btn btn-outline btn-sm" id="btnGenPassword">Generate</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 18px;">
+          <label for="newAccountRole" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px;">Membership Level</label>
+          <select id="newAccountRole" style="width: 100%; padding: 9px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 6px; color: #fff;">
+            <option value="premium" selected>★ Premium Member (Full Lossless &amp; 4K Access)</option>
+            <option value="user">Standard Member (Full Tools Access)</option>
+            <option value="admin">⚡ Administrator</option>
+          </select>
+        </div>
+        <div id="createUserError" style="color: #f87171; font-size: 0.82rem; margin-bottom: 12px; display: none;"></div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button type="button" class="btn btn-outline" id="btnCancelCreateUser">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitCreateUser">Create Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/admin/admin.js?v=4.7.0"></script>
 </body>
 </html>

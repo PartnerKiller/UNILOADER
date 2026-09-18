@@ -151,6 +151,9 @@ function setupNavigation() {
         loadCredsData();
       } else if (tabName === 'flac-lab') {
         loadRecentFlacFiles();
+      } else if (tabName === 'users') {
+        loadAdminUsers();
+        loadAccessRequests();
       }
     });
   });
@@ -163,6 +166,7 @@ function loadAllAdminData() {
   loadCredsData();
   loadRecentFlacFiles();
   loadAdminUsers();
+  loadAccessRequests();
   updateSandboxIframe();
 }
 
@@ -1652,7 +1656,106 @@ function escapeHtml(str) {
 function setupUsersTab() {
   const btnRefresh = document.getElementById('btnRefreshUsers');
   if (btnRefresh) {
-    btnRefresh.addEventListener('click', loadAdminUsers);
+    btnRefresh.addEventListener('click', () => {
+      loadAdminUsers();
+      loadAccessRequests();
+    });
+  }
+
+  const modal = document.getElementById('createUserModal');
+  const btnOpen = document.getElementById('btnOpenCreateUserModal');
+  const btnClose = document.getElementById('btnCloseCreateUserModal');
+  const btnCancel = document.getElementById('btnCancelCreateUser');
+  const btnGenPass = document.getElementById('btnGenPassword');
+  const form = document.getElementById('createUserForm');
+
+  function openCreateModal() {
+    if (modal) {
+      modal.style.display = 'flex';
+      const userInp = document.getElementById('newAccountUsername');
+      if (userInp) {
+        userInp.value = '';
+        setTimeout(() => userInp.focus(), 50);
+      }
+      const passInp = document.getElementById('newAccountPassword');
+      if (passInp) passInp.value = 'User_' + Math.random().toString(36).substring(2, 8);
+      const errEl = document.getElementById('createUserError');
+      if (errEl) errEl.style.display = 'none';
+    }
+  }
+
+  function closeCreateModal() {
+    if (modal) modal.style.display = 'none';
+  }
+
+  if (btnOpen) btnOpen.addEventListener('click', openCreateModal);
+  if (btnClose) btnClose.addEventListener('click', closeCreateModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeCreateModal);
+  if (btnGenPass) {
+    btnGenPass.addEventListener('click', () => {
+      const passInp = document.getElementById('newAccountPassword');
+      if (passInp) passInp.value = 'User_' + Math.random().toString(36).substring(2, 8);
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const userInp = document.getElementById('newAccountUsername');
+      const passInp = document.getElementById('newAccountPassword');
+      const roleInp = document.getElementById('newAccountRole');
+      const errEl = document.getElementById('createUserError');
+      const submitBtn = document.getElementById('btnSubmitCreateUser');
+
+      const username = userInp ? userInp.value.trim() : '';
+      const password = passInp ? passInp.value : '';
+      const role = roleInp ? roleInp.value : 'premium';
+
+      if (!username || username.length < 3) {
+        if (errEl) {
+          errEl.textContent = 'Username must be at least 3 characters.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+      if (!password || password.length < 6) {
+        if (errEl) {
+          errEl.textContent = 'Password must be at least 6 characters.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/users/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({ username, password, role })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Account "${username}" created successfully!`, 'success');
+          closeCreateModal();
+          loadAdminUsers();
+        } else {
+          if (errEl) {
+            errEl.textContent = data.error || 'Failed to create user account.';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Network error while contacting server.';
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
   }
 }
 
@@ -1711,6 +1814,133 @@ async function loadAdminUsers() {
     }).join('');
   } catch (e) {}
 }
+
+async function loadAccessRequests() {
+  try {
+    const res = await fetch('/api/admin/access-requests', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const requests = data.requests || [];
+
+    const badge = document.getElementById('requestsCountBadge');
+    if (badge) {
+      const pendingCount = requests.filter(r => r.status === 'pending').length;
+      badge.textContent = `${pendingCount} Pending (${requests.length} Total)`;
+    }
+
+    const tbody = document.getElementById('accessRequestsTableBody');
+    if (!tbody) return;
+
+    if (requests.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No guest access applications submitted yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = requests.map(r => {
+      const dateStr = r.createdAt ? new Date(r.createdAt).toLocaleString() : 'N/A';
+      const isPending = r.status === 'pending';
+      const isApproved = r.status === 'approved';
+      const isRejected = r.status === 'rejected';
+
+      let statusBadge = `<span style="padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4);">PENDING</span>`;
+      if (isApproved) {
+        statusBadge = `<span style="padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.4);">APPROVED</span>`;
+      } else if (isRejected) {
+        statusBadge = `<span style="padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid rgba(239,68,68,0.4);">REJECTED</span>`;
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <td style="padding: 12px 14px;">
+            <strong style="color: #60a5fa; font-size: 0.95rem;">${escapeHtml(r.username)}</strong>
+            ${isApproved && r.assignedPassword ? `<div style="font-size: 0.75rem; color: #34d399; margin-top: 2px;">Pass: <code>${escapeHtml(r.assignedPassword)}</code></div>` : ''}
+          </td>
+          <td style="padding: 12px 14px; max-width: 250px; font-size: 0.82rem; color: var(--text-secondary); word-break: break-word;">
+            ${escapeHtml(r.reason || 'No note provided')}
+          </td>
+          <td style="padding: 12px 14px; font-size: 0.78rem; color: var(--text-muted);">${dateStr}</td>
+          <td style="padding: 12px 14px;">${statusBadge}</td>
+          <td style="padding: 12px 14px; text-align: right;">
+            <div style="display: inline-flex; gap: 6px; justify-content: flex-end;">
+              ${isPending ? `
+                <button type="button" class="btn btn-primary btn-xs" onclick="approveAccessRequest('${escapeHtml(r.id)}', '${escapeHtml(r.username)}')">
+                  ✓ Approve &amp; Create
+                </button>
+                <button type="button" class="btn btn-outline btn-xs" onclick="rejectAccessRequest('${escapeHtml(r.id)}', '${escapeHtml(r.username)}')">
+                  ✕ Reject
+                </button>
+              ` : ''}
+              <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteAccessRequest('${escapeHtml(r.id)}', '${escapeHtml(r.username)}')">
+                Delete
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {}
+}
+
+window.approveAccessRequest = async function(id, username) {
+  const customPass = prompt(`Approve and create account for "${username}".\nEnter initial password (leave blank to generate automatically):`, 'User_' + Math.random().toString(36).substring(2, 8));
+  if (customPass === null) return;
+
+  try {
+    const res = await fetch(`/api/admin/access-requests/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ password: customPass.trim() || undefined, role: 'premium' })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(`🎉 Account created for "${username}"!\nInitial Password: ${data.user.initialPassword}\nRole: ${data.user.role}\n\nPlease share this password with the user.`);
+      showToast(`User "${username}" approved and created!`, 'success');
+      loadAdminUsers();
+      loadAccessRequests();
+    } else {
+      showToast(data.error || 'Failed to approve access request', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to approve request', 'error');
+  }
+};
+
+window.rejectAccessRequest = async function(id, username) {
+  if (!confirm(`Mark access request from "${username}" as rejected?`)) return;
+  try {
+    const res = await fetch(`/api/admin/access-requests/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      showToast(`Request from "${username}" rejected`, 'info');
+      loadAccessRequests();
+    }
+  } catch (e) {
+    showToast('Failed to reject request', 'error');
+  }
+};
+
+window.deleteAccessRequest = async function(id, username) {
+  if (!confirm(`Delete access request record for "${username}"?`)) return;
+  try {
+    const res = await fetch(`/api/admin/access-requests/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      showToast('Access request deleted', 'info');
+      loadAccessRequests();
+    }
+  } catch (e) {
+    showToast('Failed to delete request', 'error');
+  }
+};
 
 window.toggleUserRole = async function(id, newRole) {
   try {

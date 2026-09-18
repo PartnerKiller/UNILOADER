@@ -242,9 +242,14 @@ function updateAuthUI(user, limits) {
   const drawerUserAvatar = document.getElementById('drawerUserAvatar');
   const drawerAuthBtnText = document.getElementById('drawerAuthBtnText');
 
-  if (user && (user.isPremium || user.role === 'premium' || user.role === 'admin' || user.role === 'owner' || user.isOwner)) {
-    // Logged in Premium User or Owner / Admin
-    let badgeText = '★ PREMIUM';
+  const applyGuestBox = document.getElementById('applyAccessGuestBox');
+  const applyMemberBox = document.getElementById('applyAccessMemberBox');
+  const applyMemberUsername = document.getElementById('applyMemberUsername');
+  const applyMemberRoleBadge = document.getElementById('applyMemberRoleBadge');
+
+  if (user && user.role !== 'guest') {
+    // Registered Member, Premium, Admin, or Owner
+    let badgeText = '★ MEMBER';
     let badgeClass = 'badge-tier badge-tier-premium';
     if (user.role === 'owner' || user.isOwner) {
       badgeText = '👑 OWNER';
@@ -252,6 +257,9 @@ function updateAuthUI(user, limits) {
     } else if (user.role === 'admin') {
       badgeText = '⚡ ADMIN';
       badgeClass = 'badge-tier badge-tier-admin';
+    } else if (user.role === 'premium') {
+      badgeText = '★ PREMIUM';
+      badgeClass = 'badge-tier badge-tier-premium';
     }
 
     if (sidebarUserName) sidebarUserName.textContent = user.username;
@@ -285,6 +293,20 @@ function updateAuthUI(user, limits) {
       }
     }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account Profile';
+
+    // Hide tool locks for registered members
+    document.querySelectorAll('.nav-lock-badge, .drawer-lock-badge').forEach(el => {
+      el.style.display = 'none';
+    });
+
+    // Update About & Privacy access status
+    if (applyGuestBox) applyGuestBox.style.display = 'none';
+    if (applyMemberBox) applyMemberBox.style.display = 'block';
+    if (applyMemberUsername) applyMemberUsername.textContent = user.username;
+    if (applyMemberRoleBadge) {
+      applyMemberRoleBadge.textContent = badgeText;
+      applyMemberRoleBadge.className = badgeClass;
+    }
   } else {
     // Guest User
     if (sidebarUserName) sidebarUserName.textContent = 'Guest Visitor';
@@ -296,7 +318,7 @@ function updateAuthUI(user, limits) {
       sidebarUserAvatar.classList.remove('is-premium');
       sidebarUserAvatar.classList.remove('is-owner');
     }
-    if (sidebarAuthBtnText) sidebarAuthBtnText.textContent = 'Sign In / Join';
+    if (sidebarAuthBtnText) sidebarAuthBtnText.textContent = 'Sign In';
     if (sidebarAuthBtn) sidebarAuthBtn.classList.remove('btn-user-active');
 
     if (mobileAuthBtnText) mobileAuthBtnText.textContent = 'Sign In';
@@ -309,7 +331,16 @@ function updateAuthUI(user, limits) {
       drawerUserAvatar.classList.remove('is-premium');
       drawerUserAvatar.classList.remove('is-owner');
     }
-    if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Sign In / Join';
+    if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Sign In';
+
+    // Show tool locks for guests
+    document.querySelectorAll('.nav-lock-badge, .drawer-lock-badge').forEach(el => {
+      el.style.display = '';
+    });
+
+    // Show application form for guests in About & Privacy
+    if (applyGuestBox) applyGuestBox.style.display = 'block';
+    if (applyMemberBox) applyMemberBox.style.display = 'none';
   }
 }
 
@@ -332,13 +363,12 @@ async function checkUserSession() {
 }
 
 // Auth Modal Management
-let currentAuthTab = 'login'; // 'login' | 'register'
+let currentAuthTab = 'login';
 
 function openAuthModal(tab = 'login', notice = '') {
   const modal = document.getElementById('authModal');
   if (!modal) return;
 
-  setAuthTab(tab);
   const alertEl = document.getElementById('authAlert');
   if (alertEl) {
     if (notice) {
@@ -364,32 +394,7 @@ function closeAuthModal() {
 }
 
 function setAuthTab(tab) {
-  currentAuthTab = tab;
-  const tabLogin = document.getElementById('authTabLogin');
-  const tabRegister = document.getElementById('authTabRegister');
-  const confirmGroup = document.getElementById('authConfirmPasswordGroup');
-  const submitText = document.getElementById('authSubmitText');
-  const switchPrompt = document.getElementById('authSwitchPrompt');
-  const switchLink = document.getElementById('authSwitchLink');
-  const alertEl = document.getElementById('authAlert');
-
-  if (alertEl) alertEl.style.display = 'none';
-
-  if (tab === 'register') {
-    if (tabLogin) tabLogin.classList.remove('active');
-    if (tabRegister) tabRegister.classList.add('active');
-    if (confirmGroup) confirmGroup.style.display = 'flex';
-    if (submitText) submitText.textContent = 'Create Premium Account';
-    if (switchPrompt) switchPrompt.textContent = 'Already have an account?';
-    if (switchLink) switchLink.textContent = 'Sign In';
-  } else {
-    if (tabLogin) tabLogin.classList.add('active');
-    if (tabRegister) tabRegister.classList.remove('active');
-    if (confirmGroup) confirmGroup.style.display = 'none';
-    if (submitText) submitText.textContent = 'Sign In to Universal';
-    if (switchPrompt) switchPrompt.textContent = "Don't have an account yet?";
-    if (switchLink) switchLink.textContent = 'Create Account';
-  }
+  currentAuthTab = 'login';
 }
 
 function openAccountModal() {
@@ -431,14 +436,13 @@ function setupAuthModalEvents() {
   const closeAccountBtn = document.getElementById('btnCloseAccountModal');
   const authModal = document.getElementById('authModal');
   const accountModal = document.getElementById('accountModal');
-  const tabLogin = document.getElementById('authTabLogin');
-  const tabRegister = document.getElementById('authTabRegister');
-  const switchLink = document.getElementById('authSwitchLink');
+  const authApplyLink = document.getElementById('authApplyLink');
   const authForm = document.getElementById('authForm');
   const logoutBtn = document.getElementById('btnLogoutBtn');
+  const applyForm = document.getElementById('applyAccessForm');
 
   function handleAuthClick() {
-    if (currentUser && (currentUser.isPremium || currentUser.role === 'premium' || currentUser.role === 'admin' || currentUser.role === 'owner' || currentUser.isOwner)) {
+    if (currentUser && currentUser.role !== 'guest') {
       openAccountModal();
     } else {
       openAuthModal('login');
@@ -476,11 +480,19 @@ function setupAuthModalEvents() {
     }
   });
 
-  if (tabLogin) tabLogin.addEventListener('click', () => setAuthTab('login'));
-  if (tabRegister) tabRegister.addEventListener('click', () => setAuthTab('register'));
-  if (switchLink) {
-    switchLink.addEventListener('click', () => {
-      setAuthTab(currentAuthTab === 'login' ? 'register' : 'login');
+  if (authApplyLink) {
+    authApplyLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      closeAuthModal();
+      switchView('about');
+      setTimeout(() => {
+        const sec = document.getElementById('applyAccessSection');
+        if (sec) {
+          sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const userInp = document.getElementById('applyUsername');
+          if (userInp) userInp.focus();
+        }
+      }, 150);
     });
   }
 
@@ -489,14 +501,12 @@ function setupAuthModalEvents() {
       e.preventDefault();
       const usernameInput = document.getElementById('authUsername');
       const passwordInput = document.getElementById('authPassword');
-      const confirmInput = document.getElementById('authConfirmPassword');
       const alertEl = document.getElementById('authAlert');
       const spinner = document.getElementById('authSpinner');
       const submitText = document.getElementById('authSubmitText');
 
       const username = usernameInput ? usernameInput.value.trim() : '';
       const password = passwordInput ? passwordInput.value : '';
-      const confirmPassword = confirmInput ? confirmInput.value : '';
 
       if (!username || username.length < 3) {
         if (alertEl) {
@@ -516,21 +526,11 @@ function setupAuthModalEvents() {
         return;
       }
 
-      if (currentAuthTab === 'register' && password !== confirmPassword) {
-        if (alertEl) {
-          alertEl.textContent = 'Passwords do not match.';
-          alertEl.className = 'auth-alert auth-alert-error';
-          alertEl.style.display = 'block';
-        }
-        return;
-      }
-
       if (spinner) spinner.style.display = 'inline-block';
       if (submitText) submitText.style.opacity = '0.5';
 
       try {
-        const endpoint = currentAuthTab === 'register' ? '/api/auth/register' : '/api/auth/login';
-        const res = await fetch(endpoint, {
+        const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
@@ -543,21 +543,18 @@ function setupAuthModalEvents() {
           sessionStorage.setItem('sakura_user_token', data.token);
 
           if (alertEl) {
-            alertEl.textContent = currentAuthTab === 'register'
-              ? '🎉 Account created! Welcome to Premium access.'
-              : '🌟 Welcome back!';
+            alertEl.textContent = '🌟 Welcome back, ' + (data.user?.username || username) + '!';
             alertEl.className = 'auth-alert auth-alert-success';
             alertEl.style.display = 'block';
           }
 
           updateAuthUI(data.user, null);
-          showToast(currentAuthTab === 'register' ? 'Premium Account Registered!' : 'Signed in successfully', 'success');
+          showToast('Signed in successfully', 'success');
 
           setTimeout(() => {
             closeAuthModal();
             if (passwordInput) passwordInput.value = '';
-            if (confirmInput) confirmInput.value = '';
-          }, 700);
+          }, 600);
         } else {
           if (alertEl) {
             alertEl.textContent = data.error || 'Authentication failed. Please check your credentials.';
@@ -574,6 +571,76 @@ function setupAuthModalEvents() {
       } finally {
         if (spinner) spinner.style.display = 'none';
         if (submitText) submitText.style.opacity = '1';
+      }
+    });
+  }
+
+  if (applyForm) {
+    applyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const applyUserInput = document.getElementById('applyUsername');
+      const applyReasonInput = document.getElementById('applyReason');
+      const alertEl = document.getElementById('applyStatusAlert');
+      const btnSubmit = document.getElementById('btnApplySubmit');
+      const btnText = document.getElementById('btnApplyText');
+
+      const username = applyUserInput ? applyUserInput.value.trim() : '';
+      const reason = applyReasonInput ? applyReasonInput.value.trim() : '';
+
+      if (!username || username.length < 3) {
+        if (alertEl) {
+          alertEl.textContent = 'Please enter a desired username of at least 3 characters.';
+          alertEl.className = 'apply-status-alert alert-error';
+          alertEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+        if (alertEl) {
+          alertEl.textContent = 'Username can only contain letters, numbers, underscores, and hyphens.';
+          alertEl.className = 'apply-status-alert alert-error';
+          alertEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (btnSubmit) btnSubmit.disabled = true;
+      if (btnText) btnText.textContent = 'Submitting...';
+
+      try {
+        const res = await fetch('/api/access-requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, reason })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          if (alertEl) {
+            alertEl.textContent = '🎉 ' + (data.message || 'Access request submitted! Sakura (Owner) will review and activate your account.');
+            alertEl.className = 'apply-status-alert alert-success';
+            alertEl.style.display = 'block';
+          }
+          if (applyUserInput) applyUserInput.value = '';
+          if (applyReasonInput) applyReasonInput.value = '';
+          showToast('Access request submitted to Sakura!', 'success');
+        } else {
+          if (alertEl) {
+            alertEl.textContent = data.error || 'Failed to submit access request.';
+            alertEl.className = 'apply-status-alert alert-error';
+            alertEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (alertEl) {
+          alertEl.textContent = 'Network error while contacting server. Please try again.';
+          alertEl.className = 'apply-status-alert alert-error';
+          alertEl.style.display = 'block';
+        }
+      } finally {
+        if (btnSubmit) btnSubmit.disabled = false;
+        if (btnText) btnText.textContent = 'Submit Access Request';
       }
     });
   }
@@ -780,6 +847,22 @@ function initMobileDrawer() {
 function switchView(viewName) {
   // Close mobile drawer if open
   closeMobileDrawer();
+
+  // Tool Gating: Registered members can access all tools; guests can only access downloader, supported, and about.
+  const restrictedViews = {
+    movies: 'Movie & TV Hub',
+    music: 'Music Hub',
+    'flac-checker': 'FLAC Spectral Checker',
+    'adult-search': 'Adult & JAV Hub'
+  };
+
+  const isGuest = !currentUser || currentUser.role === 'guest';
+  if (isGuest && restrictedViews[viewName]) {
+    const toolTitle = restrictedViews[viewName];
+    showToast(`🔒 ${toolTitle} is restricted to registered members.`, 'warning');
+    openAuthModal('login', `${toolTitle} is reserved for registered members. Guests have access to the Downloader. Please sign in or apply for member access under About & Privacy.`);
+    return;
+  }
 
   // Close any lingering overlay modals on view switch
   const movieReleasesModal = document.getElementById('movieReleasesModal');

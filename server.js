@@ -666,8 +666,10 @@ app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body || {};
   const expectedUser = (process.env.ADMIN_USER || 'sakura').toLowerCase();
   const expectedPass = process.env.ADMIN_PASS || 'Sakura@002';
+  const cleanUser = (username || '').trim().toLowerCase();
+  const isMatchUser = cleanUser === expectedUser || cleanUser === 'sakura' || cleanUser === 'admin';
 
-  if (username && username.trim().toLowerCase() === expectedUser && password === expectedPass) {
+  if (isMatchUser && password === expectedPass) {
     const token = generateAdminToken(process.env.ADMIN_USER || 'sakura');
     userSessions.set(token, {
       userId: 'owner',
@@ -702,8 +704,10 @@ app.get('/api/admin/me', requireAdmin, (req, res) => {
 // ==========================================================================
 const USERS_FILE = path.join(__dirname, '.users.json');
 const USER_SESSIONS_FILE = path.join(__dirname, '.user_sessions.json');
+const ACCESS_REQUESTS_FILE = path.join(__dirname, '.access_requests.json');
 const users = new Map(); // username.toLowerCase() -> { id, username, passwordHash, salt, role, createdAt }
 const userSessions = new Map(); // token -> { userId, username, role, createdAt }
+const accessRequests = new Map(); // id -> { id, username, contact, note, ip, status, createdAt, updatedAt, assignedPassword }
 const guestDailyUsage = new Map(); // ip/guestId -> { date: 'YYYY-MM-DD', count: N }
 
 function hashPassword(password, salt) {
@@ -733,6 +737,32 @@ function saveUsers() {
     fs.writeFileSync(USERS_FILE, JSON.stringify(list, null, 2), 'utf8');
   } catch (e) {
     console.warn('[Auth] Failed to save users:', e.message);
+  }
+}
+
+function loadAccessRequests() {
+  try {
+    if (fs.existsSync(ACCESS_REQUESTS_FILE)) {
+      const list = JSON.parse(fs.readFileSync(ACCESS_REQUESTS_FILE, 'utf8'));
+      if (Array.isArray(list)) {
+        for (const r of list) {
+          if (r && r.id) {
+            accessRequests.set(r.id, r);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[AccessRequests] Failed to load:', e.message);
+  }
+}
+
+function saveAccessRequests() {
+  try {
+    const list = Array.from(accessRequests.values());
+    fs.writeFileSync(ACCESS_REQUESTS_FILE, JSON.stringify(list, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[AccessRequests] Failed to save:', e.message);
   }
 }
 
@@ -798,6 +828,8 @@ function saveUserSessions() {
 loadUsers();
 ensureOwnerAccount();
 loadUserSessions();
+loadAccessRequests();
+
 
 
 function generateUserSession(user) {
@@ -897,45 +929,62 @@ function identifyUser(req, res, next) {
 }
 
 // Auth API Routes
+// Auth API Routes - Registration is disabled for public guests
 app.post('/api/auth/register', (req, res) => {
-  const { username, password } = req.body || {};
+  return res.status(403).json({
+    error: 'Public account registration is disabled. Guests can apply for user access under About & Privacy, or contact the owner (Sakura).',
+    disabled: true
+  });
+});
+
+// Guest Access Request Application Route
+app.post('/api/access-requests', identifyUser, (req, res) => {
+  const { username, contact, note, reason } = req.body || {};
   if (!username || typeof username !== 'string' || username.trim().length < 3) {
     return res.status(400).json({ error: 'Username must be at least 3 characters long' });
   }
-  if (!password || typeof password !== 'string' || password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-  }
-
   const cleanUser = username.trim();
   const lowerUser = cleanUser.toLowerCase();
 
-  if (users.has(lowerUser) || lowerUser === 'sakura' || lowerUser === 'admin') {
-    return res.status(400).json({ error: 'Username is already taken' });
+  if (!/^[a-zA-Z0-9_\-]+$/.test(cleanUser)) {
+    return res.status(400).json({ error: 'Username may only contain letters, numbers, underscores, and dashes' });
   }
 
-  const salt = crypto.randomBytes(16).toString('hex');
-  const passwordHash = hashPassword(password, salt);
-  const newUser = {
-    id: 'u_' + crypto.randomBytes(8).toString('hex'),
+  if (users.has(lowerUser) || lowerUser === 'sakura' || lowerUser === 'admin') {
+    return res.status(400).json({ error: 'An account with this username already exists. Please choose a different username.' });
+  }
+
+  for (const r of accessRequests.values()) {
+    if (r.status === 'pending' && r.username.toLowerCase() === lowerUser) {
+      return res.status(400).json({ error: 'An access request for this username is already pending owner review.' });
+    }
+  }
+
+  const reqId = 'req_' + crypto.randomBytes(8).toString('hex');
+  const reqNote = (reason || note || '').trim().slice(0, 500);
+  const newRequest = {
+    id: reqId,
     username: cleanUser,
-    passwordHash,
-    salt,
-    role: 'premium',
-    createdAt: Date.now()
+    contact: (contact || '').trim().slice(0, 100),
+    note: reqNote,
+    reason: reqNote,
+    ip: req.currentUser.ip || '127.0.0.1',
+    status: 'pending',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   };
 
-  users.set(lowerUser, newUser);
-  saveUsers();
+  accessRequests.set(reqId, newRequest);
+  saveAccessRequests();
 
-  const token = generateUserSession(newUser);
-  res.json({
+  res.status(201).json({
     success: true,
-    token,
-    user: {
-      id: newUser.id,
-      username: newUser.username,
-      role: newUser.role,
-      isPremium: true
+    message: 'Your access application has been submitted to the owner (Sakura). Once approved, you can sign in with your credentials.',
+    request: {
+      id: newRequest.id,
+      username: newRequest.username,
+      status: newRequest.status,
+      createdAt: newRequest.createdAt
     }
   });
 });
@@ -949,10 +998,11 @@ app.post('/api/auth/login', (req, res) => {
   const cleanUser = username.trim();
   const lowerUser = cleanUser.toLowerCase();
 
-  // Sakura owner / admin login
+  // Sakura owner / admin login (admin is owner, owner is admin)
   const expectedAdminUser = (process.env.ADMIN_USER || 'sakura').toLowerCase();
   const expectedAdminPass = process.env.ADMIN_PASS || 'Sakura@002';
-  if (lowerUser === expectedAdminUser && password === expectedAdminPass) {
+  const isOwnerOrAdmin = lowerUser === expectedAdminUser || lowerUser === 'sakura' || lowerUser === 'admin';
+  if (isOwnerOrAdmin && password === expectedAdminPass) {
     const adminToken = generateAdminToken(process.env.ADMIN_USER || 'sakura');
     userSessions.set(adminToken, {
       userId: 'owner',
@@ -1085,6 +1135,130 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
     }
   }
   res.status(404).json({ error: 'User not found' });
+});
+
+// Admin Direct User Creation Endpoint (Owner creates accounts)
+app.post('/api/admin/users/create', requireAdmin, (req, res) => {
+  const { username, password, role } = req.body || {};
+  if (!username || typeof username !== 'string' || username.trim().length < 3) {
+    return res.status(400).json({ error: 'Username must be at least 3 characters long' });
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
+  const cleanUser = username.trim();
+  const lowerUser = cleanUser.toLowerCase();
+
+  if (!/^[a-zA-Z0-9_\-]+$/.test(cleanUser)) {
+    return res.status(400).json({ error: 'Username may only contain letters, numbers, underscores, and dashes' });
+  }
+
+  if (users.has(lowerUser) || lowerUser === 'sakura' || lowerUser === 'admin') {
+    return res.status(400).json({ error: 'Username is already taken' });
+  }
+
+  const salt = crypto.randomBytes(16).toString('hex');
+  const passwordHash = hashPassword(password, salt);
+  const newUser = {
+    id: 'u_' + crypto.randomBytes(8).toString('hex'),
+    username: cleanUser,
+    passwordHash,
+    salt,
+    role: role === 'user' ? 'user' : 'premium',
+    createdAt: Date.now()
+  };
+
+  users.set(lowerUser, newUser);
+  saveUsers();
+
+  res.json({
+    success: true,
+    message: `User account "${cleanUser}" created successfully!`,
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      role: newUser.role,
+      createdAt: newUser.createdAt
+    }
+  });
+});
+
+// Admin Access Requests Management Endpoints
+app.get('/api/admin/access-requests', requireAdmin, (req, res) => {
+  const list = Array.from(accessRequests.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  res.json({ success: true, requests: list });
+});
+
+app.post('/api/admin/access-requests/:id/approve', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  const request = accessRequests.get(id);
+  if (!request) {
+    return res.status(404).json({ error: 'Access request not found' });
+  }
+
+  const { password, role } = req.body || {};
+  const userPassword = password && password.length >= 6 ? password : ('User_' + crypto.randomBytes(4).toString('hex'));
+  const userRole = role === 'user' ? 'user' : 'premium';
+  const cleanUser = request.username;
+  const lowerUser = cleanUser.toLowerCase();
+
+  if (users.has(lowerUser) || lowerUser === 'sakura' || lowerUser === 'admin') {
+    return res.status(400).json({ error: `Username "${cleanUser}" is already taken by an existing account.` });
+  }
+
+  const salt = crypto.randomBytes(16).toString('hex');
+  const passwordHash = hashPassword(userPassword, salt);
+  const newUser = {
+    id: 'u_' + crypto.randomBytes(8).toString('hex'),
+    username: cleanUser,
+    passwordHash,
+    salt,
+    role: userRole,
+    createdAt: Date.now()
+  };
+
+  users.set(lowerUser, newUser);
+  saveUsers();
+
+  request.status = 'approved';
+  request.assignedPassword = userPassword;
+  request.approvedAt = Date.now();
+  request.updatedAt = Date.now();
+  saveAccessRequests();
+
+  res.json({
+    success: true,
+    message: `Account "${cleanUser}" approved and created successfully!`,
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      role: newUser.role,
+      initialPassword: userPassword
+    }
+  });
+});
+
+app.post('/api/admin/access-requests/:id/reject', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  const request = accessRequests.get(id);
+  if (!request) {
+    return res.status(404).json({ error: 'Access request not found' });
+  }
+  request.status = 'rejected';
+  request.updatedAt = Date.now();
+  saveAccessRequests();
+  res.json({ success: true, message: `Access request for "${request.username}" marked as rejected.` });
+});
+
+app.delete('/api/admin/access-requests/:id', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  if (!accessRequests.has(id)) {
+    return res.status(404).json({ error: 'Access request not found' });
+  }
+  accessRequests.delete(id);
+  saveAccessRequests();
+  res.json({ success: true });
 });
 
 // Helper: FLAC storage directories on server
@@ -2134,15 +2308,11 @@ app.post('/api/flac-check', identifyUser, async (req, res) => {
   let isTempFile = false;
 
   try {
-    if (!req.currentUser.isPremium) {
-      const dailyFlac = getGuestDailyDownloads(req.currentUser.ip + '_flac');
-      if (dailyFlac >= 3) {
-        return res.status(429).json({
-          error: 'Guest limit reached (3 spectral checks per day). Please sign in or register for unlimited Nyquist lossless checks.',
-          requireAuth: true
-        });
-      }
-      incrementGuestDailyDownloads(req.currentUser.ip + '_flac');
+    if (req.currentUser.role === 'guest') {
+      return res.status(403).json({
+        error: 'FLAC Checker is restricted to registered members. Guests can only access the Downloader tool. Please sign in or apply for user access under About & Privacy.',
+        requireAuth: true
+      });
     }
 
     const { filePath, fileBase64, fileName, jobId } = req.body || {};
@@ -3049,26 +3219,15 @@ app.post('/api/movies/download', identifyUser, async (req, res) => {
     const releaseLabel = item.releaseLabel || item.label || '';
     const requestedQuality = (item.quality || '1080p').toLowerCase();
 
-    // Guest vs Premium enforcement: 1080p and 4K require login
-    if (!req.currentUser.isPremium && (requestedQuality.includes('4k') || requestedQuality.includes('2160') || requestedQuality.includes('1080'))) {
+    // Guest enforcement: Movie & TV Hub is restricted to registered members
+    if (req.currentUser.role === 'guest') {
       return res.status(403).json({
         success: false,
-        error: '1080p Full HD & 4K Ultra HD movie downloads are Premium features. Sign in or register to unlock cinema releases in high definition.',
+        error: 'Movie & TV Hub downloads are reserved for registered users. Guests can only access the Downloader tool. Please sign in or apply for user access under About & Privacy.',
         requireAuth: true
       });
     }
 
-    if (!req.currentUser.isPremium) {
-      const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
-      if (dailyCount >= 10) {
-        return res.status(429).json({
-          success: false,
-          error: 'Guest daily download quota reached (10/10). Please sign in to enjoy unlimited movie downloads.',
-          requireAuth: true
-        });
-      }
-      incrementGuestDailyDownloads(req.currentUser.ip);
-    }
 
     // 1. Detect TV Show Episode notation (e.g. S01E01, S02E03, Ep 01, Episode 1)
     const combinedText = `${rawTitle} ${releaseLabel} ${item.title || ''}`;
@@ -3214,26 +3373,15 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
     const { link, url, title, pureTitle, year, poster, quality, filename, imdbId } = req.body || {};
     if (!title && !filename) return res.status(400).json({ success: false, error: 'Title or filename is required' });
 
-    const qStr = String(quality || '').toLowerCase();
-    if (!req.currentUser.isPremium && (qStr.includes('4k') || qStr.includes('2160') || qStr.includes('1080'))) {
+    // Guest enforcement: Movie & TV Hub is restricted to registered members
+    if (req.currentUser.role === 'guest') {
       return res.status(403).json({
         success: false,
-        error: '1080p Full HD & 4K Ultra HD cloud releases are Premium features. Sign in or register to unlock.',
+        error: 'Movie & TV Hub DDL streaming is reserved for registered users. Guests can only access the Downloader tool.',
         requireAuth: true
       });
     }
 
-    if (!req.currentUser.isPremium) {
-      const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
-      if (dailyCount >= 10) {
-        return res.status(429).json({
-          success: false,
-          error: 'Guest daily download quota reached (10/10). Please sign in to enjoy unlimited movie downloads.',
-          requireAuth: true
-        });
-      }
-      incrementGuestDailyDownloads(req.currentUser.ip);
-    }
 
     let rawTitle = (filename || title || 'Movie Media').replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!rawTitle.endsWith('.mkv') && !rawTitle.endsWith('.mp4')) {
@@ -3467,28 +3615,15 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
     const requestedQuality = (quality || '320k').toLowerCase();
     const isFlac = requestedFormat === 'flac';
 
-    // Guest vs Premium enforcement for Music Hub
-    if (!req.currentUser.isPremium && (isFlac || isTorrent)) {
+    // Guest enforcement: Music Hub is restricted to registered members
+    if (req.currentUser.role === 'guest') {
       return res.status(403).json({
         success: false,
-        error: isFlac
-          ? '24-bit Studio Master FLAC & CDDA Lossless downloads are a Premium feature. Please sign in or register to unlock studio audio.'
-          : 'Full Album Torrent downloads are a Premium feature. Please sign in or register to download complete discographies.',
+        error: 'Music Hub downloads are reserved for registered users. Guests can only access the Downloader tool. Please sign in or apply for user access under About & Privacy.',
         requireAuth: true
       });
     }
 
-    if (!req.currentUser.isPremium) {
-      const dailyCount = getGuestDailyDownloads(req.currentUser.ip);
-      if (dailyCount >= 10) {
-        return res.status(429).json({
-          success: false,
-          error: 'Guest daily download quota reached (10/10). Please sign in to enjoy unlimited music downloads.',
-          requireAuth: true
-        });
-      }
-      incrementGuestDailyDownloads(req.currentUser.ip);
-    }
 
     if (isTorrent) {
       const jobPayload = {
