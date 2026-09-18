@@ -1005,36 +1005,96 @@
     </div>
   </div>
 
-  <!-- Assign Permanent Download Folder Modal -->
-  <div class="login-backdrop" id="assignFolderModal" style="display: none; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); z-index: 9999; backdrop-filter: blur(8px);">
-    <div class="login-card" style="max-width: 480px; width: 92%; margin: auto;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">📁 Assign Permanent Storage Folder</h3>
-        <button type="button" id="btnCloseAssignFolderModal" style="background: none; border: none; font-size: 1.4rem; color: var(--text-muted); cursor: pointer;">&times;</button>
+  <!-- Allocate Folders Modal (Owner Only) -->
+  <div class="login-backdrop" id="allocateFoldersModal" style="display: none; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; backdrop-filter: blur(8px);">
+    <div class="login-card" style="max-width: 620px; width: 94%; margin: auto; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; padding: 22px;">
+      
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.35rem;">📁</span>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Owner Folder Allocation</h3>
+        </div>
+        <button type="button" id="btnCloseAllocModal" style="background: none; border: none; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; padding: 0 4px;">&times;</button>
       </div>
-      <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0; margin-bottom: 16px;">
-        Assign a dedicated directory for user <strong id="assignFolderTargetUser" style="color: #60a5fa;"></strong>. All completed downloads are permanently stored here and never cleared by temp cleanup.
-      </p>
-      <form id="assignFolderForm" onsubmit="return false;">
-        <input type="hidden" id="assignFolderUserId">
-        <div class="form-group" style="margin-bottom: 14px;">
-          <label for="assignFolderPath" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px;">Folder Absolute Path</label>
-          <input type="text" id="assignFolderPath" placeholder="/home/sakura/downloads/username or Z:\downloads\username" class="form-control" style="width: 100%; padding: 9px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 6px; color: #fff;">
-          <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn btn-outline btn-xs" id="btnQuickFolderSakura" style="font-size: 0.72rem; padding: 3px 8px;">/home/sakura/downloads</button>
-            <button type="button" class="btn btn-outline btn-xs" id="btnQuickFolderSlskd" style="font-size: 0.72rem; padding: 3px 8px;">/home/sakura/slskd_downloads</button>
-            <button type="button" class="btn btn-outline btn-xs" id="btnClearFolder" style="font-size: 0.72rem; padding: 3px 8px; color: #f87171;">Clear (Default Temp)</button>
+
+      <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 14px;">
+        Grant storage folders for user: <strong id="allocTargetUsername" style="color: #60a5fa;"></strong> <span id="allocTargetRoleBadge" class="badge-tag" style="margin-left: 6px;"></span>
+      </div>
+
+      <!-- Scrollable Body -->
+      <div style="flex: 1; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 14px;">
+        
+        <!-- Drive Drop-Down Selection -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="allocDriveSelect" style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px;">
+            <span>Select Drive / Storage Mount</span>
+            <span id="allocDriveCapacityBadge" style="color: #93c5fd; font-size: 0.75rem;"></span>
+          </label>
+          <select id="allocDriveSelect" style="width: 100%; padding: 10px 12px; background: rgba(0,0,0,0.4); border: 1px solid var(--admin-border); border-radius: 6px; color: #fff; font-size: 0.88rem; font-weight: 500;">
+            <option value="">Loading drives...</option>
+          </select>
+        </div>
+
+        <!-- Path Breadcrumb & Subfolder Navigation -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--admin-border); border-radius: 6px; padding: 8px 12px; font-size: 0.8rem;">
+          <div style="display: flex; align-items: center; gap: 6px; overflow-x: auto; white-space: nowrap; flex: 1;" id="allocPathBreadcrumb">
+            <span style="color: var(--text-muted);">Current:</span> <code style="color: #93c5fd; font-size: 0.78rem;" id="allocCurrentPathText">/</code>
+          </div>
+          <button type="button" class="btn btn-outline btn-xs" id="btnAllocUpFolder" style="display: none;">⬆ Up</button>
+        </div>
+
+        <!-- Folders Multi-Select List -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 600; margin: 0;">
+              Available Folders on Drive (Select one or more)
+            </label>
+            <div style="display: flex; gap: 6px;">
+              <button type="button" class="btn btn-outline btn-xs" id="btnAllocSelectAllFolders">Select All</button>
+              <button type="button" class="btn btn-outline btn-xs" id="btnAllocDeselectAllFolders">Clear</button>
+            </div>
+          </div>
+          <div id="allocFolderListContainer" style="max-height: 180px; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 6px; padding: 6px;">
+            <div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.82rem;">Select a drive above to view folders</div>
           </div>
         </div>
-        <div id="assignFolderError" style="color: #f87171; font-size: 0.82rem; margin-bottom: 12px; display: none;"></div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button type="button" class="btn btn-outline" id="btnCancelAssignFolder">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="btnSubmitAssignFolder">Save Folder</button>
+
+        <!-- Add Checked Folders Action Button -->
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; gap: 6px;">
+            <input type="text" id="allocNewFolderName" placeholder="Create new subfolder..." style="padding: 5px 10px; font-size: 0.78rem; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 4px; color: #fff; width: 170px;">
+            <button type="button" class="btn btn-outline btn-xs" id="btnAllocCreateFolder">+ Create</button>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" id="btnAddCheckedFolders">
+            + Grant Checked Folder(s)
+          </button>
         </div>
-      </form>
+
+        <!-- Currently Allocated Folders Section -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 600; margin: 0;">
+              Granted Folders for User (<span id="allocCountText">0</span>)
+            </label>
+            <button type="button" class="btn btn-danger-outline btn-xs" id="btnClearAllAllocations">Clear All</button>
+          </div>
+          <div id="allocGrantedBadges" style="min-height: 55px; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid var(--admin-border); border-radius: 6px; padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start;">
+            <span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No folders granted yet. Select folders above to give access.</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer Buttons -->
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--admin-border);">
+        <button type="button" class="btn btn-outline" id="btnCancelAllocModal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnSaveAllocModal">💾 Save Allocation</button>
+      </div>
+
     </div>
   </div>
 
-  <script src="/admin/admin.js?v=4.8.1"></script>
+  <script src="/admin/admin.js?v=4.8.0"></script>
 </body>
 </html>

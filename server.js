@@ -724,6 +724,7 @@ function loadUsers() {
       if (Array.isArray(list)) {
         for (const u of list) {
           if (u && u.username) {
+            u.allowedFolders = Array.isArray(u.allowedFolders) ? u.allowedFolders : [];
             users.set(u.username.toLowerCase(), u);
           }
         }
@@ -784,6 +785,7 @@ function ensureOwnerAccount() {
       passwordHash,
       salt,
       role: 'owner',
+      allowedFolders: ['*'],
       createdAt: Date.now()
     };
     users.set(lowerOwner, owner);
@@ -792,6 +794,10 @@ function ensureOwnerAccount() {
     let changed = false;
     if (owner.role !== 'owner') {
       owner.role = 'owner';
+      changed = true;
+    }
+    if (!Array.isArray(owner.allowedFolders)) {
+      owner.allowedFolders = ['*'];
       changed = true;
     }
     const testHash = hashPassword(ownerPassword, owner.salt);
@@ -994,7 +1000,8 @@ function resolveUserSession(req) {
       username: adminSess.user,
       role: 'owner',
       isPremium: true,
-      isOwner: true
+      isOwner: true,
+      allowedFolders: ['*']
     };
   }
 
@@ -1011,13 +1018,16 @@ function resolveUserSession(req) {
 
   const isOwner = sess.role === 'owner' || sess.username?.toLowerCase() === 'sakura';
   const isPrem = isOwner || sess.role === 'premium' || sess.role === 'admin';
+  const uRec = users.get(sess.username?.toLowerCase());
+  const allowedFolders = isOwner ? ['*'] : (uRec?.allowedFolders || []);
 
   return {
     userId: sess.userId,
     username: sess.username,
     role: isOwner ? 'owner' : (sess.role || 'premium'),
     isPremium: isPrem,
-    isOwner: isOwner
+    isOwner: isOwner,
+    allowedFolders: allowedFolders
   };
 }
 
@@ -1191,11 +1201,13 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
       role: u.role,
       isPremium: u.isPremium,
       isOwner: u.isOwner || u.role === 'owner',
-      downloadFolder: userFolder || ''
+      downloadFolder: userFolder || (Array.isArray(u.allowedFolders) && u.allowedFolders.length > 0 ? u.allowedFolders[0] : ''),
+      allowedFolders: u.allowedFolders || []
     },
     limits: {
       isPremium: u.isPremium,
       isOwner: u.isOwner || u.role === 'owner',
+      allowedFolders: u.allowedFolders || [],
       maxDailyDownloads: u.isPremium ? 'unlimited' : 10,
       usedDailyDownloads: guestCount,
       maxBatchUrls: u.isPremium ? 50 : 2,
@@ -1213,7 +1225,8 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
     id: u.id,
     username: u.username,
     role: u.role || 'premium',
-    downloadFolder: u.downloadFolder || '',
+    downloadFolder: u.downloadFolder || (Array.isArray(u.allowedFolders) && u.allowedFolders.length > 0 ? u.allowedFolders[0] : ''),
+    allowedFolders: u.allowedFolders || [],
     createdAt: u.createdAt
   }));
   res.json({ success: true, users: list });
@@ -1431,6 +1444,326 @@ app.delete('/api/admin/access-requests/:id', requireAdmin, (req, res) => {
   accessRequests.delete(id);
   saveAccessRequests();
   res.json({ success: true });
+});
+
+// ==========================================================================
+// System Drive Discovery & User Folder Allocation (Owner Controlled)
+// ==========================================================================
+function getSystemDrives() {
+  const drives = [];
+  const seenPaths = new Set();
+
+  if (process.platform === 'win32') {
+    const letters = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    for (const letter of letters) {
+      const root = `${letter}:\\`;
+      try {
+        if (fs.existsSync(root)) {
+          drives.push({
+            id: root,
+            path: root,
+            name: `Drive (${letter}:)`,
+            label: `Local Disk (${letter}:)`,
+            total: '',
+            free: '',
+            type: 'drive'
+          });
+        }
+      } catch (e) {}
+    }
+  } else {
+    // Linux / Unix: discover real mount points from active df table
+    try {
+      const dfOutput = execSync('df -BG -P', { timeout: 3000 }).toString().trim().split('\n');
+      for (let i = 1; i < dfOutput.length; i++) {
+        const line = dfOutput[i].trim();
+        if (!line) continue;
+        const parts = line.split(/\s+/);
+        if (parts.length >= 6) {
+          const fsName = parts[0];
+          const total = parts[1];
+          const used = parts[2];
+          const avail = parts[3];
+          const pct = parts[4];
+          const mountPoint = parts[5];
+
+          if (
+            mountPoint.startsWith('/proc') ||
+            mountPoint.startsWith('/sys') ||
+            mountPoint.startsWith('/dev') ||
+            mountPoint.startsWith('/run') ||
+            mountPoint.startsWith('/var/lib/docker') ||
+            fsName.startsWith('tmpfs') ||
+            fsName.startsWith('devtmpfs') ||
+            fsName.startsWith('none') ||
+            fsName.startsWith('udev')
+          ) {
+            continue;
+          }
+
+          if (!seenPaths.has(mountPoint) && fs.existsSync(mountPoint)) {
+            seenPaths.add(mountPoint);
+            let friendlyName = mountPoint === '/' ? 'Root (/) [System SSD]' : mountPoint;
+            if (mountPoint.startsWith('/media/')) {
+              friendlyName = `Drive: ${path.basename(mountPoint).toUpperCase()} (${mountPoint})`;
+            } else if (mountPoint.startsWith('/mnt/')) {
+              friendlyName = `Mount: ${path.basename(mountPoint)} (${mountPoint})`;
+            }
+            drives.push({
+              id: mountPoint,
+              path: mountPoint,
+              name: friendlyName,
+              label: `${friendlyName} — ${avail} free of ${total}`,
+              total,
+              free: avail,
+              used,
+              percentUsed: pct
+            });
+          }
+        }
+      }
+    } catch (e) {}
+
+    // Check /media and /mnt subdirectories
+    for (const base of ['/media', '/mnt']) {
+      try {
+        if (fs.existsSync(base)) {
+          const subs = fs.readdirSync(base, { withFileTypes: true });
+          for (const s of subs) {
+            if (s.isDirectory() && !s.name.startsWith('.')) {
+              const full = path.join(base, s.name);
+              if (!seenPaths.has(full)) {
+                seenPaths.add(full);
+                drives.push({
+                  id: full,
+                  path: full,
+                  name: `Drive: ${s.name.toUpperCase()} (${full})`,
+                  label: `Drive: ${s.name.toUpperCase()} (${full})`,
+                  total: '',
+                  free: ''
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (drives.length === 0) {
+    const root = process.platform === 'win32' ? 'C:\\' : '/';
+    drives.push({
+      id: root,
+      path: root,
+      name: 'Primary System Drive',
+      label: root,
+      total: '',
+      free: ''
+    });
+  }
+
+  return drives;
+}
+
+function getDriveFolders(drivePath, subDir = '') {
+  if (!drivePath) return { error: 'Drive path is required', folders: [] };
+  const cleanDrive = path.normalize(drivePath);
+  const target = subDir ? path.resolve(cleanDrive, subDir) : cleanDrive;
+
+  if (!target.startsWith(cleanDrive) && cleanDrive !== '/') {
+    return { error: 'Invalid path navigation', folders: [] };
+  }
+
+  if (!fs.existsSync(target)) {
+    return { error: 'Path does not exist', folders: [], currentPath: target, drivePath: cleanDrive };
+  }
+
+  try {
+    const entries = fs.readdirSync(target, { withFileTypes: true });
+    const folders = [];
+    const EXCLUDED_DIRS = new Set([
+      'lost+found', '$RECYCLE.BIN', 'System Volume Information',
+      'proc', 'sys', 'dev', 'run', '.git', 'node_modules'
+    ]);
+
+    for (const ent of entries) {
+      if (ent.isDirectory() && !ent.name.startsWith('.') && !EXCLUDED_DIRS.has(ent.name)) {
+        const full = path.join(target, ent.name);
+        let hasSub = false;
+        try {
+          const children = fs.readdirSync(full, { withFileTypes: true });
+          hasSub = children.some(c => c.isDirectory() && !c.name.startsWith('.'));
+        } catch (e) {}
+
+        folders.push({
+          name: ent.name,
+          path: full,
+          hasSubfolders: hasSub
+        });
+      }
+    }
+
+    folders.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    const parentPath = target !== cleanDrive ? path.dirname(target) : null;
+
+    return {
+      success: true,
+      drivePath: cleanDrive,
+      currentPath: target,
+      parentPath: parentPath && (parentPath.startsWith(cleanDrive) || cleanDrive === '/') ? parentPath : null,
+      folders
+    };
+  } catch (err) {
+    return { error: `Cannot read directory: ${err.message}`, folders: [], currentPath: target, drivePath: cleanDrive };
+  }
+}
+
+// Admin Drive & Folder Allocation Endpoints
+app.get('/api/admin/system-drives', requireAdmin, (req, res) => {
+  try {
+    const drives = getSystemDrives();
+    res.json({ success: true, drives });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to detect drives: ${err.message}` });
+  }
+});
+
+app.get('/api/admin/drive-folders', requireAdmin, (req, res) => {
+  const { drive, subDir } = req.query;
+  if (!drive) {
+    return res.status(400).json({ error: 'drive parameter is required' });
+  }
+  const result = getDriveFolders(String(drive), subDir ? String(subDir) : '');
+  if (result.error) {
+    return res.status(400).json({ error: result.error, folders: [] });
+  }
+  res.json({ success: true, ...result });
+});
+
+app.post('/api/admin/drive-folders/create', requireAdmin, (req, res) => {
+  const { drive, subDir, folderName } = req.body || {};
+  if (!drive || !folderName || typeof folderName !== 'string') {
+    return res.status(400).json({ error: 'drive and folderName are required' });
+  }
+  const cleanName = folderName.trim().replace(/[<>:"/\\|?*]/g, '_');
+  if (!cleanName) {
+    return res.status(400).json({ error: 'Invalid folder name' });
+  }
+  const cleanDrive = path.normalize(drive);
+  const parent = subDir ? path.resolve(cleanDrive, subDir) : cleanDrive;
+  const target = path.join(parent, cleanName);
+  try {
+    if (!fs.existsSync(target)) {
+      fs.mkdirSync(target, { recursive: true });
+    }
+    const result = getDriveFolders(cleanDrive, subDir ? String(subDir) : '');
+    res.json({ success: true, message: `Folder "${cleanName}" created`, createdPath: target, ...result });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to create folder: ${err.message}` });
+  }
+});
+
+app.get('/api/admin/users/:id/folders', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  for (const u of users.values()) {
+    if (u.id === id) {
+      return res.json({ success: true, userId: u.id, username: u.username, allowedFolders: u.allowedFolders || [] });
+    }
+  }
+  res.status(404).json({ error: 'User not found' });
+});
+
+app.post('/api/admin/users/:id/folders', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  const { folders } = req.body || {};
+  if (!Array.isArray(folders)) {
+    return res.status(400).json({ error: 'Folders must be an array of folder paths' });
+  }
+  for (const u of users.values()) {
+    if (u.id === id) {
+      if (u.role === 'owner' || u.username.toLowerCase() === 'sakura') {
+        return res.status(400).json({ error: 'Owner account has root access to all system drives' });
+      }
+      u.allowedFolders = Array.from(new Set(folders.map(f => String(f).trim()).filter(Boolean)));
+      saveUsers();
+      return res.json({
+        success: true,
+        message: `Allocated ${u.allowedFolders.length} folder(s) to "${u.username}"`,
+        allowedFolders: u.allowedFolders
+      });
+    }
+  }
+  res.status(404).json({ error: 'User not found' });
+});
+
+// User Allocated Folders API & File Move/Save
+app.get('/api/user/allocated-folders', identifyUser, (req, res) => {
+  const u = req.currentUser;
+  if (!u || u.role === 'guest') {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  let folders = u.allowedFolders || [];
+  if (u.isOwner) {
+    folders = getSystemDrives().map(d => d.path);
+  }
+  res.json({ success: true, isOwner: u.isOwner, folders });
+});
+
+app.post('/api/jobs/:id/save-to-folder', identifyUser, (req, res) => {
+  const u = req.currentUser;
+  if (!u || u.role === 'guest') {
+    return res.status(401).json({ error: 'Authentication required to save to server storage' });
+  }
+  const jobId = req.params.id;
+  const { folderPath } = req.body || {};
+  if (!folderPath || typeof folderPath !== 'string') {
+    return res.status(400).json({ error: 'Destination folderPath is required' });
+  }
+
+  const targetDir = path.normalize(folderPath.trim());
+
+  if (!u.isOwner) {
+    const userFolders = (u.allowedFolders || []).map(f => path.normalize(f));
+    const isAllowed = userFolders.some(f => targetDir === f || targetDir.startsWith(f + path.sep));
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Access denied: You are not authorized to write to this folder' });
+    }
+  }
+
+  const job = jobs.get(jobId);
+  let sourceFile = job ? job.filePath : null;
+  if (!sourceFile || !fs.existsSync(sourceFile)) {
+    const candidates = [
+      path.join(TEMP_DIR, `${jobId}_${job?.fileName || ''}`),
+      path.join(TEMP_DIR, job?.fileName || '')
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) { sourceFile = c; break; }
+    }
+  }
+
+  if (!sourceFile || !fs.existsSync(sourceFile)) {
+    return res.status(404).json({ error: 'Source media file not found on server storage' });
+  }
+
+  try {
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    const destFileName = path.basename(sourceFile);
+    const destPath = path.join(targetDir, destFileName);
+    fs.copyFileSync(sourceFile, destPath);
+
+    res.json({
+      success: true,
+      message: `File successfully saved to ${destPath}`,
+      destination: destPath,
+      folder: targetDir,
+      filename: destFileName
+    });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to save file to destination: ${err.message}` });
+  }
 });
 
 // Helper: FLAC storage directories on server
