@@ -830,6 +830,113 @@ ensureOwnerAccount();
 loadUserSessions();
 loadAccessRequests();
 
+function getUserDownloadFolder(userOrId) {
+  if (!userOrId) return null;
+  let user = null;
+  if (typeof userOrId === 'string') {
+    const lower = userOrId.toLowerCase().trim();
+    if (lower === 'owner' || lower === 'sakura') {
+      user = users.get('sakura');
+    } else if (users.has(lower)) {
+      user = users.get(lower);
+    } else {
+      for (const u of users.values()) {
+        if (u.id === userOrId || (u.username && u.username.toLowerCase() === lower)) {
+          user = u;
+          break;
+        }
+      }
+    }
+  } else if (userOrId.username) {
+    user = users.get(userOrId.username.toLowerCase()) || userOrId;
+  } else if (userOrId.id) {
+    for (const u of users.values()) {
+      if (u.id === userOrId.id) {
+        user = u;
+        break;
+      }
+    }
+  }
+
+  if (user && user.downloadFolder && typeof user.downloadFolder === 'string') {
+    const trimmed = user.downloadFolder.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function isPermanentUserFile(filePath) {
+  if (!filePath) return false;
+  const resolved = path.resolve(filePath);
+
+  // 1. Check against active & historic jobs marked isPermanent
+  for (const j of jobs.values()) {
+    if (j.isPermanent && j.filePath && path.resolve(j.filePath) === resolved) {
+      return true;
+    }
+  }
+
+  // 2. Check if file is located inside any user's assigned permanent downloadFolder
+  for (const u of users.values()) {
+    if (u.downloadFolder && typeof u.downloadFolder === 'string') {
+      const folderResolved = path.resolve(u.downloadFolder.trim());
+      if (resolved === folderResolved || resolved.startsWith(folderResolved + path.sep)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function finalizeJobPermanentStorage(job) {
+  if (!job || !job.filePath || !fs.existsSync(job.filePath)) return;
+
+  const userFolder = getUserDownloadFolder(job.ownerId);
+  if (!userFolder) {
+    return;
+  }
+
+  try {
+    if (!fs.existsSync(userFolder)) {
+      fs.mkdirSync(userFolder, { recursive: true });
+    }
+
+    const currentName = path.basename(job.filePath);
+    let targetName = job.filename || currentName;
+    if (targetName.startsWith(`${job.id}_`)) {
+      targetName = targetName.slice(job.id.length + 1);
+    }
+    targetName = targetName.replace(/[\\/:*?"<>|]/g, '_').trim();
+    if (!targetName) targetName = `${job.title || 'media'}_${Date.now()}`;
+
+    let destPath = path.join(userFolder, targetName);
+    if (fs.existsSync(destPath) && path.resolve(destPath) !== path.resolve(job.filePath)) {
+      const parsed = path.parse(targetName);
+      let count = 1;
+      while (fs.existsSync(path.join(userFolder, `${parsed.name} (${count})${parsed.ext}`))) {
+        count++;
+      }
+      targetName = `${parsed.name} (${count})${parsed.ext}`;
+      destPath = path.join(userFolder, targetName);
+    }
+
+    if (path.resolve(job.filePath) !== path.resolve(destPath)) {
+      fs.copyFileSync(job.filePath, destPath);
+      try { fs.unlinkSync(job.filePath); } catch (e) {}
+      job.filePath = destPath;
+      job.filename = targetName;
+    }
+
+    job.downloadFolder = userFolder;
+    job.isPermanent = true;
+    job.logs.push(`📁 Permanent Storage: File saved to assigned user folder: ${destPath}`);
+  } catch (err) {
+    console.error(`[PermanentStorage] Error moving job ${job.id} to ${userFolder}:`, err.message);
+    job.logs.push(`⚠️ Could not save to permanent user folder (${err.message}). Stored in temp media.`);
+  }
+}
+
 
 
 function generateUserSession(user) {
@@ -1068,6 +1175,7 @@ app.post('/api/auth/logout', identifyUser, (req, res) => {
 app.get('/api/auth/me', identifyUser, (req, res) => {
   const u = req.currentUser;
   const guestCount = u.role === 'guest' ? getGuestDailyDownloads(u.ip) : 0;
+  const userFolder = getUserDownloadFolder(u.userId);
   res.json({
     authenticated: u.role !== 'guest',
     user: {
@@ -1075,7 +1183,8 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
       username: u.username,
       role: u.role,
       isPremium: u.isPremium,
-      isOwner: u.isOwner || u.role === 'owner'
+      isOwner: u.isOwner || u.role === 'owner',
+      downloadFolder: userFolder || ''
     },
     limits: {
       isPremium: u.isPremium,
@@ -1097,6 +1206,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
     id: u.id,
     username: u.username,
     role: u.role || 'premium',
+    downloadFolder: u.downloadFolder || '',
     createdAt: u.createdAt
   }));
   res.json({ success: true, users: list });
@@ -1113,6 +1223,40 @@ app.post('/api/admin/users/role', requireAdmin, (req, res) => {
       u.role = role;
       saveUsers();
       return res.json({ success: true, user: { id: u.id, username: u.username, role: u.role } });
+    }
+  }
+  res.status(404).json({ error: 'User not found' });
+});
+
+// Assign or Clear Permanent User Download Folder (Owner & Admin)
+app.post('/api/admin/users/folder', requireAdmin, (req, res) => {
+  const { id, downloadFolder } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'User ID or username is required' });
+
+  for (const u of users.values()) {
+    if (u.id === id || u.username.toLowerCase() === id.toLowerCase()) {
+      let cleanFolder = (downloadFolder || '').trim();
+      if (cleanFolder) {
+        cleanFolder = path.resolve(cleanFolder);
+        try {
+          if (!fs.existsSync(cleanFolder)) {
+            fs.mkdirSync(cleanFolder, { recursive: true });
+          }
+        } catch (e) {
+          return res.status(400).json({ error: `Cannot create directory "${cleanFolder}": ${e.message}` });
+        }
+      }
+
+      u.downloadFolder = cleanFolder;
+      saveUsers();
+      return res.json({
+        success: true,
+        message: cleanFolder
+          ? `Assigned permanent download folder updated to: ${cleanFolder}`
+          : 'Custom download folder cleared. User will use default storage.',
+        downloadFolder: cleanFolder,
+        user: { id: u.id, username: u.username, downloadFolder: cleanFolder }
+      });
     }
   }
   res.status(404).json({ error: 'User not found' });
@@ -1139,7 +1283,7 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
 
 // Admin Direct User Creation Endpoint (Owner creates accounts)
 app.post('/api/admin/users/create', requireAdmin, (req, res) => {
-  const { username, password, role } = req.body || {};
+  const { username, password, role, downloadFolder } = req.body || {};
   if (!username || typeof username !== 'string' || username.trim().length < 3) {
     return res.status(400).json({ error: 'Username must be at least 3 characters long' });
   }
@@ -1158,6 +1302,14 @@ app.post('/api/admin/users/create', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Username is already taken' });
   }
 
+  let cleanFolder = (downloadFolder || '').trim();
+  if (cleanFolder) {
+    cleanFolder = path.resolve(cleanFolder);
+    try {
+      if (!fs.existsSync(cleanFolder)) fs.mkdirSync(cleanFolder, { recursive: true });
+    } catch (e) {}
+  }
+
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(password, salt);
   const newUser = {
@@ -1166,6 +1318,7 @@ app.post('/api/admin/users/create', requireAdmin, (req, res) => {
     passwordHash,
     salt,
     role: role === 'user' ? 'user' : 'premium',
+    downloadFolder: cleanFolder || '',
     createdAt: Date.now()
   };
 
@@ -1179,6 +1332,7 @@ app.post('/api/admin/users/create', requireAdmin, (req, res) => {
       id: newUser.id,
       username: newUser.username,
       role: newUser.role,
+      downloadFolder: newUser.downloadFolder,
       createdAt: newUser.createdAt
     }
   });
@@ -1197,7 +1351,7 @@ app.post('/api/admin/access-requests/:id/approve', requireAdmin, (req, res) => {
     return res.status(404).json({ error: 'Access request not found' });
   }
 
-  const { password, role } = req.body || {};
+  const { password, role, downloadFolder } = req.body || {};
   const userPassword = password && password.length >= 6 ? password : ('User_' + crypto.randomBytes(4).toString('hex'));
   const userRole = role === 'user' ? 'user' : 'premium';
   const cleanUser = request.username;
@@ -1205,6 +1359,14 @@ app.post('/api/admin/access-requests/:id/approve', requireAdmin, (req, res) => {
 
   if (users.has(lowerUser) || lowerUser === 'sakura' || lowerUser === 'admin') {
     return res.status(400).json({ error: `Username "${cleanUser}" is already taken by an existing account.` });
+  }
+
+  let cleanFolder = (downloadFolder || '').trim();
+  if (cleanFolder) {
+    cleanFolder = path.resolve(cleanFolder);
+    try {
+      if (!fs.existsSync(cleanFolder)) fs.mkdirSync(cleanFolder, { recursive: true });
+    } catch (e) {}
   }
 
   const salt = crypto.randomBytes(16).toString('hex');
@@ -1215,6 +1377,7 @@ app.post('/api/admin/access-requests/:id/approve', requireAdmin, (req, res) => {
     passwordHash,
     salt,
     role: userRole,
+    downloadFolder: cleanFolder || '',
     createdAt: Date.now()
   };
 
@@ -1223,6 +1386,7 @@ app.post('/api/admin/access-requests/:id/approve', requireAdmin, (req, res) => {
 
   request.status = 'approved';
   request.assignedPassword = userPassword;
+  request.assignedFolder = cleanFolder || '';
   request.approvedAt = Date.now();
   request.updatedAt = Date.now();
   saveAccessRequests();
@@ -1234,6 +1398,7 @@ app.post('/api/admin/access-requests/:id/approve', requireAdmin, (req, res) => {
       id: newUser.id,
       username: newUser.username,
       role: newUser.role,
+      downloadFolder: newUser.downloadFolder,
       initialPassword: userPassword
     }
   });
@@ -1901,6 +2066,15 @@ app.get('/api/admin/storage/files', requireAdmin, (req, res) => {
       { path: TEMP_DIR, category: 'Temp Media' },
       { path: path.join(homeDir, 'slskd_downloads'), category: 'Soulseek Downloads' }
     ];
+
+    for (const u of users.values()) {
+      if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim()) {
+        const p = u.downloadFolder.trim();
+        if (!targetDirs.some(t => t.path === p)) {
+          targetDirs.push({ path: p, category: `User: ${u.username} (Permanent)` });
+        }
+      }
+    }
 
     function scanStorageDir(dirPath, category, maxDepth = 3, currentDepth = 0) {
       if (!dirPath || !fs.existsSync(dirPath) || currentDepth > maxDepth) return;
@@ -3352,7 +3526,9 @@ app.post('/api/movies/download', identifyUser, async (req, res) => {
       code: seasonEpStr ? 'TV_SERIES' : 'MOVIE',
       mode: 'video',
       videoQuality: item.quality || 'best',
-      type: isTorrent ? 'torrent' : 'video'
+      type: isTorrent ? 'torrent' : 'video',
+      ownerId: req.currentUser.userId,
+      isPremium: req.currentUser.isPremium
     };
 
     const job = createAndStartJob(jobPayload);
@@ -3950,6 +4126,7 @@ function startTorrentJob(job) {
           }
         } catch (e) {}
 
+        finalizeJobPermanentStorage(job);
         job.status = 'completed';
         job.progress.percent = 100;
         job.progress.speed = '0 MB/s';
@@ -4749,6 +4926,7 @@ function attachProcessListeners(job, child) {
 
           const stat = fs.statSync(job.filePath);
           if (stat.size > 0) {
+            finalizeJobPermanentStorage(job);
             job.status = 'completed';
             job.progress.percent = 100;
             job.progress.eta = 'Ready';

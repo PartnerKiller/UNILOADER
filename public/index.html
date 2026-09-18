@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.7.1">
+  <link rel="stylesheet" href="styles.css?v=4.7.2">
 </head>
 <body>
   <div class="app-layout">
@@ -37,27 +37,6 @@
           <span class="brand-title">UNIVERSAL</span>
           <span class="brand-subtitle">Media Downloader</span>
         </div>
-      </div>
-
-      <!-- User Profile / Guest Access Status Card -->
-      <div class="sidebar-user-card" id="sidebarUserCard">
-        <div class="user-card-info">
-          <div class="user-avatar-badge" id="sidebarUserAvatar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-          </div>
-          <div class="user-card-meta">
-            <div class="user-name-line">
-              <span class="user-card-name" id="sidebarUserName">Guest Visitor</span>
-            </div>
-            <div class="user-status-line">
-              <span class="badge-tier badge-tier-guest" id="sidebarUserRole">GUEST ACCESS</span>
-            </div>
-          </div>
-        </div>
-        <button type="button" class="btn-user-auth" id="sidebarAuthBtn" title="Sign in to access your member account">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-          <span id="sidebarAuthBtnText">Sign In</span>
-        </button>
       </div>
 
       <!-- Navigation Links -->
@@ -97,8 +76,25 @@
         </button>
       </nav>
 
-      <!-- Sidebar Footer Status -->
+      <!-- Sidebar Footer Status & User Profile -->
       <div class="sidebar-footer">
+        <!-- User Profile / Session Status Tile -->
+        <div class="sidebar-user-card" id="sidebarUserCard" role="button" tabindex="0" title="Account settings &amp; access status">
+          <div class="user-card-info">
+            <div class="user-avatar-badge" id="sidebarUserAvatar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            </div>
+            <div class="user-card-meta">
+              <span class="user-card-name" id="sidebarUserName">Guest Visitor</span>
+              <span class="badge-tier badge-tier-guest" id="sidebarUserRole">GUEST ACCESS</span>
+            </div>
+          </div>
+          <button type="button" class="btn-user-auth" id="sidebarAuthBtn" title="Account Details &amp; Sign In" aria-label="Account">
+            <span id="sidebarAuthBtnText">Sign In</span>
+            <svg class="auth-btn-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </div>
+
         <button type="button" class="btn-install-app" id="btnInstallApp" style="display: none;">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Install Web App</span>
@@ -107,7 +103,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.7.1 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.7.2 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -167,7 +163,7 @@
 
         <div class="mobile-drawer-content">
           <!-- Mobile Drawer User Card -->
-          <div class="mobile-drawer-user-card" id="drawerUserCard">
+          <div class="mobile-drawer-user-card" id="drawerUserCard" role="button" tabindex="0" title="Account settings &amp; access status">
             <div class="drawer-user-info">
               <div class="user-avatar-badge" id="drawerUserAvatar">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
@@ -177,8 +173,9 @@
                 <span class="badge-tier badge-tier-guest" id="drawerUserRole">GUEST ACCESS</span>
               </div>
             </div>
-            <button type="button" class="btn-drawer-auth" id="drawerAuthBtn">
+            <button type="button" class="btn-drawer-auth" id="drawerAuthBtn" title="Account Details &amp; Sign In" aria-label="Account">
               <span id="drawerAuthBtnText">Sign In</span>
+              <svg class="auth-btn-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
             </button>
           </div>
 
@@ -270,7 +267,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.7.1 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.7.2 &bull; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -1676,6 +1673,6 @@
 
   </div>
 
-  <script src="app.js?v=4.7.0"></script>
+  <script src="app.js?v=4.7.2"></script>
 </body>
 </html>

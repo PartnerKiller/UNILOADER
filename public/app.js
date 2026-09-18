@@ -292,7 +292,7 @@ function updateAuthUI(user, limits) {
         drawerUserAvatar.classList.remove('is-owner');
       }
     }
-    if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account Profile';
+    if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account';
 
     // Hide tool locks for registered members
     document.querySelectorAll('.nav-lock-badge, .drawer-lock-badge').forEach(el => {
@@ -429,9 +429,11 @@ function closeAccountModal() {
 }
 
 function setupAuthModalEvents() {
+  const sidebarUserCard = document.getElementById('sidebarUserCard');
   const sidebarAuthBtn = document.getElementById('sidebarAuthBtn');
-  const mobileAuthBtn = document.getElementById('mobileAuthBtn');
+  const drawerUserCard = document.getElementById('drawerUserCard');
   const drawerAuthBtn = document.getElementById('drawerAuthBtn');
+  const mobileAuthBtn = document.getElementById('mobileAuthBtn');
   const closeAuthBtn = document.getElementById('btnCloseAuthModal');
   const closeAccountBtn = document.getElementById('btnCloseAccountModal');
   const authModal = document.getElementById('authModal');
@@ -449,10 +451,42 @@ function setupAuthModalEvents() {
     }
   }
 
-  if (sidebarAuthBtn) sidebarAuthBtn.addEventListener('click', handleAuthClick);
+  if (sidebarUserCard) {
+    sidebarUserCard.addEventListener('click', handleAuthClick);
+    sidebarUserCard.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleAuthClick();
+      }
+    });
+  }
+
+  if (drawerUserCard) {
+    drawerUserCard.addEventListener('click', () => {
+      const drawer = document.getElementById('mobileDrawerBackdrop');
+      if (drawer) drawer.style.display = 'none';
+      handleAuthClick();
+    });
+    drawerUserCard.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const drawer = document.getElementById('mobileDrawerBackdrop');
+        if (drawer) drawer.style.display = 'none';
+        handleAuthClick();
+      }
+    });
+  }
+
+  if (sidebarAuthBtn) {
+    sidebarAuthBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleAuthClick();
+    });
+  }
   if (mobileAuthBtn) mobileAuthBtn.addEventListener('click', handleAuthClick);
   if (drawerAuthBtn) {
-    drawerAuthBtn.addEventListener('click', () => {
+    drawerAuthBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const drawer = document.getElementById('mobileDrawerBackdrop');
       if (drawer) drawer.style.display = 'none';
       handleAuthClick();
