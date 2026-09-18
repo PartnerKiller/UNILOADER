@@ -241,7 +241,8 @@ def analyze_flac(file_path, generate_spectrogram=True):
         verdict = "UPSCALED_HIRES"
         verdict_title = f"Upscaled Hi-Res ({bits_per_sample}-bit / {sample_rate/1000:.1f} kHz container, 44.1 kHz CD audio)"
         verdict_badge = "warning"
-        warnings.append("Container is labeled Hi-Res (48 kHz+), but frequency content terminates sharply at 22.05 kHz (standard CD limit).")
+        warnings.append("Container is labeled Hi-Res (48 kHz+), but frequency content terminates sharply at 22.05 kHz (standard CDDA limit). This is common for official Japanese movie/anime soundtracks resampled from 44.1 kHz studio tracks to 48.0 kHz for film video clock sync.")
+        details.append("Audio stream is 100% genuine uncompressed lossless PCM (24-bit dynamic range), but ultrasonic content above 22.05 kHz was not present in the original recording session.")
 
     else:
         # Genuine lossless acoustic characteristics

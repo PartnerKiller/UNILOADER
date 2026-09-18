@@ -3443,6 +3443,10 @@ body {
   background: linear-gradient(90deg, hsl(212, 90%, 54%), hsl(158, 80%, 45%));
 }
 
+.energy-fill.cdda-warn {
+  background: linear-gradient(90deg, hsl(38, 90%, 50%), hsl(45, 95%, 55%));
+}
+
 .energy-fill.dead {
   background: hsl(0, 85%, 55%);
 }
@@ -5700,9 +5704,24 @@ body {
 .music-badge-pill {
   font-size: 0.68rem;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 3px 8px;
   border-radius: 6px;
   letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+}
+
+.music-badge-pill:hover {
+  filter: brightness(1.25);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+}
+
+.music-badge-pill:active {
+  transform: translateY(0);
 }
 
 .badge-pill-hires {

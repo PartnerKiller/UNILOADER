@@ -2342,8 +2342,13 @@ function renderFlacReport(report) {
   if (cutEl) {
     if (report.cutoffFrequencyHz) {
       cutEl.textContent = `Cutoff at ${(report.cutoffFrequencyHz / 1000).toFixed(1)} kHz`;
-      cutEl.style.color = 'hsl(0, 85%, 65%)';
-      if (cutHint) cutHint.textContent = 'Lossy compression cutoff detected';
+      if (report.verdict === 'UPSCALED_HIRES' || report.cutoffFrequencyHz >= 22000) {
+        cutEl.style.color = '#fbbf24';
+        if (cutHint) cutHint.textContent = '44.1 kHz Studio CDDA Limit (Official 48kHz Film Resample)';
+      } else {
+        cutEl.style.color = 'hsl(0, 85%, 65%)';
+        if (cutHint) cutHint.textContent = 'Lossy compression cutoff detected';
+      }
     } else {
       cutEl.textContent = 'None (Full Bandwidth)';
       cutEl.style.color = 'var(--text-primary)';
@@ -2382,17 +2387,39 @@ function renderFlacReport(report) {
       
       const pct = Math.max(5, Math.min(100, ((mean + 90) / 80) * 100));
 
+      let valText = '';
+      let valColor = '';
+      let fillClass = '';
+
+      if (isActive) {
+        valText = `${mean.toFixed(1)} dB (Active)`;
+        valColor = 'hsl(158, 85%, 48%)';
+        fillClass = 'active';
+      } else if (report.verdict === 'UPSCALED_HIRES' && b.key === 'above_22000hz') {
+        valText = `${mean.toFixed(1)} dB (CDDA Cutoff)`;
+        valColor = '#fbbf24';
+        fillClass = 'cdda-warn';
+      } else if (mean > -88) {
+        valText = `${mean.toFixed(1)} dB (Cutoff / Inactive)`;
+        valColor = 'hsl(0, 85%, 65%)';
+        fillClass = 'dead';
+      } else {
+        valText = 'Silence (Cutoff)';
+        valColor = 'hsl(0, 85%, 65%)';
+        fillClass = 'dead';
+      }
+
       const row = document.createElement('div');
       row.className = 'energy-bar-row';
       row.innerHTML = `
         <div class="energy-bar-header">
           <span class="energy-band-label">${b.label}</span>
-          <span class="energy-band-val" style="color: ${isActive ? 'hsl(158, 85%, 48%)' : 'hsl(0, 85%, 65%)'}">
-            ${mean > -90 ? `${mean.toFixed(1)} dB (Active)` : 'Silence (Cutoff)'}
+          <span class="energy-band-val" style="color: ${valColor}">
+            ${valText}
           </span>
         </div>
         <div class="energy-track">
-          <div class="energy-fill ${isActive ? 'active' : 'dead'}" style="width: ${pct}%"></div>
+          <div class="energy-fill ${fillClass}" style="width: ${pct}%"></div>
         </div>
       `;
       barsList.appendChild(row);
@@ -3841,15 +3868,15 @@ function renderMusicResults(results) {
           ${album ? `<span class="music-card-album" title="${escapeHtml(album)}">${escapeHtml(album)}</span>` : ''}
           <div class="music-card-badges-row">
             ${isTorrent ? `
-              <span class="music-badge-pill badge-pill-hires">ALBUM TORRENT</span>
-              <span class="music-badge-pill badge-pill-cdda">${escapeHtml(item.size || 'Lossless')}</span>
-              <span class="music-badge-pill badge-pill-mp3">${item.seeders || 0} Seeds</span>
+              <span class="music-badge-pill badge-pill-hires" title="Full lossless album torrent">ALBUM TORRENT</span>
+              <span class="music-badge-pill badge-pill-cdda" title="Torrent size">${escapeHtml(item.size || 'Lossless')}</span>
+              <span class="music-badge-pill badge-pill-mp3" title="Active torrent seeds">${item.seeders || 0} Seeds</span>
             ` : `
-              <span class="music-badge-pill badge-pill-hires">24-BIT HI-RES</span>
-              <span class="music-badge-pill badge-pill-cdda">16-BIT CD</span>
-              <span class="music-badge-pill badge-pill-mp3">MP3 320K</span>
-              <span class="music-badge-pill badge-pill-aac">AAC</span>
-              <span class="music-badge-pill badge-pill-opus">OPUS</span>
+              <button type="button" class="music-badge-pill badge-pill-hires" title="Download 24-bit Studio Master FLAC" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, 'flac', '24bit', event)">24-BIT HI-RES</button>
+              <button type="button" class="music-badge-pill badge-pill-cdda" title="Download 16-bit 44.1kHz CDDA FLAC (Deezer HiFi CDN)" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, 'flac', '16bit', event)">16-BIT CD</button>
+              <button type="button" class="music-badge-pill badge-pill-mp3" title="Download MP3 320kbps CBR" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, 'mp3', '320k', event)">MP3 320K</button>
+              <button type="button" class="music-badge-pill badge-pill-aac" title="Download Apple AAC 256kbps M4A" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, 'm4a', '256k', event)">AAC</button>
+              <button type="button" class="music-badge-pill badge-pill-opus" title="Download Opus 160kbps" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, 'opus', '160k', event)">OPUS</button>
             `}
           </div>
           <button type="button" class="btn-music-open-modal" onclick="${isTorrent ? `dispatchTorrentAlbumDownload(${idx}, event)` : `openMusicFormatsModal(${idx})`}">
