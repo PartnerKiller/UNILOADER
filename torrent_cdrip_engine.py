@@ -190,17 +190,26 @@ def download_torrent_cdrip(magnet_or_torrent, output_dir, timeout_secs=240, prog
     try:
         for line in proc.stdout:
             line = line.strip()
-            # Match progress e.g. (35%) or [ETA:2m]
-            pct_m = re.search(r'\((\d{1,3})%\)', line)
-            if pct_m:
-                pct = int(pct_m.group(1))
-                if pct != last_pct and pct % 10 == 0:
-                    last_pct = pct
-                    log(f"BitTorrent Swarm Progress: {pct}%")
-                    if progress_cb:
-                        progress_cb(pct)
-            elif 'Download complete' in line or 'download completed' in line:
-                log("BitTorrent transfer complete.")
+            # Match aria2 output: [#3a55fa 12MiB/45MiB(26%) CN:16 DL:5.2MiB ETA:6s]
+            m = re.search(r'\[#\w+\s+([\d.]+\s*[a-zA-Z]+)/([\d.]+\s*[a-zA-Z]+)\((\d+)%\)(?:.*?DL:([\d.]+\s*[a-zA-Z]+))?(?:.*?ETA:([\w\d:]+))?', line)
+            if m:
+                dl_sz, tot_sz, pct_val, spd, eta_val = m.groups()
+                spd_str = f"{spd}/s" if spd else "0 B/s"
+                eta_s = eta_val or "--:--"
+                print(f"[download] {pct_val}% of {tot_sz} at {spd_str} ETA {eta_s} (BitTorrent Swarm)", flush=True)
+                if progress_cb:
+                    progress_cb(int(pct_val))
+            else:
+                pct_m = re.search(r'\((\d{1,3})%\)', line)
+                if pct_m:
+                    pct = int(pct_m.group(1))
+                    if pct != last_pct:
+                        last_pct = pct
+                        print(f"[download] {pct}% of BitTorrent Swarm at high-speed ETA Calculating...", flush=True)
+                        if progress_cb:
+                            progress_cb(pct)
+                elif 'Download complete' in line or 'download completed' in line:
+                    print(f"[download] 100% BitTorrent transfer complete.", flush=True)
 
         proc.wait(timeout=timeout_secs)
     except subprocess.TimeoutExpired:

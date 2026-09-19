@@ -1561,7 +1561,7 @@ function renderJobsList(jobs) {
     }
     updateJobCard(job);
 
-    if ((job.status === 'downloading' || job.status === 'queued') && !activeEventSources.has(job.id)) {
+    if ((job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') && !activeEventSources.has(job.id)) {
       subscribeToJob(job.id);
     }
   });
@@ -1764,11 +1764,14 @@ function updateJobCard(job) {
   }
 
   const logsEl = document.getElementById(`job-logs-content-${job.id}`);
-  if (logsEl && job.logs) {
+  if (logsEl && Array.isArray(job.logs) && job.logs.length > 0) {
     logsEl.textContent = job.logs.join('\n');
     const drawer = document.getElementById(`job-logs-${job.id}`);
     if (drawer && drawer.style.display !== 'none') {
-      drawer.scrollTop = drawer.scrollHeight;
+      const isNearBottom = drawer.scrollHeight - drawer.clientHeight - drawer.scrollTop < 60;
+      if (isNearBottom) {
+        drawer.scrollTop = drawer.scrollHeight;
+      }
     }
   }
 
@@ -1790,13 +1793,25 @@ function updateJobCard(job) {
   }
 }
 
-window.toggleJobLogs = function(jobId) {
+window.toggleJobLogs = async function(jobId) {
   const drawer = document.getElementById(`job-logs-${jobId}`);
-  if (drawer) {
-    drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
-    if (drawer.style.display === 'block') {
-      drawer.scrollTop = drawer.scrollHeight;
-    }
+  if (!drawer) return;
+  const isOpening = drawer.style.display === 'none';
+  drawer.style.display = isOpening ? 'block' : 'none';
+  if (isOpening) {
+    const logsEl = document.getElementById(`job-logs-content-${jobId}`);
+    try {
+      const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch(`/api/jobs/${jobId}/logs`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.logs) && logsEl) {
+          logsEl.textContent = data.logs.join('\n');
+        }
+      }
+    } catch (e) {}
+    drawer.scrollTop = drawer.scrollHeight;
   }
 };
 

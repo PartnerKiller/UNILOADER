@@ -1734,11 +1734,21 @@ body {
   font-family: var(--font-mono);
   font-size: 0.74rem;
   color: var(--text-secondary);
-  max-height: 160px;
+  max-height: 220px;
   overflow-y: auto;
-  line-height: 1.4;
+  line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.log-drawer pre {
+  margin: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Empty States */

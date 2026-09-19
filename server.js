@@ -363,6 +363,22 @@ function findMediaFileByJobId(jobId) {
   return null;
 }
 
+const stripAnsi = (str) => typeof str === 'string' ? str.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '') : (str || '');
+
+function isProgressLine(line) {
+  if (!line || typeof line !== 'string') return false;
+  const s = line.trim();
+  // yt-dlp / curl / python progress ticks: [download]  12.3% of ...
+  if (/^\[download\]\s+[\d.]+%(\s+of|\s*$)/i.test(s)) return true;
+  // aria2c progress ticks: [#fd6ef8 510MiB/1.3GiB(36%)...]
+  if (/^\[#\w+\s+[\d.]+/i.test(s)) return true;
+  // Telegram / Torrent / Swarm progress ticks: Progress: 40% (2.5 MB/s)
+  if (/(?:Telegram|BitTorrent|Swarm).*?Progress:\s*[\d.]+/i.test(s)) return true;
+  // Raw ffmpeg progress ticks: frame= 120 fps=... or size= ... time= ...
+  if (/^frame=\s*\d+/i.test(s) || /^size=\s*\d+.*?time=/i.test(s)) return true;
+  return false;
+}
+
 loadJobsHistory();
 
 function formatJobSummary(job, detailed = false) {
@@ -386,11 +402,11 @@ function formatJobSummary(job, detailed = false) {
     downloadFolder: job.downloadFolder || '',
     isPermanent: !!job.isPermanent
   };
+  base.lastLog = job.logs && job.logs.length > 0 ? stripAnsi(job.logs[job.logs.length - 1]) : '';
+  base.logs = job.logs ? job.logs.slice(detailed ? -60 : -30).map(stripAnsi) : [];
   if (detailed) {
     base.startTime = job.startTime;
     base.completedTime = job.completedTime;
-    base.lastLog = job.logs && job.logs.length > 0 ? job.logs[job.logs.length - 1] : '';
-    base.logs = job.logs ? job.logs.slice(-20) : [];
   }
   return base;
 }
@@ -429,6 +445,28 @@ function broadcastGlobalJobUpdate() {
   }
 }
 
+const jobUpdateTimers = new Map();
+
+function scheduleJobUpdate(jobId, immediate = false) {
+  if (immediate) {
+    if (jobUpdateTimers.has(jobId)) {
+      clearTimeout(jobUpdateTimers.get(jobId));
+      jobUpdateTimers.delete(jobId);
+    }
+    broadcastJobUpdate(jobId);
+    return;
+  }
+
+  if (jobUpdateTimers.has(jobId)) return;
+
+  const timer = setTimeout(() => {
+    jobUpdateTimers.delete(jobId);
+    broadcastJobUpdate(jobId);
+  }, 180);
+
+  jobUpdateTimers.set(jobId, timer);
+}
+
 function broadcastJobUpdate(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
@@ -442,7 +480,7 @@ function broadcastJobUpdate(jobId) {
       status: job.status,
       mode: job.mode,
       progress: job.progress,
-      logs: job.logs.slice(-30),
+      logs: (job.logs || []).slice(-60).map(stripAnsi),
       error: job.error,
       title: job.title,
       filename: job.filename,
@@ -5184,30 +5222,46 @@ function startTorrentJob(job) {
 
     child.stdout.on('data', data => {
       const text = data.toString();
-      const lines = text.split(/\r?\n/);
+      const lines = text.split(/[\r\n]+/).filter(Boolean);
       for (const line of lines) {
-        if (!line.trim()) continue;
-        job.logs.push(line);
-        if (job.logs.length > 100) job.logs.shift();
+        const clean = stripAnsi(line).trim();
+        if (!clean) continue;
+
+        if (!job.logs) job.logs = [];
+        if (isProgressLine(clean)) {
+          if (job.logs.length > 0 && isProgressLine(job.logs[job.logs.length - 1])) {
+            job.logs[job.logs.length - 1] = clean;
+          } else {
+            job.logs.push(clean);
+          }
+        } else {
+          job.logs.push(clean);
+        }
+        if (job.logs.length > 200) job.logs.shift();
 
         // Robust match for aria2c output with or without ETA / DL speed
-        const m = line.match(/\[#\w+\s+([\d.]+\s*[a-zA-Z]+)\/([\d.]+\s*[a-zA-Z]+)\((\d+)%\)(?:.*?DL:([\d.]+\s*[a-zA-Z]+))?(?:.*?ETA:([\w\d:]+))?/i);
+        const m = clean.match(/\[#\w+\s+([\d.]+\s*[a-zA-Z]+)\/([\d.]+\s*[a-zA-Z]+)\((\d+)%\)(?:.*?DL:([\d.]+\s*[a-zA-Z]+))?(?:.*?ETA:([\w\d:]+))?/i);
         if (m) {
           job.progress.downloadedSize = m[1];
           job.progress.totalSize = m[2];
           job.progress.percent = parseInt(m[3], 10);
           job.progress.speed = m[4] ? m[4] + '/s' : '0 B/s';
           job.progress.eta = m[5] || (job.progress.percent === 0 ? 'Connecting...' : 'Calculating...');
-          broadcastJobUpdate(job.id);
-        } else if (line.includes('METADATA')) {
+        } else if (clean.includes('METADATA')) {
           job.progress.eta = 'Resolving metadata...';
-          broadcastJobUpdate(job.id);
         }
       }
+      scheduleJobUpdate(job.id, false);
     });
 
     child.stderr.on('data', data => {
-      job.logs.push(`[ERR] ${data.toString()}`);
+      const text = stripAnsi(data.toString()).trim();
+      if (text) {
+        if (!job.logs) job.logs = [];
+        job.logs.push(`[ERR] ${text}`);
+        if (job.logs.length > 200) job.logs.shift();
+      }
+      scheduleJobUpdate(job.id, false);
     });
 
     child.on('close', code => {
@@ -5660,6 +5714,8 @@ function startJobProcess(job) {
       windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
     });
+    job.process = child;
+    attachProcessListeners(job, child);
   } else if (mode === 'cdrip' || (opts && opts.isCdRip) || audioFormat === 'cdrip') {
     const pythonBin = getPythonBin();
     const cdripScript = path.join(__dirname, 'cdrip_engine.py');
@@ -5789,7 +5845,6 @@ function startJobProcess(job) {
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
       '--buffer-size', engineConfig.bufferSize || '16M',
-      '--http-chunk-size', engineConfig.httpChunkSize || '10M',
       '--retries', String(engineConfig.retries || 10),
       '--fragment-retries', String(engineConfig.retries || 10),
       '--newline',
@@ -5798,7 +5853,15 @@ function startJobProcess(job) {
       '-o', outputTemplate
     ];
 
-    if (process.platform === 'linux') {
+    if (engineConfig.httpChunkSize && engineConfig.httpChunkSize !== '10M' && engineConfig.httpChunkSize !== 'default') {
+      args.push('--http-chunk-size', engineConfig.httpChunkSize);
+    }
+
+    // Never force aria2c on YouTube or tokenized streaming sites (causes 403 Forbidden & severe throttling)
+    const isDirectMediaUrl = (url && /\.(mp4|mkv|webm|avi|mov|flv|ts|mp3|flac|wav|m4a)(\?|$)/i.test(url)) || (rawTarget && /\.(mp4|mkv|webm|avi|mov|flv|ts|mp3|flac|wav|m4a)(\?|$)/i.test(rawTarget));
+    const allowAria2c = !isYouTube && (isDirectMediaUrl || (opts.customArgs && opts.customArgs.includes('aria2c')));
+
+    if (process.platform === 'linux' && allowAria2c) {
       try {
         execSync('which aria2c', { stdio: 'ignore' });
         const frag = engineConfig.aria2cFragments || 16;
@@ -5937,7 +6000,8 @@ function startJobProcess(job) {
 function attachProcessListeners(job, child) {
   const jobId = job.id;
 
-  const parseProgress = (line) => {
+  const parseProgress = (cleanLine) => {
+    const line = cleanLine;
     // Aria2 progress parser: [#fd6ef8 510MiB/1.3GiB(36%) CN:16 DL:17MiB ETA:49s]
     const ariaMatch = line.match(/\[#\w+\s+([\d.]+\s*[a-zA-Z]+)\/([\d.]+\s*[a-zA-Z]+)\((\d+)%\).*?DL:([\d.]+\s*[a-zA-Z]+).*?ETA:([\d:\w]+)/i);
     if (ariaMatch) {
@@ -5946,6 +6010,15 @@ function attachProcessListeners(job, child) {
       job.progress.percent = parseFloat(ariaMatch[3]) || 0;
       job.progress.speed = ariaMatch[4] + '/s';
       job.progress.eta = ariaMatch[5];
+      return;
+    }
+
+    // Telegram / Torrent / Swarm progress matching
+    const tgMatch = line.match(/(?:Progress|Swarm Progress):\s*([\d.]+)%(?:\s*\(([\d.]+\s*[a-zA-Z/]+)\))?/i);
+    if (tgMatch) {
+      job.progress.percent = parseFloat(tgMatch[1]) || 0;
+      if (tgMatch[2]) job.progress.speed = tgMatch[2];
+      job.progress.eta = (job.progress.percent >= 100) ? 'Ready' : 'Downloading...';
       return;
     }
 
@@ -5995,6 +6068,33 @@ function attachProcessListeners(job, child) {
       job.progress.eta = 'Ready';
     }
 
+    // Post-processing and stage detection for accurate user ETA / speed indicators
+    if (line.includes('[ExtractAudio]') || (line.includes('Destination:') && line.endsWith('.mp3'))) {
+      job.progress.eta = 'Extracting audio...';
+      job.progress.speed = 'Encoding';
+      return;
+    }
+    if (line.includes('[Metadata]') || line.includes('Adding metadata')) {
+      job.progress.eta = 'Adding metadata...';
+      job.progress.speed = 'Tagging';
+      return;
+    }
+    if (line.includes('[ThumbnailsConvertor]') || line.includes('[EmbedThumbnail]')) {
+      job.progress.eta = 'Embedding cover art...';
+      job.progress.speed = 'Art';
+      return;
+    }
+    if (line.includes('[Merger]') || line.includes('Merging formats')) {
+      job.progress.eta = 'Merging streams...';
+      job.progress.speed = 'Muxing';
+      return;
+    }
+    if (line.includes('[FixupM3u8]') || line.includes('[FixupM4a]')) {
+      job.progress.eta = 'Finalizing container...';
+      job.progress.speed = 'Processing';
+      return;
+    }
+
     // Dynamic ETA fallback if ETA is stuck on Starting... while actively downloading
     if (job.progress.percent > 2 && job.progress.percent < 100) {
       if (!job.progress.eta || job.progress.eta === 'Starting...' || job.progress.eta === '--:--') {
@@ -6033,23 +6133,43 @@ function attachProcessListeners(job, child) {
     }
   };
 
+  const handleLogLine = (rawLine, isErr = false) => {
+    const clean = stripAnsi(rawLine).trim();
+    if (!clean) return;
+    const finalLine = isErr && !clean.startsWith('[ERR]') ? `[ERR] ${clean}` : clean;
+    parseProgress(clean);
+
+    if (!job.logs) job.logs = [];
+
+    if (isProgressLine(finalLine)) {
+      if (job.logs.length > 0 && isProgressLine(job.logs[job.logs.length - 1])) {
+        job.logs[job.logs.length - 1] = finalLine;
+      } else {
+        job.logs.push(finalLine);
+      }
+    } else {
+      job.logs.push(finalLine);
+    }
+
+    if (job.logs.length > 200) {
+      job.logs.splice(0, job.logs.length - 200);
+    }
+  };
+
   child.stdout.on('data', (data) => {
     const lines = data.toString().split(/[\r\n]+/).filter(Boolean);
     for (const line of lines) {
-      job.logs.push(line);
-      if (job.logs.length > 80) job.logs.shift();
-      parseProgress(line);
+      handleLogLine(line, false);
     }
-    broadcastJobUpdate(jobId);
+    scheduleJobUpdate(jobId, false);
   });
 
   child.stderr.on('data', (data) => {
     const lines = data.toString().split(/[\r\n]+/).filter(Boolean);
     for (const line of lines) {
-      job.logs.push(`[ERR] ${line}`);
-      if (job.logs.length > 80) job.logs.shift();
+      handleLogLine(line, true);
     }
-    broadcastJobUpdate(jobId);
+    scheduleJobUpdate(jobId, false);
   });
 
   child.on('close', (code) => {
@@ -6059,7 +6179,7 @@ function attachProcessListeners(job, child) {
     if (job.status === 'paused') {
       job.isSuspended = false;
       job.logs.push('Download paused. State preserved for resumption.');
-      broadcastJobUpdate(jobId);
+      scheduleJobUpdate(jobId, true);
       processDownloadQueue();
       return;
     }
@@ -6189,7 +6309,7 @@ function attachProcessListeners(job, child) {
         job.logs.push(`Process failed with exit code ${code}`);
       }
     }
-    broadcastJobUpdate(jobId);
+    scheduleJobUpdate(jobId, true);
     processDownloadQueue();
   });
 }
@@ -6522,6 +6642,17 @@ app.get('/api/jobs/:id/events', identifyUser, (req, res) => {
       sseClients.delete(jobId);
     }
   });
+});
+
+// On-demand job logs endpoint
+app.get('/api/jobs/:id/logs', identifyUser, (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).json({ error: 'Forbidden: Access denied to job logs' });
+  }
+  const cleanLogs = (job.logs || []).map(stripAnsi);
+  res.json({ id: job.id, logs: cleanLogs, lastLog: cleanLogs[cleanLogs.length - 1] || '' });
 });
 
 // Get jobs filtered by authenticated user or owner

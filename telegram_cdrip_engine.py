@@ -294,11 +294,16 @@ async def download_telegram_release_async(channel, message_id, output_dir, progr
 
         def internal_progress(current, total):
             pct = int((current / total) * 100) if total else 0
-            if pct != last_percent[0] and pct % 10 == 0:
+            if pct != last_percent[0]:
                 last_percent[0] = pct
                 elapsed = time.time() - start_time
                 speed = (current / (1024 * 1024)) / max(elapsed, 0.1)
-                log(f"Progress: {pct}% ({speed:.1f} MB/s)")
+                cur_mb = current / (1024 * 1024)
+                tot_mb = total / (1024 * 1024) if total else cur_mb
+                rem_mb = max(0, tot_mb - cur_mb)
+                eta_sec = int(rem_mb / max(speed, 0.01))
+                eta_str = f"{eta_sec//60:02d}:{eta_sec%60:02d}"
+                print(f"[download] {pct:5.1f}% of ~{tot_mb:.1f}MiB at {speed:.2f}MiB/s ETA {eta_str} (Telegram Archival)", flush=True)
                 if progress_cb:
                     progress_cb(pct, speed)
 
