@@ -244,10 +244,56 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
         except Exception as e:
             log(f"Peer transfer handling notice: {e}")
 
-    # 3. If no physical optical rip directory was found on P2P peers, fallback to 16-bit CDDA Bitstream
-    existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')]
+    # 3. Check Telegram Archival Channels if no optical P2P package acquired
+    existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')] if os.path.exists(output_dir) else []
     if not existing_flacs:
-        log("⚠️ No active peer with complete optical CD-Rip directory was found.")
+        log("🔍 Querying Telegram Lossless Archival Channels & Joined Repositories...")
+        try:
+            from telegram_cdrip_engine import search_telegram_cdrip, download_telegram_cdrip
+            tg_q = f"{clean_art} {clean_target}".strip() if (clean_art and clean_target) else (clean_target or clean_art)
+            tg_candidates = search_telegram_cdrip(tg_q, max_results=5)
+            if not tg_candidates and clean_target:
+                tg_candidates = search_telegram_cdrip(clean_target, max_results=5)
+
+            if tg_candidates:
+                best_tg = tg_candidates[0]
+                log(f"Found Telegram CD-Rip release: @{best_tg['channel']} - {best_tg['fileName']} ({best_tg['sizeStr']}) [Score: {best_tg['score']}]")
+                download_telegram_cdrip(best_tg['channel'], best_tg['messageId'], output_dir)
+                existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')]
+                if existing_flacs:
+                    log(f"Successfully unpacked {len(existing_flacs)} FLAC tracks from Telegram archive.")
+            else:
+                log("No matching optical release found in Telegram channels.")
+        except Exception as e:
+            log(f"Telegram acquisition notice: {e}")
+
+    # 4. Check BitTorrent Lossless Swarms if still unseeded
+    existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')] if os.path.exists(output_dir) else []
+    if not existing_flacs:
+        log("🔍 Querying Lossless BitTorrent Swarms (Apibay / Trackers)...")
+        try:
+            from torrent_cdrip_engine import search_torrent_cdrip, download_torrent_cdrip
+            bt_q = f"{clean_art} {clean_target}".strip() if (clean_art and clean_target) else (clean_target or clean_art)
+            tor_candidates = search_torrent_cdrip(bt_q, max_results=5)
+            if not tor_candidates and clean_target:
+                tor_candidates = search_torrent_cdrip(clean_target, max_results=5)
+
+            if tor_candidates:
+                best_tor = tor_candidates[0]
+                log(f"Found BitTorrent CD-Rip swarm: \"{best_tor['name']}\" ({best_tor['sizeStr']}) - 🟢 {best_tor['seeders']} Seeds [Score: {best_tor['score']}]")
+                download_torrent_cdrip(best_tor['magnet'], output_dir, timeout_secs=180)
+                existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')]
+                if existing_flacs:
+                    log(f"Successfully downloaded {len(existing_flacs)} FLAC tracks from BitTorrent swarm.")
+            else:
+                log("No active lossless torrent swarm found.")
+        except Exception as e:
+            log(f"BitTorrent acquisition notice: {e}")
+
+    # 5. Fallback to 16-bit CDDA Bitstream (Deezer HiFi / Tidal) if no optical rip was found anywhere
+    existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')] if os.path.exists(output_dir) else []
+    if not existing_flacs:
+        log("⚠️ No active optical CD-Rip package was found across Soulseek, Telegram, or Torrents.")
         log("⚡ Falling back to 16-bit / 44.1 kHz Lossless CDDA Bitstream (Deezer HiFi CDN / Tidal)...")
 
         clean_art = clean_art or artist.strip()
@@ -258,14 +304,24 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
         fallback_ok = False
         try:
             from deezer_hifi_engine import resolve_and_download_flac
-            fallback_ok = resolve_and_download_flac(
-                clean_art, clean_tit,
-                isrc=isrc, output_path=flac_out_path, cover_url=cover_url
-            )
+            log("Querying Deezer HiFi 1411 kbps FLAC Bitstream...")
+            d_res = resolve_and_download_flac(clean_art, clean_tit, flac_out_path)
+            if d_res and os.path.exists(flac_out_path) and os.path.getsize(flac_out_path) > 1024 * 1024:
+                fallback_ok = True
+                log("Successfully acquired Red Book 16-bit / 44.1 kHz FLAC from Deezer HiFi CDN.")
         except Exception as e:
             log(f"Deezer HiFi fallback notice: {e}")
 
-        # Fallback 2: Tidal Hi-Res / 16-bit
+        # Fallback 2: Tidal Hi-Res Lossless
+        if not fallback_ok:
+            try:
+                from audiophile_flac_engine import resolve_audiophile_flac
+                log("Querying Tidal Lossless CDN...")
+                t_res = resolve_audiophile_flac(clean_art, clean_tit, flac_out_path)
+                if t_res and os.path.exists(flac_out_path):
+                    log("Successfully acquired 16-bit Lossless stream from Tidal.")
+            except Exception as e:
+                log(f"Tidal fallback notice: {e}")
         if not fallback_ok:
             try:
                 from tidal_monochrome_engine import download_tidal_flac
@@ -300,9 +356,47 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
 
     return verification_result
 
+def acquire_cdrip_targeted(source, out_dir, tg_channel=None, tg_msg_id=None, torrent_magnet=None):
+    """
+    Directly acquires a specific candidate from Telegram or BitTorrent swarm.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    if source == 'telegram' and tg_channel and tg_msg_id:
+        log(f"Targeted optical acquisition from Telegram @{tg_channel} (Message {tg_msg_id})...")
+        from telegram_cdrip_engine import download_telegram_cdrip
+        download_telegram_cdrip(tg_channel, tg_msg_id, out_dir)
+    elif source == 'torrent' and torrent_magnet:
+        log("Targeted optical acquisition from BitTorrent swarm...")
+        from torrent_cdrip_engine import download_torrent_cdrip
+        download_torrent_cdrip(torrent_magnet, out_dir)
+
+    # Verification & packaging
+    log("Running multi-pass CD-Rip Provenance Verification...")
+    verification_result = inspect_cdrip_directory(out_dir)
+    provenance = verification_result.get("provenanceLevel", "UNKNOWN")
+    fidelity_score = verification_result.get("fidelityScore", 0)
+    summary = verification_result.get("summary", {})
+
+    log(f"============================================================")
+    log(f"💿 PROVENANCE CLASSIFICATION: {provenance} (Score: {fidelity_score}/100)")
+    log(f"📁 Tracks: {summary.get('flacCount', 0)} | Red Book 16/44.1: {summary.get('allRedBookCompliant', False)}")
+    log(f"📜 Rip Log: {summary.get('hasLog', False)} | CUE Sheet: {summary.get('hasCue', False)} | Scans: {summary.get('scanCount', 0)}")
+    if verification_result.get("manifestPath"):
+        log(f"📝 Audit Manifest generated: {verification_result['manifestPath']}")
+    log(f"============================================================")
+
+    try:
+        zip_base = out_dir.rstrip('/\\')
+        shutil.make_archive(zip_base, 'zip', out_dir)
+        log(f"📦 Packaged complete 1:1 CD-Rip archive: {zip_base}.zip")
+    except Exception as e:
+        log(f"Archive zip notice: {e}")
+
+    return verification_result
+
 if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print("Usage: python cdrip_engine.py <artist> <title_or_catalogue> [output_dir] [isrc] [cover_url]")
+        print("Usage: python cdrip_engine.py <artist> <title_or_catalogue> [output_dir] [isrc] [cover_url] [--source <telegram|torrent>] ...")
         sys.exit(1)
 
     art = sys.argv[1]
@@ -311,5 +405,25 @@ if __name__ == '__main__':
     isrc_val = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != 'None' else None
     cov_val = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] != 'None' else None
 
-    res = search_and_acquire_cdrip(art, tit, out_dir, isrc=isrc_val, cover_url=cov_val)
+    # Check for targeted source flags
+    source = 'auto'
+    tg_channel = None
+    tg_msg_id = None
+    torrent_magnet = None
+
+    for i in range(len(sys.argv)):
+        if sys.argv[i] == '--source' and i + 1 < len(sys.argv):
+            source = sys.argv[i + 1]
+        elif sys.argv[i] == '--tg-channel' and i + 1 < len(sys.argv):
+            tg_channel = sys.argv[i + 1]
+        elif sys.argv[i] == '--tg-msg-id' and i + 1 < len(sys.argv):
+            tg_msg_id = int(sys.argv[i + 1])
+        elif sys.argv[i] == '--torrent-magnet' and i + 1 < len(sys.argv):
+            torrent_magnet = sys.argv[i + 1]
+
+    if source in ('telegram', 'torrent') and (tg_channel or torrent_magnet):
+        res = acquire_cdrip_targeted(source, out_dir, tg_channel=tg_channel, tg_msg_id=tg_msg_id, torrent_magnet=torrent_magnet)
+    else:
+        res = search_and_acquire_cdrip(art, tit, out_dir, isrc=isrc_val, cover_url=cov_val)
+
     sys.exit(0 if res.get("success") else 1)

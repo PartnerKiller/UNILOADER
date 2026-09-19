@@ -4654,6 +4654,70 @@ app.get('/api/music/search', identifyUser, async (req, res) => {
   }
 });
 
+async function searchTelegramCdrip(query) {
+  try {
+    const pythonBin = getPythonBin();
+    const script = path.join(__dirname, 'telegram_cdrip_engine.py');
+    const child = spawn(pythonBin, [script, '--search', query]);
+    let stdout = '';
+    child.stdout.on('data', d => stdout += d.toString());
+    await new Promise(resolve => child.on('close', resolve));
+    const parsed = JSON.parse(stdout.trim() || '[]');
+    return parsed.map(item => ({
+      id: item.id,
+      title: item.fileName,
+      artist: item.channelTitle || `@${item.channel}`,
+      album: item.caption || item.fileName,
+      size: item.sizeStr,
+      source: 'telegram',
+      provider: 'telegram',
+      channel: item.channel,
+      messageId: item.messageId,
+      isArchive: item.isArchive,
+      hasLog: item.hasLogMention,
+      hasCue: item.hasCueMention,
+      score: item.score,
+      isCdRipCandidate: true,
+      provenanceTierHint: item.isArchive || item.hasLog ? 'CD_RIP_STRONGLY_VERIFIED' : 'CD_RIP_CREDIBLE',
+      expectedFormat: '1:1 Optical Archive (.ZIP / Red Book FLAC)'
+    }));
+  } catch (e) {
+    console.warn('[CD-Rip Search] Telegram search notice:', e.message);
+    return [];
+  }
+}
+
+async function searchTorrentCdrip(query) {
+  try {
+    const pythonBin = getPythonBin();
+    const script = path.join(__dirname, 'torrent_cdrip_engine.py');
+    const child = spawn(pythonBin, [script, '--search', query]);
+    let stdout = '';
+    child.stdout.on('data', d => stdout += d.toString());
+    await new Promise(resolve => child.on('close', resolve));
+    const parsed = JSON.parse(stdout.trim() || '[]');
+    return parsed.map(item => ({
+      id: item.id,
+      title: item.name,
+      artist: item.tracker,
+      album: 'BitTorrent Lossless Swarm',
+      size: item.sizeStr,
+      source: 'torrent',
+      provider: 'torrent',
+      seeders: item.seeders,
+      magnet: item.magnet,
+      infoHash: item.infoHash,
+      score: item.score,
+      isCdRipCandidate: true,
+      provenanceTierHint: 'CD_RIP_CREDIBLE',
+      expectedFormat: '16-bit / 44.1 kHz Red Book FLAC Swarm'
+    }));
+  } catch (e) {
+    console.warn('[CD-Rip Search] Torrent search notice:', e.message);
+    return [];
+  }
+}
+
 // Dedicated 1:1 CD-Rip Search & Release Discovery API
 app.get('/api/cdrip/search', identifyUser, async (req, res) => {
   try {
@@ -4693,34 +4757,91 @@ print(json.dumps(res or {}))
       console.warn('[CD-Rip Search] Tokenizer notice:', e.message);
     }
 
-    // 2. Discover candidates from direct catalog & torrent swarms
-    let candidates = await searchDirectMusic(q, 1);
-    if (!candidates || candidates.length === 0) {
-      candidates = await searchMusicTorrents(q);
-    }
+    // 2. Discover candidates concurrently across Telegram, Torrents, and Direct CDDA
+    const [tgRes, torRes, dirRes] = await Promise.allSettled([
+      searchTelegramCdrip(q),
+      searchTorrentCdrip(q),
+      searchDirectMusic(q, 1)
+    ]);
 
-    // Enrich candidates with CD-Rip readiness indicators
-    const enriched = candidates.map(c => {
-      const isRedBookLikely = true;
-      return {
-        ...c,
-        isCdRipCandidate: true,
-        catalogueMatch: catMeta,
-        provenanceTierHint: catMeta ? 'CD_RIP_CREDIBLE' : 'CD_QUALITY_UNCERTAIN',
-        expectedFormat: '16-bit / 44.1 kHz Red Book CDDA'
-      };
-    });
+    const tgCandidates = tgRes.status === 'fulfilled' ? tgRes.value : [];
+    const torCandidates = torRes.status === 'fulfilled' ? torRes.value : [];
+    const dirCandidates = (dirRes.status === 'fulfilled' ? dirRes.value : []).map(c => ({
+      ...c,
+      source: 'deezer',
+      isCdRipCandidate: true,
+      catalogueMatch: catMeta,
+      provenanceTierHint: catMeta ? 'CD_RIP_CREDIBLE' : 'CD_QUALITY_UNCERTAIN',
+      expectedFormat: '16-bit / 44.1 kHz Red Book CDDA'
+    }));
+
+    // Prioritize Telegram archives, then Torrents, then Streaming CDN candidates
+    const allCandidates = [...tgCandidates, ...torCandidates, ...dirCandidates];
 
     res.json({
       success: true,
       query: q,
       catalogue: catMeta,
       isCatalogueQuery: !!catMeta,
-      total: enriched.length,
-      results: enriched
+      total: allCandidates.length,
+      breakdown: {
+        telegram: tgCandidates.length,
+        torrent: torCandidates.length,
+        direct: dirCandidates.length
+      },
+      results: allCandidates
     });
   } catch (err) {
     console.error('[CD-Rip Search] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Channels management for CD-Rip Telegram sources
+app.get('/api/cdrip/channels', identifyUser, (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'telegram_channels.json');
+    if (fs.existsSync(configPath)) {
+      const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      return res.json({ success: true, ...data });
+    }
+    res.json({ success: true, channels: [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/cdrip/channels', identifyUser, (req, res) => {
+  try {
+    const { username, name, description, enabled } = req.body || {};
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username is required.' });
+    }
+    const configPath = path.join(__dirname, 'telegram_channels.json');
+    let config = { channels: [] };
+    if (fs.existsSync(configPath)) {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+    const cleanUser = username.replace(/^@/, '').trim();
+    const existingIdx = config.channels.findIndex(c => c.username && c.username.toLowerCase() === cleanUser.toLowerCase());
+    if (existingIdx >= 0) {
+      config.channels[existingIdx] = {
+        ...config.channels[existingIdx],
+        name: name || config.channels[existingIdx].name,
+        description: description || config.channels[existingIdx].description,
+        enabled: enabled !== undefined ? enabled : config.channels[existingIdx].enabled
+      };
+    } else {
+      config.channels.push({
+        username: cleanUser,
+        name: name || `@${cleanUser}`,
+        description: description || 'Custom Lossless Channel',
+        enabled: enabled !== undefined ? enabled : true
+      });
+    }
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    res.json({ success: true, channels: config.channels });
+  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -5570,6 +5691,14 @@ function startJobProcess(job) {
       (opts && opts.isrc) || 'None',
       (opts && (opts.cover || opts.poster)) || 'None'
     ];
+
+    if (opts && (opts.source === 'telegram' || opts.provider === 'telegram') && opts.channel && opts.messageId) {
+      cdripArgs.push('--source', 'telegram', '--tg-channel', opts.channel, '--tg-msg-id', String(opts.messageId));
+      job.logs.push(`Targeting Telegram Archival Channel: @${opts.channel} (Msg ID: ${opts.messageId})`);
+    } else if (opts && (opts.source === 'torrent' || opts.provider === 'torrent' || opts.magnet)) {
+      cdripArgs.push('--source', 'torrent', '--torrent-magnet', opts.magnet || '');
+      job.logs.push(`Targeting BitTorrent Swarm: ${opts.title || 'Lossless audio torrent'}`);
+    }
 
     const child = spawn(pythonBin, cdripArgs, { 
       windowsHide: true,

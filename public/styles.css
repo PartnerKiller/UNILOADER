@@ -7215,5 +7215,159 @@ body.authenticated-user .guest-only-nav {
   line-height: 1.5;
 }
 
+/* Multi-Source CD-Rip Badges & Modal */
+.btn-cdrip-sources-toggle {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+}
+
+.btn-cdrip-sources-toggle:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.cdrip-source-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  letter-spacing: 0.3px;
+}
+
+.cdrip-source-indicator.source-telegram {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.35);
+}
+
+.cdrip-source-indicator.source-torrent {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.cdrip-source-indicator.source-deezer {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.cdrip-sources-dialog {
+  max-width: 580px;
+}
+
+.cdrip-sources-body {
+  padding: 16px 20px;
+}
+
+.cdrip-sources-intro {
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.cdrip-subheading {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.telegram-channels-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.telegram-channel-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.channel-info strong {
+  display: block;
+  color: var(--text-primary);
+}
+
+.channel-info span {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.add-channel-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.add-channel-form .channel-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.add-channel-form .channel-at {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.add-channel-form .channel-input-wrap input {
+  padding-left: 26px;
+}
+
+.trackers-status-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.tracker-status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+}
+
+.tracker-status-item strong {
+  color: var(--text-secondary);
+}
+
+.tracker-status-item span {
+  color: var(--text-muted);
+}
+
 
 

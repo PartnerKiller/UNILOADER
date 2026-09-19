@@ -4570,6 +4570,85 @@ function initCdripController() {
       });
     }
   }
+  // Sources Modal
+  const btnSources = document.getElementById('btnOpenCdripSourcesModal');
+  const modalSources = document.getElementById('modalCdripSources');
+  const btnCloseSources = document.getElementById('btnCloseCdripSourcesModal');
+  const formAddChannel = document.getElementById('formAddTelegramChannel');
+
+  if (btnSources && modalSources) {
+    btnSources.addEventListener('click', () => {
+      modalSources.style.display = 'flex';
+      loadCdripChannels();
+    });
+  }
+
+  if (btnCloseSources && modalSources) {
+    btnCloseSources.addEventListener('click', () => {
+      modalSources.style.display = 'none';
+    });
+    modalSources.addEventListener('click', (e) => {
+      if (e.target === modalSources) modalSources.style.display = 'none';
+    });
+  }
+
+  if (formAddChannel) {
+    formAddChannel.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const userIn = document.getElementById('inputNewChannelUser');
+      const nameIn = document.getElementById('inputNewChannelName');
+      if (!userIn || !userIn.value.trim()) return;
+
+      try {
+        const res = await fetch('/api/cdrip/channels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: userIn.value.trim(),
+            name: nameIn ? nameIn.value.trim() : ''
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Added channel @${userIn.value.trim()}`, 'success');
+          userIn.value = '';
+          if (nameIn) nameIn.value = '';
+          loadCdripChannels();
+        } else {
+          showToast(data.error || 'Failed to add channel', 'error');
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+}
+
+async function loadCdripChannels() {
+  const container = document.getElementById('telegramChannelsContainer');
+  if (!container) return;
+  container.innerHTML = `<div style="text-align:center; padding:12px; color:var(--text-muted);">Loading channels...</div>`;
+
+  try {
+    const res = await fetch('/api/cdrip/channels');
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.channels || data.channels.length === 0) {
+      container.innerHTML = `<div style="text-align:center; padding:12px; color:var(--text-muted);">No channels configured.</div>`;
+      return;
+    }
+
+    container.innerHTML = data.channels.map(ch => `
+      <div class="telegram-channel-item">
+        <div class="channel-info">
+          <strong>${escapeHtml(ch.name || ch.username)}</strong>
+          <span>@${escapeHtml(ch.username)} &bull; ${escapeHtml(ch.description || 'Lossless Channel')}</span>
+        </div>
+        <span class="badge-tag" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-size:0.72rem;">ACTIVE</span>
+      </div>
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--text-danger); font-size:0.8rem;">Error loading channels: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 async function executeCdripSearch(query) {
@@ -4580,7 +4659,11 @@ async function executeCdripSearch(query) {
   if (!query) return;
   currentCdripQuery = query;
 
-  if (loading) loading.style.display = 'flex';
+  if (loading) {
+    loading.style.display = 'flex';
+    const loadTxt = loading.querySelector('.cdrip-loading-text');
+    if (loadTxt) loadTxt.textContent = 'Searching Soulseek, Telegram channels & BitTorrent swarms...';
+  }
   if (empty) empty.style.display = 'none';
   if (grid) grid.style.display = 'none';
 
@@ -4594,7 +4677,7 @@ async function executeCdripSearch(query) {
       if (empty) {
         empty.style.display = 'flex';
         empty.querySelector('h3').textContent = 'No Physical CD Rips Found';
-        empty.querySelector('p').textContent = `No physical CD release candidates discovered for "${query}". Try searching by catalogue number (e.g. CD-1024, CDNF 154020) or artist.`;
+        empty.querySelector('p').textContent = `No physical CD release candidates discovered across Telegram, Torrents, or Soulseek for "${query}". Try searching by catalogue number or album title.`;
       }
       currentCdripResults = [];
       return;
@@ -4626,6 +4709,18 @@ function renderCdripResults(results, catalogueMeta) {
     const catLabel = (catalogueMeta && catalogueMeta.detected) ? catalogueMeta.normalized : (item.catalogueMatch ? item.catalogueMatch.normalized : 'Physical Audio CD');
     const tierHint = item.provenanceTierHint || 'CD_RIP_CREDIBLE';
 
+    // Source indicators
+    let sourceBadge = `<span class="cdrip-source-indicator source-deezer">🌐 Deezer HiFi (16/44.1 CDDA)</span>`;
+    if (item.source === 'telegram') {
+      sourceBadge = `<span class="cdrip-source-indicator source-telegram">✈️ Telegram Archive &bull; @${escapeHtml(item.channel || '')}</span>`;
+    } else if (item.source === 'torrent') {
+      sourceBadge = `<span class="cdrip-source-indicator source-torrent">⚡ BitTorrent Swarm &bull; 🟢 ${item.seeders || 0} Seeds</span>`;
+    }
+
+    const isArchive = item.isArchive || (item.source === 'torrent');
+    const hasLog = item.hasLog || item.isArchive;
+    const hasCue = item.hasCue || item.isArchive;
+
     return `
       <div class="cdrip-release-card">
         <div class="cdrip-cover-wrap">
@@ -4637,8 +4732,9 @@ function renderCdripResults(results, catalogueMeta) {
         </div>
         <div class="cdrip-card-body">
           <div class="cdrip-card-meta">
+            ${sourceBadge}
             <span class="cdrip-tier-pill tier-pill-${tierHint.toLowerCase()}">1:1 CD-RIP</span>
-            <span class="cdrip-spec-pill">Red Book 16/44.1</span>
+            <span class="cdrip-spec-pill">${escapeHtml(item.size || 'Red Book 16/44.1')}</span>
           </div>
           <h4 class="cdrip-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h4>
           <span class="cdrip-card-artist" title="${escapeHtml(artist)}">${escapeHtml(artist)}</span>
@@ -4646,9 +4742,9 @@ function renderCdripResults(results, catalogueMeta) {
 
           <div class="cdrip-specs-checklist">
             <span class="check-item verified">✓ 16-bit / 44.1 kHz PCM</span>
-            <span class="check-item verified">✓ EAC / XLD Log Extraction</span>
-            <span class="check-item verified">✓ CUE Sheet Pre-Gaps</span>
-            <span class="check-item verified">✓ AccurateRip CRC Verify</span>
+            <span class="check-item ${hasLog ? 'verified' : ''}">${hasLog ? '✓ EAC / XLD Log Included' : '○ Rip Log Auto-Audit'}</span>
+            <span class="check-item ${hasCue ? 'verified' : ''}">${hasCue ? '✓ CUE Sheet Pre-Gaps' : '○ CUE Sector Check'}</span>
+            <span class="check-item verified">${isArchive ? '✓ Full Optical Release (.ZIP)' : '✓ AccurateRip CRC Verify'}</span>
           </div>
 
           <button type="button" class="btn btn-primary btn-cdrip-download" onclick="dispatchCdripDownload(${idx}, event)">
@@ -4679,7 +4775,12 @@ window.dispatchCdripDownload = async function(idx, event = null) {
     format: 'cdrip',
     quality: '16bit',
     isCdRip: true,
-    source: 'cdrip'
+    source: item.source || 'cdrip',
+    provider: item.provider || item.source || 'cdrip',
+    channel: item.channel,
+    messageId: item.messageId,
+    magnet: item.magnet,
+    infoHash: item.infoHash
   };
 
   try {
