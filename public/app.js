@@ -412,6 +412,41 @@ function updateAuthUI(user, limits) {
   if (activeRestricted && panelToFeature[activeRestricted.id] && !canAccess(panelToFeature[activeRestricted.id])) {
     switchView('downloader');
   }
+
+  updateStorageTargetUI();
+}
+
+function updateStorageTargetUI() {
+  const grp = document.getElementById('cfgStorageTargetGroup');
+  const displayEl = document.getElementById('storageTargetDisplay');
+  const selectEl = document.getElementById('storageFolderSelect');
+
+  if (!grp || !displayEl) return;
+
+  if (!currentUser || currentUser.role === 'guest') {
+    grp.style.display = 'none';
+    return;
+  }
+
+  const assignedFolder = currentUser.downloadFolder;
+  const allowedFolders = Array.isArray(currentUser.allowedFolders) ? currentUser.allowedFolders.filter(f => f && f !== '*') : [];
+
+  if (assignedFolder || allowedFolders.length > 0) {
+    grp.style.display = 'block';
+    if (allowedFolders.length > 1 && selectEl) {
+      displayEl.style.display = 'none';
+      selectEl.style.display = 'block';
+      selectEl.innerHTML = allowedFolders.map(f => `
+        <option value="${escapeHtml(f)}" ${f === assignedFolder ? 'selected' : ''}>${escapeHtml(f)}</option>
+      `).join('');
+    } else {
+      if (selectEl) selectEl.style.display = 'none';
+      displayEl.style.display = 'block';
+      displayEl.textContent = assignedFolder || (allowedFolders[0] || 'Default Storage');
+    }
+  } else {
+    grp.style.display = 'none';
+  }
 }
 
 async function checkUserSession() {
@@ -1224,12 +1259,18 @@ function renderPreviewCard(data) {
   }
 
   previewCard.style.display = 'block';
+  updateStorageTargetUI();
   previewCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // 2. Start Single Download Job
 async function startDownload() {
   if (!currentExtractedData) return;
+
+  const storageSelect = document.getElementById('storageFolderSelect');
+  const selectedFolder = (storageSelect && storageSelect.style.display !== 'none' && storageSelect.value)
+    ? storageSelect.value
+    : (currentUser && currentUser.downloadFolder ? currentUser.downloadFolder : '');
 
   const payload = {
     url: currentExtractedData.sourceUrl || urlInput.value.trim(),
@@ -1238,6 +1279,7 @@ async function startDownload() {
     title: currentExtractedData.title,
     code: currentExtractedData.code,
     poster: currentExtractedData.poster,
+    downloadFolder: selectedFolder || undefined,
     concurrentFragments: parseInt(concurrencySelect.value, 10) || 8,
     mode: currentMode,
     videoQuality: videoQualitySelect.value,
@@ -1555,6 +1597,7 @@ function createJobCardElement(job) {
       <div class="job-title-group">
         <h4 class="job-title" id="job-title-${job.id}">${job.title}</h4>
         <div class="job-meta">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
+        ${job.downloadFolder ? `<div class="job-storage-tag" style="font-size: 0.72rem; color: #34d399; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;" title="Assigned permanent storage folder: ${escapeHtml(job.downloadFolder)}">📁 <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span></div>` : ''}
       </div>
     </div>
 
@@ -1729,6 +1772,23 @@ function updateJobCard(job) {
     if (drawer && drawer.style.display !== 'none') {
       drawer.scrollTop = drawer.scrollHeight;
     }
+  }
+
+  const titleGroup = card.querySelector('.job-title-group');
+  let storageTag = card.querySelector('.job-storage-tag');
+  if (job.downloadFolder) {
+    if (!storageTag && titleGroup) {
+      storageTag = document.createElement('div');
+      storageTag.className = 'job-storage-tag';
+      storageTag.style.cssText = 'font-size: 0.72rem; color: #34d399; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;';
+      titleGroup.appendChild(storageTag);
+    }
+    if (storageTag) {
+      storageTag.title = `Assigned permanent storage folder: ${job.downloadFolder}`;
+      storageTag.innerHTML = `📁 <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span>`;
+    }
+  } else if (storageTag) {
+    storageTag.remove();
   }
 }
 

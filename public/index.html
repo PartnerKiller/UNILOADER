@@ -98,7 +98,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.8.9 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.9.0 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -258,7 +258,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.8.9 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.9.0 &bull; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -499,6 +499,16 @@
                 <div class="config-item config-fullwidth">
                   <label for="customArgsInput" class="config-label">Custom yt-dlp Arguments (Optional)</label>
                   <input type="text" id="customArgsInput" class="config-input" placeholder="e.g. --cookies-from-browser chrome --rate-limit 5M" />
+                </div>
+
+                <!-- Storage Destination (Shown when user has assigned folder) -->
+                <div class="config-item config-fullwidth" id="cfgStorageTargetGroup" style="display: none;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+                    <label class="config-label" style="margin-bottom: 0;">📁 Storage Destination</label>
+                    <span id="storageTargetBadge" class="badge-tag" style="font-size: 0.68rem; padding: 2px 8px; border-radius: 4px; background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3);">Permanent Storage</span>
+                  </div>
+                  <div id="storageTargetDisplay" style="font-family: monospace; font-size: 0.78rem; color: #a7f3d0; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); padding: 8px 12px; border-radius: var(--radius-sm); word-break: break-all;"></div>
+                  <select id="storageFolderSelect" class="config-select" style="display: none; margin-top: 6px; font-family: monospace; font-size: 0.78rem;"></select>
                 </div>
 
               </div>
@@ -1698,6 +1708,6 @@
 
   </div>
 
-  <script src="app.js?v=4.8.9"></script>
+  <script src="app.js?v=4.9.0"></script>
 </body>
 </html>

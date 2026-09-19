@@ -203,6 +203,8 @@ function saveJobsHistory() {
           poster: j.poster || '',
           mode: j.mode || 'video',
           ownerId: j.ownerId || 'owner',
+          downloadFolder: j.downloadFolder || '',
+          isPermanent: !!j.isPermanent,
           filename: j.filename || path.basename(j.filePath),
           filesize: j.filesize || '',
           filePath: j.filePath,
@@ -230,6 +232,8 @@ function loadJobsHistory() {
             jobs.set(r.id, {
               ...r,
               ownerId: r.ownerId || 'owner',
+              downloadFolder: r.downloadFolder || '',
+              isPermanent: !!r.isPermanent,
               logs: ['Processing completed! File ready in folder.'],
               downloadUrl: `/api/download-file/${r.id}`,
               streamUrl: `/api/stream/${r.id}`,
@@ -378,7 +382,9 @@ function formatJobSummary(job, detailed = false) {
     downloadUrl: `/api/download-file/${job.id}`,
     streamUrl: `/api/stream/${job.id}`,
     filePath: job.filePath || '',
-    ownerId: job.ownerId || 'owner'
+    ownerId: job.ownerId || 'owner',
+    downloadFolder: job.downloadFolder || '',
+    isPermanent: !!job.isPermanent
   };
   if (detailed) {
     base.startTime = job.startTime;
@@ -876,13 +882,25 @@ function loadUsers() {
   try {
     if (fs.existsSync(USERS_FILE)) {
       const list = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+      let modified = false;
       if (Array.isArray(list)) {
         for (const u of list) {
           if (u && u.username) {
             u.allowedFolders = Array.isArray(u.allowedFolders) ? u.allowedFolders : [];
+            // Auto-heal empty downloadFolder from allowedFolders if allocated
+            if ((!u.downloadFolder || !u.downloadFolder.trim()) && u.allowedFolders.length > 0) {
+              const firstAllowed = u.allowedFolders.find(f => typeof f === 'string' && f.trim() && f.trim() !== '*');
+              if (firstAllowed) {
+                u.downloadFolder = firstAllowed.trim();
+                modified = true;
+              }
+            }
             users.set(u.username.toLowerCase(), u);
           }
         }
+      }
+      if (modified) {
+        saveUsers();
       }
     }
   } catch (e) {
@@ -1014,18 +1032,56 @@ function getUserDownloadFolder(userOrId) {
     }
   } else if (userOrId.username) {
     user = users.get(userOrId.username.toLowerCase()) || userOrId;
-  } else if (userOrId.id) {
+  } else if (userOrId.id || userOrId.userId) {
+    const targetId = userOrId.id || userOrId.userId;
     for (const u of users.values()) {
-      if (u.id === userOrId.id) {
+      if (u.id === targetId || (u.username && userOrId.username && u.username.toLowerCase() === userOrId.username.toLowerCase())) {
         user = u;
         break;
       }
     }
+    if (!user) user = userOrId;
+  } else {
+    user = userOrId;
   }
 
+  // 1. Check primary assigned downloadFolder
+  let folder = null;
   if (user && user.downloadFolder && typeof user.downloadFolder === 'string') {
     const trimmed = user.downloadFolder.trim();
-    if (trimmed && isFeatureAllowed(user, 'custom_storage')) return trimmed;
+    if (trimmed && trimmed !== '*') {
+      folder = trimmed;
+    }
+  }
+
+  // 2. Fallback to user.allowedFolders (first non-wildcard directory)
+  if (!folder && user && Array.isArray(user.allowedFolders) && user.allowedFolders.length > 0) {
+    const candidate = user.allowedFolders.find(f => typeof f === 'string' && f.trim() && f.trim() !== '*');
+    if (candidate) {
+      folder = candidate.trim();
+    }
+  }
+
+  // 3. Fallback to userOrId properties (e.g. from session or request object)
+  if (!folder && userOrId && typeof userOrId === 'object') {
+    if (userOrId.downloadFolder && typeof userOrId.downloadFolder === 'string' && userOrId.downloadFolder.trim() !== '*') {
+      folder = userOrId.downloadFolder.trim();
+    } else if (Array.isArray(userOrId.allowedFolders) && userOrId.allowedFolders.length > 0) {
+      const candidate = userOrId.allowedFolders.find(f => typeof f === 'string' && f.trim() && f.trim() !== '*');
+      if (candidate) {
+        folder = candidate.trim();
+      }
+    }
+  }
+
+  if (folder) {
+    const isOwner = (user && (user.role === 'owner' || user.isOwner || user.username?.toLowerCase() === 'sakura')) ||
+                    (userOrId && (userOrId.role === 'owner' || userOrId.isOwner || userOrId.username?.toLowerCase() === 'sakura'));
+    const isGuest = (user && user.role === 'guest') || (userOrId && userOrId.role === 'guest');
+
+    if (!isGuest && (isOwner || isFeatureAllowed(user || userOrId, 'custom_storage') || (user && user.role !== 'guest') || (userOrId && userOrId.role !== 'guest'))) {
+      return path.resolve(folder);
+    }
   }
   return null;
 }
@@ -1041,12 +1097,22 @@ function isPermanentUserFile(filePath) {
     }
   }
 
-  // 2. Check if file is located inside any user's assigned permanent downloadFolder
+  // 2. Check if file is located inside any user's assigned permanent downloadFolder or allowedFolders
   for (const u of users.values()) {
-    if (u.downloadFolder && typeof u.downloadFolder === 'string') {
+    if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim() !== '*') {
       const folderResolved = path.resolve(u.downloadFolder.trim());
       if (resolved === folderResolved || resolved.startsWith(folderResolved + path.sep)) {
         return true;
+      }
+    }
+    if (Array.isArray(u.allowedFolders)) {
+      for (const f of u.allowedFolders) {
+        if (typeof f === 'string' && f.trim() && f.trim() !== '*') {
+          const folderResolved = path.resolve(f.trim());
+          if (resolved === folderResolved || resolved.startsWith(folderResolved + path.sep)) {
+            return true;
+          }
+        }
       }
     }
   }
@@ -1057,7 +1123,10 @@ function isPermanentUserFile(filePath) {
 function finalizeJobPermanentStorage(job) {
   if (!job || !job.filePath || !fs.existsSync(job.filePath)) return;
 
-  const userFolder = getUserDownloadFolder(job.ownerId);
+  const userFolder = (job.downloadFolder && typeof job.downloadFolder === 'string' && job.downloadFolder.trim() && job.downloadFolder.trim() !== '*')
+    ? path.resolve(job.downloadFolder.trim())
+    : getUserDownloadFolder(job.ownerId);
+
   if (!userFolder) {
     return;
   }
@@ -1072,6 +1141,7 @@ function finalizeJobPermanentStorage(job) {
     if (targetName.startsWith(`${job.id}_`)) {
       targetName = targetName.slice(job.id.length + 1);
     }
+    targetName = targetName.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
     targetName = targetName.replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!targetName) targetName = `${job.title || 'media'}_${Date.now()}`;
 
@@ -1093,9 +1163,14 @@ function finalizeJobPermanentStorage(job) {
       job.filename = targetName;
     }
 
+    if (process.platform !== 'win32') {
+      try { fs.chmodSync(destPath, 0o664); } catch (e) {}
+    }
+
     job.downloadFolder = userFolder;
     job.isPermanent = true;
     job.logs.push(`📁 Permanent Storage: File saved to assigned user folder: ${destPath}`);
+    console.log(`[PermanentStorage] Job ${job.id} (${job.ownerId}) saved to: ${destPath}`);
   } catch (err) {
     console.error(`[PermanentStorage] Error moving job ${job.id} to ${userFolder}:`, err.message);
     job.logs.push(`⚠️ Could not save to permanent user folder (${err.message}). Stored in temp media.`);
@@ -1182,6 +1257,7 @@ function resolveUserSession(req) {
   const isPrem = isOwner || sess.role === 'premium' || sess.role === 'admin';
   const uRec = users.get(sess.username?.toLowerCase());
   const allowedFolders = isOwner ? ['*'] : (uRec?.allowedFolders || []);
+  const resolvedFolder = getUserDownloadFolder(uRec || sess.userId);
 
   return {
     userId: sess.userId,
@@ -1189,6 +1265,7 @@ function resolveUserSession(req) {
     role: isOwner ? 'owner' : (sess.role || 'premium'),
     isPremium: isPrem,
     isOwner: isOwner,
+    downloadFolder: resolvedFolder || '',
     allowedFolders: allowedFolders
   };
 }
@@ -1485,6 +1562,10 @@ app.post('/api/admin/users/folder', requireAdmin, (req, res) => {
       }
 
       u.downloadFolder = cleanFolder;
+      u.allowedFolders = Array.isArray(u.allowedFolders) ? u.allowedFolders : [];
+      if (cleanFolder && !u.allowedFolders.includes(cleanFolder)) {
+        u.allowedFolders.push(cleanFolder);
+      }
       saveUsers();
       return res.json({
         success: true,
@@ -1897,16 +1978,21 @@ app.post('/api/admin/users/:id/folders', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Folders must be an array of folder paths' });
   }
   for (const u of users.values()) {
-    if (u.id === id) {
+    if (u.id === id || u.username.toLowerCase() === id.toLowerCase()) {
       if (u.role === 'owner' || u.username.toLowerCase() === 'sakura') {
         return res.status(400).json({ error: 'Owner account has root access to all system drives' });
       }
       u.allowedFolders = Array.from(new Set(folders.map(f => String(f).trim()).filter(Boolean)));
+      if ((!u.downloadFolder || !u.downloadFolder.trim() || !u.allowedFolders.includes(u.downloadFolder)) && u.allowedFolders.length > 0) {
+        const first = u.allowedFolders.find(f => f && f !== '*');
+        u.downloadFolder = first || '';
+      }
       saveUsers();
       return res.json({
         success: true,
         message: `Allocated ${u.allowedFolders.length} folder(s) to "${u.username}"`,
-        allowedFolders: u.allowedFolders
+        allowedFolders: u.allowedFolders,
+        downloadFolder: u.downloadFolder
       });
     }
   }
@@ -2625,8 +2711,18 @@ app.get('/api/admin/storage/files', requireAdmin, (req, res) => {
     ];
 
     for (const u of users.values()) {
+      const uFolders = [];
       if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim()) {
-        const p = u.downloadFolder.trim();
+        uFolders.push(u.downloadFolder.trim());
+      }
+      if (Array.isArray(u.allowedFolders)) {
+        for (const f of u.allowedFolders) {
+          if (typeof f === 'string' && f.trim() && f.trim() !== '*' && !uFolders.includes(f.trim())) {
+            uFolders.push(f.trim());
+          }
+        }
+      }
+      for (const p of uFolders) {
         if (!targetDirs.some(t => t.path === p)) {
           targetDirs.push({ path: p, category: `User: ${u.username} (Permanent)` });
         }
@@ -2701,12 +2797,24 @@ app.get('/api/admin/storage/raw-download', requireAdmin, (req, res) => {
   let isAllowed = resolved.startsWith(temp) || resolved.startsWith(home);
   if (!isAllowed) {
     for (const u of users.values()) {
-      if (u.downloadFolder && typeof u.downloadFolder === 'string') {
+      if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim()) {
         const uFolder = path.resolve(u.downloadFolder.trim());
         if (resolved === uFolder || resolved.startsWith(uFolder + path.sep)) {
           isAllowed = true;
           break;
         }
+      }
+      if (Array.isArray(u.allowedFolders)) {
+        for (const f of u.allowedFolders) {
+          if (typeof f === 'string' && f.trim() && f.trim() !== '*') {
+            const uFolder = path.resolve(f.trim());
+            if (resolved === uFolder || resolved.startsWith(uFolder + path.sep)) {
+              isAllowed = true;
+              break;
+            }
+          }
+        }
+        if (isAllowed) break;
       }
     }
   }
@@ -5810,7 +5918,9 @@ function createAndStartJob(opts) {
   const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
   const isPremium = !!opts.isPremium;
   const ownerId = opts.ownerId || 'guest';
-  const assignedFolder = getUserDownloadFolder(ownerId);
+  const assignedFolder = (opts.downloadFolder && typeof opts.downloadFolder === 'string' && opts.downloadFolder.trim() && opts.downloadFolder.trim() !== '*')
+    ? path.resolve(opts.downloadFolder.trim())
+    : getUserDownloadFolder(ownerId);
 
   const initialLogs = [];
   if (isPremium) {
@@ -5938,6 +6048,21 @@ app.post('/api/download', identifyUser, async (req, res) => {
 
     payload.ownerId = req.currentUser.userId;
     payload.isPremium = req.currentUser.isPremium;
+
+    if (payload.downloadFolder && typeof payload.downloadFolder === 'string' && payload.downloadFolder.trim()) {
+      const reqPath = path.resolve(payload.downloadFolder.trim());
+      const isOwner = req.currentUser.isOwner;
+      const allowedList = (req.currentUser.allowedFolders || []).map(f => path.resolve(f));
+      const userAssigned = getUserDownloadFolder(req.currentUser.userId);
+      if (userAssigned) allowedList.push(path.resolve(userAssigned));
+
+      const isAuthorized = isOwner || allowedList.some(f => reqPath === f || reqPath.startsWith(f + path.sep));
+      if (isAuthorized) {
+        payload.downloadFolder = reqPath;
+      } else {
+        delete payload.downloadFolder;
+      }
+    }
 
     const isDirectStream = url.includes('workers.dev') || url.includes('archive.org');
 
