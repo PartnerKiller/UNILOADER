@@ -238,11 +238,12 @@ def download_deezer_flac_track(track_info, output_path, dz=None):
         print(f"[Deezer] Download exception for {track_id}: {e}", file=sys.stderr)
         return False
 
-def resolve_and_download_flac(artist, title, isrc=None, output_path=None, duration=None, cover_url=None):
+def resolve_and_download_flac(artist, title, isrc=None, output_path=None, duration=None, cover_url=None, verify_callback=None):
     """
     1. Looks up track on Deezer by ISRC or (Artist + Title).
     2. Downloads genuine 1411 kbps FLAC file.
     3. Injects tags and synced lyrics.
+    4. Validates track with verify_callback if provided.
     """
     dz = get_deezer_client()
     if not dz:
@@ -262,15 +263,21 @@ def resolve_and_download_flac(artist, title, isrc=None, output_path=None, durati
     # 2. Search by Artist + Title on Deezer GW
     clean_artist = re.sub(r'[\(\)\[\]]', '', artist).strip()
     clean_title = re.sub(r'[\(\)\[\]]', '', title).strip()
-    query = f"{clean_artist} {clean_title}"
-    try:
-        gw_res = dz.gw.search_music(query, 'TRACK')
-        tracks = gw_res.get('data', [])
-        for t in tracks:
-            if not any(str(c.get('id') or c.get('SNG_ID')) == str(t.get('id') or t.get('SNG_ID')) for c in candidates):
-                candidates.append(t)
-    except Exception:
-        pass
+    queries = [f"{clean_artist} {clean_title}".strip()]
+    if clean_title and clean_title != clean_artist:
+        queries.append(clean_title)
+
+    for q in queries:
+        if not q:
+            continue
+        try:
+            gw_res = dz.gw.search_music(q, 'TRACK')
+            tracks = gw_res.get('data', [])
+            for t in tracks:
+                if not any(str(c.get('id') or c.get('SNG_ID')) == str(t.get('id') or t.get('SNG_ID')) for c in candidates):
+                    candidates.append(t)
+        except Exception:
+            pass
         
     if not candidates:
         return False
@@ -284,14 +291,22 @@ def resolve_and_download_flac(artist, title, isrc=None, output_path=None, durati
         if success:
             lyrics = fetch_synced_lyrics(artist, title, duration=duration)
             meta = {
-                'title': title,
-                'artist': artist,
+                'title': m_title or title,
+                'artist': matched_track.get('artist', {}).get('name') if isinstance(matched_track.get('artist'), dict) else (matched_track.get('ART_NAME') or artist),
                 'album': matched_track.get('album', {}).get('title') if isinstance(matched_track.get('album'), dict) else matched_track.get('ALB_TITLE', ''),
                 'isrc': isrc or matched_track.get('isrc') or matched_track.get('ISRC', ''),
                 'cover_url': cover_url or matched_track.get('album', {}).get('cover_xl') or matched_track.get('ALB_PICTURE', ''),
                 'lyrics': lyrics
             }
             tag_flac(output_path, meta)
+            if verify_callback:
+                if verify_callback(output_path):
+                    return True
+                else:
+                    if os.path.exists(output_path):
+                        try: os.remove(output_path)
+                        except Exception: pass
+                    continue
             return True
         
     return False

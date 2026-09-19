@@ -34,20 +34,29 @@ def run_cmd(cmd, timeout=30):
         return None
 
 
-def get_highpass_volume(file_path, freq_hz):
+def get_highpass_volume(file_path, freq_hz, nyquist_hz=22050):
     """
-    Runs FFmpeg highpass filter at freq_hz and detects mean and max volume in dB.
+    Runs FFmpeg FFT firequalizer brickwall filter at freq_hz and detects mean and max volume in dB.
     If an audio was upscaled from a lossy source, volume above the cutoff will be ~ -91 dB (digital silence).
     """
     cmd = [
         'ffmpeg', '-hide_banner', '-nostats',
         '-i', file_path,
-        '-af', f"highpass=f={freq_hz},volumedetect",
+        '-af', f"firequalizer=gain_entry='entry(0,-120);entry({freq_hz-1},-120);entry({freq_hz},0);entry({nyquist_hz},0)',volumedetect",
         '-f', 'null', '-'
     ]
-    res = run_cmd(cmd, timeout=25)
-    if not res or not res.stderr:
-        return None, None
+    res = run_cmd(cmd, timeout=30)
+    if not res or not res.stderr or 'mean_volume' not in res.stderr:
+        # Fallback to highpass if firequalizer not supported
+        cmd_fb = [
+            'ffmpeg', '-hide_banner', '-nostats',
+            '-i', file_path,
+            '-af', f"highpass=f={freq_hz},volumedetect",
+            '-f', 'null', '-'
+        ]
+        res = run_cmd(cmd_fb, timeout=25)
+        if not res or not res.stderr:
+            return None, None
 
     mean_vol = None
     max_vol = None
@@ -177,12 +186,13 @@ def analyze_flac(file_path, generate_spectrogram=True):
 
     energy_results = {}
     for band in bands_to_test:
-        mean_v, max_v = get_highpass_volume(file_path, band)
-        energy_results[f"above_{band}hz"] = {
-            "mean_db": mean_v,
-            "max_db": max_v,
-            "active": (mean_v is not None and mean_v > -70.0)
-        }
+        if band < nyquist_freq:
+            mean_v, max_v = get_highpass_volume(file_path, band, nyquist_freq)
+            energy_results[f"above_{band}hz"] = {
+                "mean_db": mean_v,
+                "max_db": max_v,
+                "active": (mean_v is not None and mean_v > -88.0)
+            }
 
     # 3. Cutoff & Transcode Detection Logic
     e16 = energy_results.get("above_16000hz", {})
@@ -208,7 +218,8 @@ def analyze_flac(file_path, generate_spectrogram=True):
     details = []
 
     # Check 16kHz cutoff (128k MP3 transcode or low-bitrate lossy)
-    if m16 is not None and (m16 < -68.0 or (m16 < -60.0 and x16 is not None and x16 < -35.0)):
+    # Lossy 128k drops to the digital noise floor (~ -91.0 dB). Genuine audio (even vintage 1950s) maintains >= -80 dB.
+    if m16 is not None and (m16 <= -89.0 or (m16 < -86.0 and (x16 is None or x16 < -55.0))):
         cutoff_frequency = 16000
         score = 20
         verdict = "FAKE_FLAC"
@@ -216,8 +227,8 @@ def analyze_flac(file_path, generate_spectrogram=True):
         verdict_badge = "danger"
         warnings.append("Severe frequency cutoff detected at 16.0 kHz (standard 128kbps MP3 / low-bitrate artifact).")
 
-    # Check 18.5kHz cutoff (192k MP3 / lossy transcode)
-    elif m18 is not None and (m18 < -68.0 or (m18 < -62.0 and x18 is not None and x18 < -35.0)):
+    # Check 18.5kHz cutoff (192k MP3 / 128k AAC transcode)
+    elif m18 is not None and (m18 <= -89.0 or (m18 < -86.0 and (x18 is None or x18 < -60.0))):
         cutoff_frequency = 18500
         score = 40
         verdict = "FAKE_FLAC"
@@ -226,7 +237,7 @@ def analyze_flac(file_path, generate_spectrogram=True):
         warnings.append("Hard frequency cutoff detected at 18.5 kHz (typical 192kbps MP3 / lossy encoder artifact).")
 
     # Check 20kHz cutoff (320k MP3 / YouTube Opus 160k transcode)
-    elif m20 is not None and (m20 < -72.0 or (m20 < -64.0 and x20 is not None and x20 < -40.0)):
+    elif m20 is not None and (m20 <= -89.0 or (m20 < -88.0 and (x20 is None or x20 < -70.0))):
         cutoff_frequency = 20000
         score = 65
         verdict = "SUSPICIOUS"
@@ -235,7 +246,7 @@ def analyze_flac(file_path, generate_spectrogram=True):
         warnings.append("High-frequency brickwall cutoff detected at 20.0 kHz. Likely an upscaled 320kbps MP3 or YouTube Opus stream.")
 
     # Check fake Hi-Res (upscaled CDDA into 24-bit / 48kHz+ container)
-    elif nyquist_freq > 22050 and m22 is not None and (m22 < -72.0 or (m22 < -65.0 and x22 is not None and x22 < -42.0)):
+    elif nyquist_freq > 22050 and m22 is not None and (m22 <= -89.0 or (m22 < -86.0 and (x22 is None or x22 < -55.0))):
         cutoff_frequency = 22050
         score = 75
         verdict = "UPSCALED_HIRES"
@@ -257,7 +268,10 @@ def analyze_flac(file_path, generate_spectrogram=True):
             verdict_title = "100% Genuine CD Lossless Master (16-bit / 44.1 kHz)"
             verdict_badge = "success"
             score = 95
-            details.append("Continuous natural harmonic spectrum spanning full CDDA dynamic bandwidth (up to 22.05 kHz).")
+            if m20 is not None and m20 < -80.0:
+                details.append("Authentic vintage / acoustic master with natural analog tape roll-off characteristics.")
+            else:
+                details.append("Continuous natural harmonic spectrum spanning full CDDA dynamic bandwidth (up to 22.05 kHz).")
 
     # Bitrate sanity check
     if bitrate_kbps < 500:
@@ -309,7 +323,8 @@ def is_lossless_authentic(file_path):
     report = analyze_flac(file_path, generate_spectrogram=False)
     if not report.get("valid"):
         return False, report
-    if report.get("verdict") == "FAKE_FLAC" or report.get("authenticityScore", 0) < 60:
+    # Strictly reject fake transcodes (128k, 192k) and suspicious capped streams (320k / YouTube Opus)
+    if report.get("verdict") in ("FAKE_FLAC", "SUSPICIOUS") or report.get("authenticityScore", 0) < 70:
         return False, report
     return True, report
 

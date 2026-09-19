@@ -104,8 +104,12 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
         try:
             from deezer_hifi_engine import resolve_and_download_flac
             print(f"[Audiophile HiFi] [Tier 1 CDN] Streaming Deezer HiFi 1411kbps CD Lossless Bitstream...", flush=True)
-            t_ok = resolve_and_download_flac(clean_artist, clean_title, isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url)
-            if t_ok and verify_and_accept_flac(output_path, "Deezer HiFi CDN"):
+            t_ok = resolve_and_download_flac(
+                clean_artist, clean_title,
+                isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url,
+                verify_callback=lambda p: verify_and_accept_flac(p, "Deezer HiFi CDN")
+            )
+            if t_ok:
                 return True
         except Exception as e:
             print(f"[Audiophile HiFi] [Tier 1 CDN] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
@@ -141,36 +145,20 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
         try:
             from deezer_hifi_engine import resolve_and_download_flac
             print(f"[Audiophile HiFi] [Tier 3 Fallback] Streaming Deezer HiFi 1411kbps Lossless Bitstream...", flush=True)
-            t3_ok = resolve_and_download_flac(clean_artist, clean_title, isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url)
-            if t3_ok and verify_and_accept_flac(output_path, "Deezer HiFi CDN"):
+            t3_ok = resolve_and_download_flac(
+                clean_artist, clean_title,
+                isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url,
+                verify_callback=lambda p: verify_and_accept_flac(p, "Deezer HiFi CDN")
+            )
+            if t3_ok:
                 return True
         except Exception as e:
             print(f"[Audiophile HiFi] [Tier 3 Fallback] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
 
     # -------------------------------------------------------------
-    # Tier 4: JioSaavn High-Fidelity Studio Master (320 kbps Akamai CDN stream)
-    # Essential for Indian, Bollywood, Bengali, and Asian regional soundtracks
-    # where no commercial CD or Hi-Res FLAC was ever pressed or released.
-    # -------------------------------------------------------------
-    try:
-        from jiosaavn_engine import resolve_and_download
-        print(f"[Audiophile HiFi] [Tier 4 Regional] Checking JioSaavn High-Fidelity Studio Master CDN...", flush=True)
-        search_candidates = [
-            f"{clean_artist} - {clean_title}" if clean_artist else clean_title,
-            f"{artist} - {title}" if artist else title,
-            clean_title
-        ]
-        for sc in search_candidates:
-            t4_ok = resolve_and_download(sc, output_path, target_format='flac')
-            if t4_ok and verify_and_accept_flac(output_path, "JioSaavn Studio Master"):
-                return True
-    except Exception as e:
-        print(f"[Audiophile HiFi] [Tier 4 Regional] JioSaavn notice: {e}", file=sys.stderr, flush=True)
-
-    # -------------------------------------------------------------
     # Strict Anti-Transcode Policy Enforcement
     # -------------------------------------------------------------
-    print(f"[Audiophile HiFi] ❌ Authentic Lossless FLAC or Studio Master not found across Tidal Hi-Res, Soulseek P2P, Deezer HiFi, or JioSaavn.", file=sys.stderr, flush=True)
+    print(f"[Audiophile HiFi] ❌ Authentic Lossless FLAC or Studio Master not found across Tidal Hi-Res, Soulseek P2P, or Deezer HiFi.", file=sys.stderr, flush=True)
     print(f"[Audiophile HiFi] 🚫 Strictly prohibited: YouTube/lossy audio will NOT be transcoded into fake FLAC.", file=sys.stderr, flush=True)
     if os.path.exists(output_path):
         try: os.remove(output_path)
