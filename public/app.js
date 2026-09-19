@@ -406,6 +406,7 @@ function updateAuthUI(user, limits) {
   const panelToFeature = {
     viewMovies: 'movies',
     viewMusic: 'music',
+    viewCdrip: 'cdrip',
     viewFlacChecker: 'flac_checker',
     viewAdultSearch: 'adult'
   };
@@ -1037,6 +1038,7 @@ function switchView(viewName) {
   const viewToFeature = {
     movies: 'movies',
     music: 'music',
+    cdrip: 'cdrip',
     'flac-checker': 'flac_checker',
     'adult-search': 'adult'
   };
@@ -1065,6 +1067,7 @@ function switchView(viewName) {
     downloader: document.getElementById('viewDownloader'),
     movies: document.getElementById('viewMovies'),
     music: document.getElementById('viewMusic'),
+    cdrip: document.getElementById('viewCdrip'),
     'flac-checker': document.getElementById('viewFlacChecker'),
     'adult-search': document.getElementById('viewAdultSearch'),
     supported: document.getElementById('viewSupported'),
@@ -1272,7 +1275,8 @@ async function startDownload() {
     poster: currentExtractedData.poster,
     downloadFolder: selectedFolder || undefined,
     concurrentFragments: parseInt(concurrencySelect.value, 10) || 8,
-    mode: currentMode,
+    mode: (document.getElementById('chkCdRipMode') && document.getElementById('chkCdRipMode').checked) || audioFormatSelect.value === 'cdrip' ? 'cdrip' : currentMode,
+    isCdRip: (document.getElementById('chkCdRipMode') && document.getElementById('chkCdRipMode').checked) || audioFormatSelect.value === 'cdrip',
     videoQuality: videoQualitySelect.value,
     videoFormat: videoFormatSelect.value,
     audioFormat: audioFormatSelect.value,
@@ -1334,8 +1338,11 @@ async function startBatchDownload() {
     return;
   }
 
+  const isCdRipBatch = (document.getElementById('chkCdRipMode') && document.getElementById('chkCdRipMode').checked) || audioFormatSelect.value === 'cdrip';
+
   const options = {
-    mode: currentMode,
+    mode: isCdRipBatch ? 'cdrip' : currentMode,
+    isCdRip: isCdRipBatch,
     videoQuality: videoQualitySelect.value,
     videoFormat: videoFormatSelect.value,
     audioFormat: audioFormatSelect.value,
@@ -4062,6 +4069,18 @@ window.openMusicFormatsModal = function(idx) {
 
   const formats = [
     {
+      id: 'cdrip_1to1',
+      format: 'cdrip',
+      quality: '16bit',
+      name: '1:1 Physical CD-Rip (Red Book PCM + CUE/LOG) [BETA]',
+      spec: 'Bit-for-bit optical disc release • EAC/XLD Log • AccurateRip Check • CUE Sheet • Scans',
+      badge: '1:1 CD-RIP',
+      badgeClass: 'btn-music-dl-cdda',
+      badgePillClass: 'badge-pill-cdda',
+      size: '~250–500 MB',
+      btnText: 'Acquire 1:1 CD-Rip'
+    },
+    {
       id: 'flac_hires',
       format: 'flac',
       quality: '24bit',
@@ -4150,26 +4169,28 @@ window.openMusicFormatsModal = function(idx) {
     });
 
     if (filtered.length === 0) {
-      listEl.innerHTML = `<div style="text-align: center; padding: 28px; color: var(--text-muted);">No formats matched the selected filter.</div>`;
+      listEl.innerHTML = `
+        <div class="music-modal-empty">
+          <p>No audio formats match your search filter.</p>
+        </div>
+      `;
       return;
     }
 
     listEl.innerHTML = filtered.map(fmt => `
-      <div class="music-format-item">
+      <div class="music-format-card">
         <div class="music-format-info">
-          <span class="music-format-badge-large ${fmt.badgePillClass}">${fmt.badge}</span>
-          <div class="music-format-text">
-            <div class="music-format-name">${escapeHtml(fmt.name)}</div>
-            <div class="music-format-spec">${escapeHtml(fmt.spec)}</div>
+          <div class="music-format-header">
+            <span class="music-badge-pill ${fmt.badgePillClass}">${fmt.badge}</span>
+            <span class="music-format-title">${escapeHtml(fmt.name)}</span>
           </div>
+          <p class="music-format-desc">${escapeHtml(fmt.spec)}</p>
+          <span class="music-format-size">Estimated Size: ${fmt.size}</span>
         </div>
-        <div class="music-format-actions">
-          <span class="music-format-size">${fmt.size}</span>
-          <button type="button" class="btn-music-dl ${fmt.badgeClass}" onclick="dispatchTrackDownload(${idx}, '${fmt.format}', '${fmt.quality}', event)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            <span>${fmt.btnText}</span>
-          </button>
-        </div>
+        <button type="button" class="btn btn-sm ${fmt.badgeClass}" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, '${fmt.format}', '${fmt.quality}', event)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>${fmt.btnText}</span>
+        </button>
       </div>
     `).join('');
   }
@@ -4177,6 +4198,7 @@ window.openMusicFormatsModal = function(idx) {
   if (filtersEl) {
     filtersEl.innerHTML = `
       <button type="button" class="modal-filter-pill active" data-filter="all">All Formats</button>
+      <button type="button" class="modal-filter-pill" data-filter="cdrip">1:1 CD-Rip</button>
       <button type="button" class="modal-filter-pill" data-filter="flac">FLAC Lossless</button>
       <button type="button" class="modal-filter-pill" data-filter="mp3">MP3 320k</button>
       <button type="button" class="modal-filter-pill" data-filter="m4a">AAC / M4A</button>
@@ -4221,6 +4243,7 @@ window.dispatchTrackDownload = async function(idx, format, quality, event = null
     previewUrl: item.previewUrl || '',
     format: format || 'mp3',
     quality: quality || '320k',
+    isCdRip: format === 'cdrip',
     source: 'track'
   };
 
@@ -4429,12 +4452,317 @@ function initMusicView() {
   }
 }
 
+// ==========================================================================
+// 1:1 CD-Rip Archival Controller
+// ==========================================================================
+
+let currentCdripQuery = '';
+let currentCdripResults = [];
+
+function initCdripController() {
+  const form = document.getElementById('cdripSearchForm');
+  const input = document.getElementById('cdripSearchInput');
+  const clearBtn = document.getElementById('btnClearCdripSearch');
+  const quickTags = document.getElementById('cdripQuickTags');
+  const guideToggle = document.getElementById('btnToggleProvenanceGuide');
+  const guideBody = document.getElementById('cdripGuideBody');
+
+  const dropZone = document.getElementById('cdripDropZone');
+  const fileInput = document.getElementById('cdripFileInput');
+  const btnBrowse = document.getElementById('btnBrowseCdripFile');
+
+  // Provenance guide toggle
+  if (guideToggle && guideBody) {
+    guideToggle.addEventListener('click', () => {
+      const isClosed = guideBody.style.display === 'none';
+      guideBody.style.display = isClosed ? 'block' : 'none';
+      const hint = guideToggle.querySelector('.guide-toggle-hint');
+      if (hint) hint.innerHTML = isClosed ? 'Click to collapse guide &#9652;' : 'Click to expand guide &#9662;';
+    });
+  }
+
+  // Search input & clear button
+  if (input) {
+    input.addEventListener('input', () => {
+      if (clearBtn) clearBtn.style.display = input.value.trim() ? 'block' : 'none';
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const q = input.value.trim();
+        if (q) executeCdripSearch(q);
+      }
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (input) input.value = '';
+      clearBtn.style.display = 'none';
+      if (input) input.focus();
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = input ? input.value.trim() : '';
+      if (q) executeCdripSearch(q);
+    });
+  }
+
+  // Quick Chips
+  if (quickTags) {
+    quickTags.addEventListener('click', (e) => {
+      const chip = e.target.closest('.cdrip-quick-chip');
+      if (!chip) return;
+      const q = chip.dataset.query;
+      if (!q) return;
+      if (input) {
+        input.value = q;
+        if (clearBtn) clearBtn.style.display = 'block';
+      }
+      executeCdripSearch(q);
+    });
+  }
+
+  // Local File Inspector Dropzone
+  if (dropZone) {
+    if (btnBrowse && fileInput) {
+      btnBrowse.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fileInput.click();
+      });
+    }
+
+    dropZone.addEventListener('click', (e) => {
+      if (e.target !== btnBrowse && fileInput) fileInput.click();
+    });
+
+    ['dragenter', 'dragover'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drag-active');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-active');
+      });
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        handleDroppedCdripFiles(files);
+      }
+    });
+
+    if (fileInput) {
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+          handleDroppedCdripFiles(e.target.files);
+        }
+      });
+    }
+  }
+}
+
+async function executeCdripSearch(query) {
+  const loading = document.getElementById('cdripLoadingState');
+  const empty = document.getElementById('cdripEmptyState');
+  const grid = document.getElementById('cdripResultsGrid');
+
+  if (!query) return;
+  currentCdripQuery = query;
+
+  if (loading) loading.style.display = 'flex';
+  if (empty) empty.style.display = 'none';
+  if (grid) grid.style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/cdrip/search?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+
+    if (loading) loading.style.display = 'none';
+
+    if (!res.ok || !data.success || !data.results || data.results.length === 0) {
+      if (empty) {
+        empty.style.display = 'flex';
+        empty.querySelector('h3').textContent = 'No Physical CD Rips Found';
+        empty.querySelector('p').textContent = `No physical CD release candidates discovered for "${query}". Try searching by catalogue number (e.g. CD-1024, CDNF 154020) or artist.`;
+      }
+      currentCdripResults = [];
+      return;
+    }
+
+    currentCdripResults = data.results;
+    renderCdripResults(currentCdripResults, data.catalogue);
+
+    if (grid) grid.style.display = 'grid';
+  } catch (err) {
+    if (loading) loading.style.display = 'none';
+    if (empty) {
+      empty.style.display = 'flex';
+      empty.querySelector('h3').textContent = 'CD-Rip Search Error';
+      empty.querySelector('p').textContent = `Failed to query CD release databases: ${err.message}`;
+    }
+  }
+}
+
+function renderCdripResults(results, catalogueMeta) {
+  const grid = document.getElementById('cdripResultsGrid');
+  if (!grid) return;
+
+  grid.innerHTML = results.map((item, idx) => {
+    const coverUrl = item.cover || '/icon.svg';
+    const title = item.title || 'Unknown Release';
+    const artist = item.artist || 'Unknown Artist';
+    const album = item.album || '';
+    const catLabel = (catalogueMeta && catalogueMeta.detected) ? catalogueMeta.normalized : (item.catalogueMatch ? item.catalogueMatch.normalized : 'Physical Audio CD');
+    const tierHint = item.provenanceTierHint || 'CD_RIP_CREDIBLE';
+
+    return `
+      <div class="cdrip-release-card">
+        <div class="cdrip-cover-wrap">
+          <img src="${escapeHtml(coverUrl)}" alt="${escapeHtml(title)}" class="cdrip-cover" loading="lazy" onerror="this.onerror=null; this.src='/icon.svg'" />
+          <div class="cdrip-disc-overlay">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="2" x2="12" y2="5"></line></svg>
+          </div>
+          <span class="cdrip-cat-badge">${escapeHtml(catLabel)}</span>
+        </div>
+        <div class="cdrip-card-body">
+          <div class="cdrip-card-meta">
+            <span class="cdrip-tier-pill tier-pill-${tierHint.toLowerCase()}">1:1 CD-RIP</span>
+            <span class="cdrip-spec-pill">Red Book 16/44.1</span>
+          </div>
+          <h4 class="cdrip-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</h4>
+          <span class="cdrip-card-artist" title="${escapeHtml(artist)}">${escapeHtml(artist)}</span>
+          ${album ? `<span class="cdrip-card-album" title="${escapeHtml(album)}">${escapeHtml(album)}</span>` : ''}
+
+          <div class="cdrip-specs-checklist">
+            <span class="check-item verified">✓ 16-bit / 44.1 kHz PCM</span>
+            <span class="check-item verified">✓ EAC / XLD Log Extraction</span>
+            <span class="check-item verified">✓ CUE Sheet Pre-Gaps</span>
+            <span class="check-item verified">✓ AccurateRip CRC Verify</span>
+          </div>
+
+          <button type="button" class="btn btn-primary btn-cdrip-download" onclick="dispatchCdripDownload(${idx}, event)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 8v8m-4-4l4 4 4-4"/></svg>
+            <span>Acquire 1:1 CD-Rip Package</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.dispatchCdripDownload = async function(idx, event = null) {
+  const item = currentCdripResults[idx];
+  if (!item) return;
+
+  const btn = event ? event.currentTarget : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳ Enqueuing 1:1 CD-Rip...</span>`;
+  }
+
+  const payload = {
+    title: item.title,
+    artist: item.artist,
+    album: item.album || '',
+    cover: item.cover || '',
+    format: 'cdrip',
+    quality: '16bit',
+    isCdRip: true,
+    source: 'cdrip'
+  };
+
+  try {
+    const res = await fetch('/api/music/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`Enqueued 1:1 CD-Rip: ${item.title}`, 'success');
+      if (btn) {
+        btn.innerHTML = `<span>✓ Enqueued in Downloader</span>`;
+        btn.classList.add('btn-success');
+      }
+    } else {
+      if (data.requireAuth) openAuthModal('login', data.error);
+      showToast(`CD-Rip acquisition notice: ${data.error || 'Server error'}`, 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>Acquire 1:1 CD-Rip Package</span>`;
+      }
+    }
+  } catch (err) {
+    showToast(`Failed: ${err.message}`, 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>Acquire 1:1 CD-Rip Package</span>`;
+    }
+  }
+};
+
+function handleDroppedCdripFiles(files) {
+  const outEl = document.getElementById('cdripInspectResults');
+  if (!outEl) return;
+
+  const fileList = Array.from(files);
+  const flacs = fileList.filter(f => f.name.toLowerCase().endsWith('.flac'));
+  const logs = fileList.filter(f => f.name.toLowerCase().endsWith('.log'));
+  const cues = fileList.filter(f => f.name.toLowerCase().endsWith('.cue'));
+  const scans = fileList.filter(f => /\.(jpe?g|png|webp)$/i.test(f.name));
+
+  const totalFlacSizeMb = flacs.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024);
+
+  outEl.style.display = 'block';
+  outEl.innerHTML = `
+    <div class="cdrip-inspect-card">
+      <div class="inspect-header">
+        <h4>📦 Local CD-Rip Package Inspection</h4>
+        <span class="badge-tag text-emerald">Files Staged</span>
+      </div>
+      <div class="inspect-summary-grid">
+        <div class="inspect-stat">
+          <span class="stat-label">Audio Tracks (.flac)</span>
+          <span class="stat-val">${flacs.length} files (${totalFlacSizeMb.toFixed(1)} MB)</span>
+        </div>
+        <div class="inspect-stat">
+          <span class="stat-label">Rip Log (.log)</span>
+          <span class="stat-val">${logs.length > 0 ? `✓ Found (${escapeHtml(logs[0].name)})` : '✗ Missing'}</span>
+        </div>
+        <div class="inspect-stat">
+          <span class="stat-label">CUE Sheet (.cue)</span>
+          <span class="stat-val">${cues.length > 0 ? `✓ Found (${escapeHtml(cues[0].name)})` : '✗ Missing'}</span>
+        </div>
+        <div class="inspect-stat">
+          <span class="stat-label">Packaging Scans</span>
+          <span class="stat-val">${scans.length} images</span>
+        </div>
+      </div>
+      <div class="inspect-verdict-box">
+        <strong>Preliminary Provenance:</strong> ${logs.length > 0 && cues.length > 0 ? 'Tier D: Credible Physical CD-Rip' : (flacs.length > 0 ? 'Tier C: CD-Quality Audio' : 'No audio files')}
+      </div>
+    </div>
+  `;
+}
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   initFlacChecker();
   initAdultSearch();
   initMoviesView();
   initMusicView();
+  initCdripController();
   setupVersionTapEasterEgg();
 });
 

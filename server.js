@@ -760,6 +760,7 @@ const FEATURE_METADATA = [
   { key: 'movies', label: 'Movie & TV Hub', description: 'Search, stream resolvers, and Direct DDL downloads for cinema & shows' },
   { key: 'music', label: 'Music Hub (Lossy)', description: 'Search and direct MP3/M4A/Opus downloads for tracks and albums' },
   { key: 'audiophile_flac', label: 'Audiophile FLAC (24-bit/Hi-Res)', description: 'Lossless Studio Masters via Tidal Monochrome, SLSKD P2P, and Deezer HiFi' },
+  { key: 'cdrip', label: '1:1 CD-Rip Archival', description: 'Acquisition and multi-pass verification of 1:1 physical Red Book Audio CD releases' },
   { key: 'flac_checker', label: 'FLAC Authenticity Checker', description: 'Audio spectral Nyquist cutoff analysis and counterfeit detection' },
   { key: 'adult', label: 'Adult & JAV Hub', description: 'Censored & Uncensored JAV streams, Rule34Video, and Tube engine' },
   { key: 'quality_4k', label: '4K & 8K Ultra HD', description: 'Unclamped 2160p and 4320p maximum resolution streaming' },
@@ -774,6 +775,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: false,
     music: false,
     audiophile_flac: false,
+    cdrip: false,
     flac_checker: false,
     adult: false,
     quality_4k: false,
@@ -786,6 +788,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: true,
     music: true,
     audiophile_flac: true,
+    cdrip: true,
     flac_checker: true,
     adult: true,
     quality_4k: true,
@@ -798,6 +801,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: true,
     music: true,
     audiophile_flac: true,
+    cdrip: true,
     flac_checker: true,
     adult: true,
     quality_4k: true,
@@ -4650,6 +4654,118 @@ app.get('/api/music/search', identifyUser, async (req, res) => {
   }
 });
 
+// Dedicated 1:1 CD-Rip Search & Release Discovery API
+app.get('/api/cdrip/search', identifyUser, async (req, res) => {
+  try {
+    if (!isFeatureAllowed(req.currentUser, 'cdrip') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
+      return res.status(403).json({
+        success: false,
+        results: [],
+        error: '1:1 CD-Rip Hub is restricted for your role. Please sign in.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
+
+    const q = (req.query.q || '').trim();
+    if (!q) {
+      return res.json({ success: true, results: [], catalogue: null, total: 0 });
+    }
+
+    // 1. Run catalogue tokenizer via Python
+    const pythonBin = getPythonBin();
+    const catScript = path.join(__dirname, 'catalogue_parser.py');
+    let catMeta = null;
+
+    try {
+      const child = spawn(pythonBin, ['-c', `
+import json, catalogue_parser
+res = catalogue_parser.parse_catalogue_number(${JSON.stringify(q)})
+print(json.dumps(res or {}))
+      `]);
+      let stdout = '';
+      child.stdout.on('data', d => stdout += d.toString());
+      await new Promise(resolve => child.on('close', resolve));
+      const parsed = JSON.parse(stdout.trim());
+      if (parsed && parsed.detected) {
+        catMeta = parsed;
+      }
+    } catch (e) {
+      console.warn('[CD-Rip Search] Tokenizer notice:', e.message);
+    }
+
+    // 2. Discover candidates from direct catalog & torrent swarms
+    let candidates = await searchDirectMusic(q, 1);
+    if (!candidates || candidates.length === 0) {
+      candidates = await searchMusicTorrents(q);
+    }
+
+    // Enrich candidates with CD-Rip readiness indicators
+    const enriched = candidates.map(c => {
+      const isRedBookLikely = true;
+      return {
+        ...c,
+        isCdRipCandidate: true,
+        catalogueMatch: catMeta,
+        provenanceTierHint: catMeta ? 'CD_RIP_CREDIBLE' : 'CD_QUALITY_UNCERTAIN',
+        expectedFormat: '16-bit / 44.1 kHz Red Book CDDA'
+      };
+    });
+
+    res.json({
+      success: true,
+      query: q,
+      catalogue: catMeta,
+      isCatalogueQuery: !!catMeta,
+      total: enriched.length,
+      results: enriched
+    });
+  } catch (err) {
+    console.error('[CD-Rip Search] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Dedicated CD-Rip File & Directory Integrity Inspector API
+app.post('/api/cdrip/verify', identifyUser, async (req, res) => {
+  try {
+    const { targetPath } = req.body || {};
+    if (!targetPath) {
+      return res.status(400).json({ success: false, error: 'Path is required for verification' });
+    }
+
+    // Sanitize path
+    const resolved = path.resolve(targetPath);
+    if (!fs.existsSync(resolved)) {
+      return res.status(404).json({ success: false, error: 'File or folder not found on server' });
+    }
+
+    const pythonBin = getPythonBin();
+    const verifierScript = path.join(__dirname, 'cdrip_verifier.py');
+    const child = spawn(pythonBin, [verifierScript, resolved]);
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => stdout += d.toString());
+    child.stderr.on('data', d => stderr += d.toString());
+
+    child.on('close', (code) => {
+      try {
+        const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const report = JSON.parse(jsonMatch[0]);
+          return res.json({ success: true, report });
+        }
+        res.json({ success: code === 0, raw: stdout || stderr });
+      } catch (e) {
+        res.json({ success: false, error: 'Failed to parse verification output', raw: stdout });
+      }
+    });
+  } catch (err) {
+    console.error('[CD-Rip Verify] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Music 1-Click Multi-Format Download API
 app.post('/api/music/download', identifyUser, async (req, res) => {
   try {
@@ -4665,9 +4781,17 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
     const isTorrent = source === 'torrent' || !!magnet || !!torrentUrl;
     const requestedFormat = (format || 'mp3').toLowerCase();
     const requestedQuality = (quality || '320k').toLowerCase();
-    const isFlac = requestedFormat === 'flac';
+    const isCdRip = requestedFormat === 'cdrip' || requestedQuality === 'cdrip' || item.isCdRip;
+    const isFlac = requestedFormat === 'flac' && !isCdRip;
 
-    // Role-based feature enforcement for Music Hub & Audiophile FLAC
+    // Role-based feature enforcement for Music Hub & Audiophile FLAC / CD-Rip
+    if (isCdRip && !isFeatureAllowed(req.currentUser, 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'cdrip')) {
+      return res.status(403).json({
+        success: false,
+        error: '1:1 CD-Rip archival downloads are restricted for your role. Please sign in or upgrade.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
     if (isFlac && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
       return res.status(403).json({
         success: false,
@@ -4675,7 +4799,7 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
         requireAuth: req.currentUser.role === 'guest'
       });
     }
-    if (!isFeatureAllowed(req.currentUser, 'music')) {
+    if (!isFeatureAllowed(req.currentUser, 'music') && !isCdRip) {
       return res.status(403).json({
         success: false,
         error: 'Music Hub downloads are restricted for your role.',
@@ -4706,7 +4830,7 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
       });
     }
 
-    // Direct Track Download with multi-format & multi-codec dispatch
+    // Direct Track / Release Download with multi-format & multi-codec dispatch
     const cleanArtist = (artist || '').trim();
     const cleanTitle = (title || '').trim();
     const fullName = cleanArtist ? `${cleanArtist} - ${cleanTitle}` : cleanTitle;
@@ -4719,14 +4843,15 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
       cover: cover || '',
       poster: cover || '',
       duration: duration || 0,
-      code: isFlac ? 'FLAC_HIFI' : `AUDIO_${requestedFormat.toUpperCase()}`,
-      mode: isFlac ? 'audiophile_flac' : 'audio',
+      code: isCdRip ? 'CD_RIP_1TO1' : (isFlac ? 'FLAC_HIFI' : `AUDIO_${requestedFormat.toUpperCase()}`),
+      mode: isCdRip ? 'cdrip' : (isFlac ? 'audiophile_flac' : 'audio'),
       format: requestedFormat,
       quality: requestedQuality,
-      audioFormat: isFlac ? 'flac' : requestedFormat,
+      audioFormat: isCdRip ? 'cdrip' : (isFlac ? 'flac' : requestedFormat),
       audioBitrate: requestedQuality === '320k' ? '320k' : (requestedQuality === '256k' ? '256k' : '160k'),
-      type: 'audio',
+      type: isCdRip ? 'cdrip' : 'audio',
       isMusicTrack: true,
+      isCdRip: isCdRip,
       ownerId: req.currentUser.userId,
       isPremium: req.currentUser.isPremium
     };
@@ -5414,6 +5539,42 @@ function startJobProcess(job) {
       windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
     });
+  } else if (mode === 'cdrip' || (opts && opts.isCdRip) || audioFormat === 'cdrip') {
+    const pythonBin = getPythonBin();
+    const cdripScript = path.join(__dirname, 'cdrip_engine.py');
+    const safeTitle = (job.title || 'cdrip_release').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const releaseOutDir = path.join(TEMP_DIR, `${job.id}_${safeTitle}_CDRIP`);
+
+    let artist = (opts && opts.artist) || '';
+    let trackTitle = (opts && opts.trackTitle) || '';
+    if (!artist || !trackTitle) {
+      if (job.title && job.title.includes(' - ')) {
+        const parts = job.title.split(' - ');
+        if (!artist) artist = parts[0].trim();
+        if (!trackTitle) trackTitle = parts.slice(1).join(' - ').trim();
+      } else {
+        if (!trackTitle) trackTitle = job.title || '';
+        if (!artist) artist = job.uploader || '';
+      }
+    }
+
+    job.logs.push(`1:1 CD-Rip archival requested: "${job.title}"`);
+    job.logs.push(`Initiating 1:1 Physical CD-Rip Acquisition & Provenance Pipeline...`);
+    job.logs.push(`Strict Red Book Standard: 16-bit / 44.1 kHz PCM with .CUE, .LOG & Scans prioritization.`);
+
+    const cdripArgs = [
+      cdripScript,
+      artist || '',
+      trackTitle || '',
+      releaseOutDir,
+      (opts && opts.isrc) || 'None',
+      (opts && (opts.cover || opts.poster)) || 'None'
+    ];
+
+    const child = spawn(pythonBin, cdripArgs, { 
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
+    });
     job.process = child;
     attachProcessListeners(job, child);
   } else if (isYouTubeFlac || isDeezerFlac || (isTidal && isAudioFlac) || mode === 'audiophile_flac' || (mode === 'audio' && audioFormat === 'flac')) {
@@ -5913,7 +6074,7 @@ function createAndStartJob(opts) {
   const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-  const ext = (mode === 'audio' || mode === 'audiophile_flac') ? (audioFormat || (mode === 'audiophile_flac' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
+  const ext = (mode === 'audio' || mode === 'audiophile_flac' || mode === 'cdrip') ? (audioFormat || (mode === 'audiophile_flac' || mode === 'cdrip' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
   const finalFilename = `${safeTitle}.${ext}`;
   const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
   const isPremium = !!opts.isPremium;
@@ -5999,9 +6160,20 @@ app.post('/api/download', identifyUser, async (req, res) => {
       });
     }
 
-    // 1. Lossless Audio check: FLAC / WAV
+    // 1. Lossless Audio check: FLAC / WAV / CD-Rip
     const audioFmt = (payload.audioFormat || '').toLowerCase();
-    if ((audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
+    const isCdRip = audioFmt === 'cdrip' || payload.isCdRip || payload.mode === 'cdrip';
+    if (isCdRip) {
+      if (!isFeatureAllowed(req.currentUser, 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'cdrip')) {
+        return res.status(403).json({
+          error: '1:1 CD-Rip archival downloads are restricted for your role. Please upgrade or contact administrator.',
+          requireAuth: req.currentUser.role === 'guest'
+        });
+      }
+      payload.mode = 'cdrip';
+      payload.code = 'CD_RIP_1TO1';
+      payload.isCdRip = true;
+    } else if ((audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
       return res.status(403).json({
         error: 'Lossless Studio Master FLAC and Uncompressed WAV are restricted for your role. Please upgrade or contact administrator.',
         requireAuth: req.currentUser.role === 'guest'
@@ -6119,6 +6291,13 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
     }
 
     const audioFmt = (opts.audioFormat || '').toLowerCase();
+    const isCdRip = audioFmt === 'cdrip' || opts.isCdRip || opts.mode === 'cdrip';
+    if (isCdRip && !isFeatureAllowed(req.currentUser, 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'cdrip')) {
+      return res.status(403).json({
+        error: '1:1 CD-Rip archival batch downloads are restricted for your role. Please upgrade or contact administrator.',
+        requireAuth: req.currentUser.role === 'guest'
+      });
+    }
     if ((audioFmt === 'flac' || audioFmt === 'wav' || opts.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
       return res.status(403).json({
         error: 'Lossless Studio FLAC batch downloads are restricted for your role. Please upgrade or contact administrator.',

@@ -9,6 +9,8 @@ yarn-error.log*
 .env.*
 !.env.example
 config.json
+admin_settings.json
+engine_config.json
 .admin_sessions.json
 .users.json
 .user_sessions.json
