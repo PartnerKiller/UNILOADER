@@ -887,17 +887,12 @@ function setupEventListeners() {
   tabAudioMode.addEventListener('click', () => setMode('audio'));
   tabBatchMode.addEventListener('click', () => setMode('batch'));
 
-  // Quick Presets (Desktop & Mobile Synchronized)
+  // Quick Presets
   presetBestVideo.addEventListener('click', () => applyPreset('bestVideo'));
   presetAudioMp3.addEventListener('click', () => applyPreset('audioMp3'));
   presetAudioFlac.addEventListener('click', () => applyPreset('audioFlac'));
   presetSubtitles.addEventListener('click', () => applyPreset('subtitles'));
   presetSponsorBlock.addEventListener('click', () => applyPreset('sponsorBlock'));
-
-  const mobilePresetSelect = document.getElementById('mobilePresetSelect');
-  if (mobilePresetSelect) {
-    mobilePresetSelect.addEventListener('change', (e) => applyPreset(e.target.value));
-  }
 
   // Fetch Form
   document.getElementById('fetchForm').addEventListener('submit', (e) => {
@@ -1129,10 +1124,6 @@ function setMode(mode) {
 }
 
 function applyPreset(presetKey) {
-  const mobileSelect = document.getElementById('mobilePresetSelect');
-  if (mobileSelect && mobileSelect.value !== presetKey) {
-    mobileSelect.value = presetKey;
-  }
 
   if (presetKey === 'bestVideo') {
     setMode('video');
