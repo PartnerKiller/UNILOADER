@@ -67,8 +67,17 @@ def verify_and_accept_flac(file_path, tier_name):
 
         print(f"[{tier_name}] ✅ Verified Genuine Lossless Master ({verdict}): Score {score}/100 - {v_title}", flush=True)
 
+    qual_tag = "Lossless FLAC"
+    try:
+        from mutagen.flac import FLAC
+        af = FLAC(file_path)
+        bps = getattr(af.info, 'bits_per_sample', 16)
+        sr = getattr(af.info, 'sample_rate', 44100)
+        qual_tag = f"{bps}-bit / {sr/1000:.1f} kHz FLAC"
+    except Exception:
+        pass
     sz_mb = os.path.getsize(file_path) / (1024 * 1024)
-    print(f"[{tier_name}] 🎉 Authentic Lossless FLAC saved: {file_path} ({sz_mb:.2f} MB)", flush=True)
+    print(f"[{tier_name}] 🎉 Authentic {qual_tag} saved: {file_path} ({sz_mb:.2f} MB)", flush=True)
     return True
 
 
@@ -117,12 +126,29 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
     # -------------------------------------------------------------
     # Tier 1 / Hi-Res: Tidal Hi-Res / Monochrome API (Studio Masters 24-bit)
     # -------------------------------------------------------------
+    tidal_16bit_backup = None
     try:
         from tidal_monochrome_engine import download_tidal_flac
         print(f"[Audiophile HiFi] [Tier 1 Hi-Res] Querying Tidal Hi-Res Studio Masters (24-bit / 96kHz / 48kHz)...", flush=True)
         t1_ok = download_tidal_flac(clean_artist, clean_title, output_path, isrc=isrc, cover_url=cover_url, duration=duration)
         if t1_ok and verify_and_accept_flac(output_path, "Tidal Hi-Res"):
-            return True
+            # Check if Tidal provided a genuine 24-bit Studio Master
+            is_24bit_master = False
+            try:
+                from mutagen.flac import FLAC
+                af = FLAC(output_path)
+                bps = getattr(af.info, 'bits_per_sample', 16)
+                sr = getattr(af.info, 'sample_rate', 44100)
+                if bps >= 24 or sr >= 48000:
+                    is_24bit_master = True
+                    print(f"[Audiophile HiFi] 🌟 Verified Authentic 24-bit Tidal Studio Master ({bps}-bit / {sr/1000:.1f} kHz)!", flush=True)
+                    return True
+                else:
+                    print(f"[Audiophile HiFi] Tidal stream is standard 16-bit / 44.1 kHz. Checking Soulseek P2P for superior 24-bit Hi-Res Studio Master...", flush=True)
+                    tidal_16bit_backup = output_path + ".tidal16.bak"
+                    shutil.copy2(output_path, tidal_16bit_backup)
+            except Exception:
+                return True
     except Exception as e:
         print(f"[Audiophile HiFi] [Tier 1 Hi-Res] Tidal Hi-Res notice: {e}", file=sys.stderr, flush=True)
 
@@ -134,9 +160,21 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
         print(f"[Audiophile HiFi] [Tier 2 P2P] Searching Soulseek P2P Audiophile Masters (High-Speed Peers)...", flush=True)
         t2_ok = search_and_download_flac(clean_artist, clean_title, output_path, isrc=isrc, cover_url=cover_url, duration=duration)
         if t2_ok and verify_and_accept_flac(output_path, "Soulseek P2P"):
+            if tidal_16bit_backup and os.path.exists(tidal_16bit_backup):
+                try: os.remove(tidal_16bit_backup)
+                except Exception: pass
             return True
     except Exception as e:
         print(f"[Audiophile HiFi] [Tier 2 P2P] Soulseek P2P notice: {e}", file=sys.stderr, flush=True)
+
+    # If Soulseek P2P didn't find a better master but Tidal 16-bit CDDA was previously captured, use it!
+    if tidal_16bit_backup and os.path.exists(tidal_16bit_backup):
+        print(f"[Audiophile HiFi] ⚡ Retaining authentic 16-bit CD Lossless Master from Tidal.", flush=True)
+        if os.path.exists(output_path):
+            try: os.remove(output_path)
+            except Exception: pass
+        shutil.move(tidal_16bit_backup, output_path)
+        return True
 
     # -------------------------------------------------------------
     # Tier 3: Deezer HiFi (1411 kbps 16-bit 44.1kHz FLAC CDN Bitstream Fallback)

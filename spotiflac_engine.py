@@ -237,16 +237,24 @@ def tag_flac_file(flac_path, meta):
         
         cover_url = meta.get('cover_url')
         if cover_url:
-            try:
-                clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
-                session = requests.Session(impersonate="chrome124")
-                img_resp = session.get(clean_cov_url, timeout=12)
-                if img_resp.status_code == 200 and len(img_resp.content) > 500:
-                    pic = create_flac_picture(img_resp.content, desc='Cover (front)')
-                    audio.clear_pictures()
-                    audio.add_picture(pic)
-            except Exception as e:
-                print(f"[SpotiFLAC] Warning: Failed to embed cover: {e}", file=sys.stderr)
+            has_high_res_existing = False
+            for existing_pic in getattr(audio, 'pictures', []):
+                if existing_pic.type == 3:
+                    if (getattr(existing_pic, 'width', 0) and existing_pic.width >= 600) or len(getattr(existing_pic, 'data', b'')) >= 150_000:
+                        has_high_res_existing = True
+                        break
+
+            if not has_high_res_existing:
+                try:
+                    clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
+                    session = requests.Session(impersonate="chrome124")
+                    img_resp = session.get(clean_cov_url, timeout=12)
+                    if img_resp.status_code == 200 and len(img_resp.content) > 500:
+                        pic = create_flac_picture(img_resp.content, desc='Cover (front)')
+                        audio.clear_pictures()
+                        audio.add_picture(pic)
+                except Exception as e:
+                    print(f"[SpotiFLAC] Warning: Failed to embed cover: {e}", file=sys.stderr)
                 
         audio.save()
         return True
@@ -282,12 +290,24 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
     isrc = songlink_info.get('isrc') or track.get('isrc')
     
     # 2.1 Try Tidal Hi-Res Master Stream (Monochrome Engine)
+    tidal_backup = None
     try:
         from tidal_monochrome_engine import download_tidal_flac
         tidal_ok = download_tidal_flac(artist, title, flac_path, isrc=isrc, cover_url=cover_url, duration=duration)
         if tidal_ok and os.path.exists(flac_path) and os.path.getsize(flac_path) > 100000:
-            print(f"[SpotiFLAC] ({idx}) 🎉 Authentic 24-bit/16-bit Lossless FLAC streamed directly from Tidal Hi-Res!", flush=True)
-            return flac_path
+            try:
+                af = FLAC(flac_path)
+                bps = getattr(af.info, 'bits_per_sample', 16)
+                sr = getattr(af.info, 'sample_rate', 44100)
+                if bps >= 24 or sr >= 48000:
+                    print(f"[SpotiFLAC] ({idx}) 🌟 Verified 24-bit Tidal Studio Master ({bps}-bit / {sr/1000:.1f} kHz)!", flush=True)
+                    return flac_path
+                else:
+                    print(f"[SpotiFLAC] ({idx}) Tidal stream is 16-bit / 44.1 kHz. Checking Soulseek P2P for 24-bit Hi-Res Studio Master...", flush=True)
+                    tidal_backup = flac_path + ".tidal16.bak"
+                    shutil.copy2(flac_path, tidal_backup)
+            except Exception:
+                return flac_path
     except Exception as e:
         pass
 
@@ -296,10 +316,21 @@ def download_track_lossless(track, output_dir, ytdlp_path='yt-dlp', track_idx=0,
         from soulseek_flac_engine import search_and_download_flac
         slsk_ok = search_and_download_flac(artist, title, flac_path, isrc=isrc, cover_url=cover_url, duration=duration)
         if slsk_ok and os.path.exists(flac_path) and os.path.getsize(flac_path) > 100000:
+            if tidal_backup and os.path.exists(tidal_backup):
+                try: os.remove(tidal_backup)
+                except Exception: pass
             print(f"[SpotiFLAC] ({idx}) 🎉 Authentic CD/Studio Lossless FLAC downloaded directly via Soulseek P2P!", flush=True)
             return flac_path
     except Exception as e:
         pass
+
+    if tidal_backup and os.path.exists(tidal_backup):
+        if os.path.exists(flac_path):
+            try: os.remove(flac_path)
+            except Exception: pass
+        shutil.move(tidal_backup, flac_path)
+        print(f"[SpotiFLAC] ({idx}) ⚡ Retaining authentic 16-bit CD Lossless Master from Tidal.", flush=True)
+        return flac_path
 
     # 2.3 Try Authentic Deezer HiFi Stream (1411 kbps FLAC)
     try:

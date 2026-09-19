@@ -95,14 +95,22 @@ def tag_flac(flac_path, meta):
             
         cover_url = meta.get('cover_url')
         if cover_url:
-            try:
-                r_cov = session.get(cover_url, timeout=8)
-                if r_cov.status_code == 200 and len(r_cov.content) > 500:
-                    pic = create_flac_picture(r_cov.content, desc='Cover (front)')
-                    audio.clear_pictures()
-                    audio.add_picture(pic)
-            except Exception:
-                pass
+            has_high_res_existing = False
+            for existing_pic in getattr(audio, 'pictures', []):
+                if existing_pic.type == 3:
+                    if (getattr(existing_pic, 'width', 0) and existing_pic.width >= 600) or len(getattr(existing_pic, 'data', b'')) >= 150_000:
+                        has_high_res_existing = True
+                        break
+
+            if not has_high_res_existing:
+                try:
+                    r_cov = session.get(cover_url, timeout=8)
+                    if r_cov.status_code == 200 and len(r_cov.content) > 500:
+                        pic = create_flac_picture(r_cov.content, desc='Cover (front)')
+                        audio.clear_pictures()
+                        audio.add_picture(pic)
+                except Exception:
+                    pass
         audio.save()
     except Exception as e:
         print(f"[Tidal Tagging] Warning: {e}", file=sys.stderr)

@@ -95,16 +95,25 @@ def tag_flac(flac_path, meta):
             
         cover_url = meta.get('cover_url')
         if cover_url:
-            try:
-                # Upgrade Spotify cover URL to 640x640 resolution
-                clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
-                r_cov = session.get(clean_cov_url, timeout=10)
-                if r_cov.status_code == 200 and len(r_cov.content) > 500:
-                    pic = create_flac_picture(r_cov.content, desc='Cover (front)')
-                    audio.clear_pictures()
-                    audio.add_picture(pic)
-            except Exception:
-                pass
+            # Preserve existing high-resolution front cover (e.g. 3000x3000px, >=150KB, or >=600px width)
+            has_high_res_existing = False
+            for existing_pic in getattr(audio, 'pictures', []):
+                if existing_pic.type == 3:  # Front cover
+                    if (getattr(existing_pic, 'width', 0) and existing_pic.width >= 600) or len(getattr(existing_pic, 'data', b'')) >= 150_000:
+                        has_high_res_existing = True
+                        break
+
+            if not has_high_res_existing:
+                try:
+                    # Upgrade Spotify cover URL to 640x640 resolution
+                    clean_cov_url = cover_url.replace('/ab67616d00001e02/', '/ab67616d0000b273/').replace('/ab67616d00004851/', '/ab67616d0000b273/')
+                    r_cov = session.get(clean_cov_url, timeout=10)
+                    if r_cov.status_code == 200 and len(r_cov.content) > 500:
+                        pic = create_flac_picture(r_cov.content, desc='Cover (front)')
+                        audio.clear_pictures()
+                        audio.add_picture(pic)
+                except Exception:
+                    pass
         audio.save()
     except Exception as e:
         print(f"[Soulseek Tagging] Warning: {e}", file=sys.stderr)
@@ -260,77 +269,117 @@ def verify_flac_integrity(file_path):
             return False, f"Invalid FLAC container: {e}"
     return True, "Lossless verified"
 
-def calc_fidelity_score(bit_depth, sample_rate, size_bytes, filename, speed=0, free_slot=False, queue_len=0):
+def calc_fidelity_score(bit_depth, sample_rate, size_bytes, filename, speed=0, free_slot=False, queue_len=0, duration=None):
     """
     Computes True Lossless Fidelity Score strictly adhering to Rule #1:
     Studio Masters (32-bit > 24-bit) and sample rates (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz).
-    Uses actual stream metadata (bitDepth, sampleRate) first to prevent folder name keywords
-    (e.g. 'HIFI 24bit 192khz') from falsely inflating standard 16-bit / 44.1kHz rips.
+    Commanding file size bonus guarantees that within any resolution tier, the biggest size FLAC
+    with maximal dynamic range and highest uncompressed bitrate is prioritized.
+    Inspects immediate album release directory and filename tokens so 24-bit / Hi-Res / Vinyl releases
+    are properly credited even when Soulseek peers omit bitDepth/sampleRate in search packets.
     """
-    file_base = os.path.basename(filename.replace('\\', '/')).lower()
-    bit_depth = bit_depth or 0
-    sample_rate = sample_rate or 0
+    norm_path = filename.replace('\\\\', '/').replace('\\', '/').lower()
+    file_base = os.path.basename(norm_path)
+    dir_path = os.path.dirname(norm_path)
+    dir_parts = [p.strip() for p in dir_path.split('/') if p.strip()]
+    
+    # Identify album release folder (skipping subfolders like CD 01, Disc 1)
+    album_dir = ''
+    if dir_parts:
+        if any(dir_parts[-1].startswith(x) for x in ['cd', 'disc', 'vinyl']) and len(dir_parts) > 1:
+            album_dir = dir_parts[-2]
+        else:
+            album_dir = dir_parts[-1]
+
+    inspect_target = f"{album_dir} / {file_base}"
     size_mb = size_bytes / (1024.0 * 1024.0)
 
+    # 1. Bit depth resolution
+    raw_bd = bit_depth or 0
+    if raw_bd >= 32:
+        eff_bits = raw_bd
+    elif raw_bd >= 24:
+        eff_bits = raw_bd
+    elif raw_bd == 16:
+        # If peer search packet reported 16-bit, check if folder explicitly indicates 24-bit studio master
+        if any(k in inspect_target for k in ['24bit', '24-bit', '24 bit', '24/44', '24-44', '24/48', '24-48', '24/88', '24-88', '24/96', '24-96', '24/192', '24-192', '48-24', '96-24', '192-24', '48/24', '96/24', '192/24', '[flac 24', '(flac 24', '[flac-24', 'flac 24bit', 'flac 24-bit']) and not any(k in album_dir for k in ['16bit', '16-bit', 'flac 16', '[flac 16']):
+            eff_bits = 24
+        else:
+            eff_bits = 16
+    else:
+        # bitDepth omitted in peer search packet: infer from release tokens and physical file size
+        if any(k in inspect_target for k in ['32bit', '32-bit', '32 bit', 'dsd']):
+            eff_bits = 32
+        elif any(k in inspect_target for k in ['24bit', '24-bit', '24 bit', '24/44', '24-44', '24/48', '24-48', '24/88', '24-88', '24/96', '24-96', '24/192', '24-192', '48-24', '96-24', '192-24', '48/24', '96/24', '192/24', '[flac 24', '(flac 24', '[flac-24', 'flac 24bit', 'flac 24-bit']) and not any(k in album_dir for k in ['16bit', '16-bit', 'flac 16', '[flac 16']):
+            eff_bits = 24
+        elif any(k in inspect_target for k in ['16bit', '16-bit', '16 bit', 'flac 16', 'flac-16', '16/44', '16-44']):
+            eff_bits = 16
+        elif size_bytes > 55 * 1024 * 1024:
+            # Physical FLAC size > 55MB for typical track indicates 24-bit dynamic range
+            eff_bits = 24
+        else:
+            eff_bits = 16
+
+    # 2. Sample rate resolution
+    raw_sr = sample_rate or 0
+    if raw_sr >= 44100:
+        eff_sr = raw_sr
+    else:
+        if any(k in inspect_target for k in ['192khz', '192-khz', '192 khz', '192.0-khz', '24-192', '24/192', '192-24']):
+            eff_sr = 192000
+        elif any(k in inspect_target for k in ['96khz', '96-khz', '96 khz', '96.0-khz', '24-96', '24/96', '96-24']):
+            eff_sr = 96000
+        elif any(k in inspect_target for k in ['88.2khz', '88.2 khz', '88khz', '88-khz', '24-88', '24/88']):
+            eff_sr = 88200
+        elif any(k in inspect_target for k in ['48khz', '48-khz', '48 khz', '48.0-khz', '24-48', '24/48', '48-24']):
+            eff_sr = 48000
+        else:
+            eff_sr = 44100
+
     score = 0
-    # 1. Bit depth tier (Rule #1: 32-bit > 24-bit > 16-bit Studio Master priority)
-    if bit_depth >= 32:
+    # Rule #1: Bit depth tier (32-bit > 24-bit Studio Master > 16-bit CDDA)
+    if eff_bits >= 32:
         score += 100_000_000
-    elif bit_depth >= 24:
-        score += 50_000_000
-    elif bit_depth == 16:
-        score += 10_000_000
-    elif any(k in file_base for k in ['32bit', '32-bit', '32 bit']):
-        score += 100_000_000
-    elif any(k in file_base for k in ['24bit', '24-bit', '24 bit', '24/']):
+    elif eff_bits >= 24:
         score += 50_000_000
     else:
         score += 10_000_000
 
-    # 2. Sample rate tier (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz)
-    if sample_rate >= 192000:
+    # Rule #1: Sample rate tier (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz)
+    if eff_sr >= 192000:
         score += 40_000_000
-    elif sample_rate >= 96000:
+    elif eff_sr >= 96000:
         score += 30_000_000
-    elif sample_rate >= 88200:
+    elif eff_sr >= 88200:
         score += 25_000_000
-    elif sample_rate >= 48000:
-        score += 15_000_000
-    elif sample_rate >= 44100:
-        score += 5_000_000
-    elif '192khz' in file_base or '192 khz' in file_base:
-        score += 40_000_000
-    elif '96khz' in file_base or '96 khz' in file_base:
-        score += 30_000_000
-    elif '88.2khz' in file_base:
-        score += 25_000_000
-    elif '48khz' in file_base:
+    elif eff_sr >= 48000:
         score += 15_000_000
     else:
         score += 5_000_000
 
-    # 3. Size & dynamic range tier (uncompressed dynamic range)
-    score += int(size_mb * 10_000)
+    # 3. Size & dynamic range tier (uncompressed dynamic range & biggest size FLAC)
+    # Heavy weight ensures largest genuine audio stream always wins within resolution tier
+    score += int(size_mb * 100_000)
 
-    # 4. Audiophile studio master keywords in basename
-    if any(k in file_base for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz', 'dsd', 'hdtracks', '24-192', '24/192', '24-96', '24/96']):
-        score += 500_000
+    # 4. Audiophile studio master & vinyl release keywords
+    if any(k in inspect_target for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz', 'dsd', 'hdtracks', 'analog', 'analogue']):
+        score += 50_000
 
-    # 5. Network availability & speed tie-breakers (capped so they NEVER override audio resolution or size)
+    # 5. Network availability & speed tie-breakers (only breaks ties between identical files/sizes)
     peer_kbps = speed / 1024.0
     if peer_kbps >= 2000:
-        score += 20_000
+        score += 5_000
     elif peer_kbps >= 1000:
-        score += 10_000
+        score += 2_500
     elif peer_kbps < 300:
-        score -= 20_000
+        score -= 5_000
 
     if free_slot:
-        score += 10_000
+        score += 2_500
     else:
-        score -= 10_000
+        score -= 2_500
 
-    score -= min(queue_len, 20) * 500
+    score -= min(queue_len, 10) * 100
     return score
 
 def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=None, duration=None, max_wait_sec=40):
@@ -528,8 +577,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             bit_depth = f.get('bitDepth') or 0
             sample_rate = f.get('sampleRate') or 0
             
-            # Must be a FLAC file of realistic size (8MB - 600MB for 24-bit / 192kHz Studio Masters)
-            if ('flac' in ext or fname.lower().endswith('.flac')) and (8 * 1024 * 1024 <= size <= 600 * 1024 * 1024):
+            # Must be a FLAC file of realistic size (4MB - 600MB for Studio Masters / CDDA)
+            if ('flac' in ext or fname.lower().endswith('.flac')) and (4 * 1024 * 1024 <= size <= 600 * 1024 * 1024):
                 fn_lower = fname.lower()
                 
                 # 1. MANDATORY TITLE CHECK: All title words must appear in file/path
@@ -542,7 +591,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                     if not has_art:
                         continue
                         
-                score = calc_fidelity_score(bit_depth, sample_rate, size, fname, speed, free_slot, queue_len)
+                score = calc_fidelity_score(bit_depth, sample_rate, size, fname, speed, free_slot, queue_len, duration=duration)
                 candidates.append({
                     'username': uname,
                     'filename': fname,
@@ -700,13 +749,15 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         stall_count = 0
         slow_speed_count = 0
         last_bytes_tx = -1
-        MIN_SPEED_MB = 0.80    # Speed watchdog: minimum 0.80 MiB/s (~6.5 Mbps)
-        SPEED_GRACE_SEC = 5.0  # Grace period for peer connection ramp-up once data starts flowing
-        MAX_HANDSHAKE_SEC = 15 # Allow up to 15s for queued peers to open slot and start transmitting
+        # Scale wait time with candidate file size so 100MB+ Hi-Res Studio Masters have full time to complete
+        effective_max_wait = max(max_wait_sec, int(total_mb / 0.20) + 45)
+        MIN_SPEED_MB = 0.15    # Speed watchdog floor: 0.15 MiB/s (~1.2 Mbps) allows high-res masters over moderate peer connections
+        SPEED_GRACE_SEC = 10.0 # Grace period for peer connection ramp-up once data starts flowing
+        MAX_HANDSHAKE_SEC = 30 # Allow up to 30s for P2P connection handshake and remote queue allocation
 
         print(f"[download] 0.0% of {total_mb:.1f}MiB at 0.00MiB/s ETA --:-- (Soulseek HiFi)", flush=True)
         
-        while time.time() - start_time < max_wait_sec:
+        while time.time() - start_time < effective_max_wait:
             time.sleep(1.0)
             try:
                 r_stat = session.get(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", timeout=6)
@@ -725,8 +776,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
 
             if not matching_files:
                 stall_count += 1
-                if stall_count >= 8:
-                    print(f"[Soulseek HiFi] Peer '{best['username']}' transfer not initiated after 8s. Fast-failing to next candidate...", flush=True)
+                if stall_count >= 18:
+                    print(f"[Soulseek HiFi] Peer '{best['username']}' transfer not initiated after 18s. Failing over to next candidate...", flush=True)
                     aborted = True
                     break
                 continue
@@ -780,13 +831,13 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             # Emit download progress for UI parsing
             print(f"[download] {pct:.1f}% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA {eta_str} (Soulseek HiFi)", flush=True)
 
-            # SPEED WATCHDOG: After grace period, fast-fail slow peers (< 0.80 MiB/s)
+            # SPEED WATCHDOG: After grace period, failover if peer is completely stalled (< 0.15 MiB/s for 8s)
             elapsed = time.time() - transfer_start_time
             if bytes_tx > 0 and elapsed >= SPEED_GRACE_SEC:
                 if speed_mb < MIN_SPEED_MB:
                     slow_speed_count += 1
-                    if slow_speed_count >= 3:
-                        print(f"[Soulseek HiFi] ⚠️ Peer '{best['username']}' upload speed too slow ({speed_mb:.2f} MiB/s < {MIN_SPEED_MB} MiB/s). Aborting to protect user bandwidth...", flush=True)
+                    if slow_speed_count >= 8:
+                        print(f"[Soulseek HiFi] ⚠️ Peer '{best['username']}' speed critically slow ({speed_mb:.2f} MiB/s < {MIN_SPEED_MB} MiB/s). Failing over to faster master candidate...", flush=True)
                         aborted = True
                         break
                 else:
@@ -801,7 +852,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                         aborted = True
                         break
                 else:
-                    if stall_count >= 5:
+                    if stall_count >= 20:
                         print(f"[Soulseek HiFi] Peer '{best['username']}' stalled mid-transfer at {pct:.1f}%. Failing over to next candidate...", flush=True)
                         aborted = True
                         break
