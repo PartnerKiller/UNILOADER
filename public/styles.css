@@ -3541,12 +3541,6 @@ body {
    Adult Search & JAV Hub Styles
    ========================================================================== */
 
-.adult-hub-badge {
-  background: hsla(350, 85%, 60%, 0.15);
-  color: var(--accent-rose);
-  border-color: hsla(350, 85%, 60%, 0.3);
-}
-
 .adult-search-bar-wrap {
   margin-top: 20px;
   display: flex;
@@ -4115,31 +4109,6 @@ body {
 
 .movie-hub-card {
   border-top: 3px solid #3b82f6;
-}
-
-.movie-header-top-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.movie-hub-badge {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
-.movie-source-pill {
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  padding: 3px 10px;
-  border-radius: var(--radius-full);
 }
 
 .movie-search-bar-wrap {
