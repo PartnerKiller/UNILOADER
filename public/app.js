@@ -1637,7 +1637,30 @@ function createJobCardElement(job) {
 
     <!-- Collapsible Log Drawer -->
     <div class="log-drawer" id="job-logs-${job.id}" style="display: none;">
-      <pre id="job-logs-content-${job.id}">${job.logs ? job.logs.join('\n') : ''}</pre>
+      <div class="log-drawer-header">
+        <div class="log-header-left">
+          <span class="log-header-dot"></span>
+          <span class="log-header-title">Process Logs</span>
+          <span class="log-line-count" id="job-logs-count-${job.id}">${(job.logs && job.logs.length) || 0} lines</span>
+        </div>
+        <div class="log-header-actions">
+          <button type="button" class="btn-log-action" onclick="scrollJobLogs('${job.id}', 'top')" title="Scroll to Beginning / Top">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+            <span>Top</span>
+          </button>
+          <button type="button" class="btn-log-action" onclick="scrollJobLogs('${job.id}', 'bottom')" title="Scroll to Latest / Bottom">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span>Bottom</span>
+          </button>
+          <button type="button" class="btn-log-action" onclick="copyJobLogs('${job.id}')" title="Copy all logs">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+      </div>
+      <div class="log-drawer-body" id="job-logs-body-${job.id}">
+        <pre id="job-logs-content-${job.id}">${escapeHtml(job.logs ? job.logs.join('\n') : '')}</pre>
+      </div>
     </div>
   `;
 
@@ -1764,13 +1787,30 @@ function updateJobCard(job) {
   }
 
   const logsEl = document.getElementById(`job-logs-content-${job.id}`);
+  const logCountEl = document.getElementById(`job-logs-count-${job.id}`);
   if (logsEl && Array.isArray(job.logs) && job.logs.length > 0) {
-    logsEl.textContent = job.logs.join('\n');
-    const drawer = document.getElementById(`job-logs-${job.id}`);
-    if (drawer && drawer.style.display !== 'none') {
-      const isNearBottom = drawer.scrollHeight - drawer.clientHeight - drawer.scrollTop < 60;
-      if (isNearBottom) {
-        drawer.scrollTop = drawer.scrollHeight;
+    const text = job.logs.join('\n');
+    if (logsEl.textContent !== text) {
+      const scrollBody = document.getElementById(`job-logs-body-${job.id}`) || document.getElementById(`job-logs-${job.id}`);
+      const drawer = document.getElementById(`job-logs-${job.id}`);
+      const isVisible = drawer && drawer.style.display !== 'none';
+
+      // Smart auto-scroll: only snap to bottom if user is already near the bottom (within 50px)
+      const isNearBottom = isVisible && scrollBody &&
+        (scrollBody.scrollHeight - scrollBody.clientHeight - scrollBody.scrollTop < 50);
+      const prevScrollTop = scrollBody ? scrollBody.scrollTop : 0;
+
+      logsEl.textContent = text;
+      if (logCountEl) {
+        logCountEl.textContent = `${job.logs.length} line${job.logs.length === 1 ? '' : 's'}`;
+      }
+
+      if (isVisible && scrollBody) {
+        if (isNearBottom) {
+          scrollBody.scrollTop = scrollBody.scrollHeight;
+        } else {
+          scrollBody.scrollTop = prevScrollTop;
+        }
       }
     }
   }
@@ -1797,9 +1837,16 @@ window.toggleJobLogs = async function(jobId) {
   const drawer = document.getElementById(`job-logs-${jobId}`);
   if (!drawer) return;
   const isOpening = drawer.style.display === 'none';
-  drawer.style.display = isOpening ? 'block' : 'none';
+  drawer.style.display = isOpening ? 'flex' : 'none';
   if (isOpening) {
+    const scrollBody = document.getElementById(`job-logs-body-${jobId}`) || drawer;
     const logsEl = document.getElementById(`job-logs-content-${jobId}`);
+    const countEl = document.getElementById(`job-logs-count-${jobId}`);
+
+    setTimeout(() => {
+      if (scrollBody) scrollBody.scrollTop = scrollBody.scrollHeight;
+    }, 40);
+
     try {
       const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -1807,11 +1854,59 @@ window.toggleJobLogs = async function(jobId) {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.logs) && logsEl) {
+          const isNearBottom = scrollBody ? (scrollBody.scrollHeight - scrollBody.clientHeight - scrollBody.scrollTop < 50) : true;
+          const prevScrollTop = scrollBody ? scrollBody.scrollTop : 0;
           logsEl.textContent = data.logs.join('\n');
+          if (countEl) countEl.textContent = `${data.logs.length} line${data.logs.length === 1 ? '' : 's'}`;
+          if (scrollBody) {
+            if (isNearBottom) scrollBody.scrollTop = scrollBody.scrollHeight;
+            else scrollBody.scrollTop = prevScrollTop;
+          }
         }
       }
     } catch (e) {}
-    drawer.scrollTop = drawer.scrollHeight;
+  }
+};
+
+window.scrollJobLogs = function(jobId, direction) {
+  const scrollBody = document.getElementById(`job-logs-body-${jobId}`) || document.getElementById(`job-logs-${jobId}`);
+  if (!scrollBody) return;
+  if (direction === 'top') {
+    scrollBody.scrollTo({ top: 0, behavior: 'smooth' });
+  } else {
+    scrollBody.scrollTo({ top: scrollBody.scrollHeight, behavior: 'smooth' });
+  }
+};
+
+window.copyJobLogs = function(jobId) {
+  const content = document.getElementById(`job-logs-content-${jobId}`);
+  if (!content || !content.textContent) {
+    showToast('No logs available to copy', 'warning');
+    return;
+  }
+  const text = content.textContent;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(() => showToast('Logs copied to clipboard! 📋', 'success'))
+      .catch(() => copyFallback(text));
+  } else {
+    copyFallback(text);
+  }
+
+  function copyFallback(str) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = str;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('Logs copied to clipboard! 📋', 'success');
+    } catch (e) {
+      showToast('Failed to copy logs', 'error');
+    }
   }
 };
 

@@ -379,6 +379,65 @@ function isProgressLine(line) {
   return false;
 }
 
+function isAriaJunkBanner(line) {
+  if (!line || typeof line !== 'string') return false;
+  const s = line.trim();
+  if (s.startsWith('*** Download Progress Summary')) return true;
+  if (/^[=\-]{10,}$/.test(s)) return true;
+  return false;
+}
+
+function appendJobLog(job, rawLine) {
+  if (!job) return;
+  if (!Array.isArray(job.logs)) job.logs = [];
+  if (!rawLine || typeof rawLine !== 'string') return;
+  const line = stripAnsi(rawLine).trim();
+  if (!line) return;
+
+  // 1. Filter out redundant aria2c summary banners and separator lines
+  if (isAriaJunkBanner(line)) return;
+
+  // 2. Prevent consecutive identical lines (e.g. repetitive FILE: path announcements)
+  const len = job.logs.length;
+  if (len > 0 && job.logs[len - 1] === line) {
+    return;
+  }
+
+  // 3. For live stream progress lines (aria2c [#hash ...], yt-dlp [download] ...%),
+  // update the active progress line in place so thousands of ticks don't flood the logs,
+  // but record milestone lines every 10% change
+  if (isProgressLine(line)) {
+    if (len > 0 && isProgressLine(job.logs[len - 1])) {
+      const prev = job.logs[len - 1];
+      const prevPercentMatch = prev.match(/(\d+)%/);
+      const currPercentMatch = line.match(/(\d+)%/);
+      const prevPct = prevPercentMatch ? parseInt(prevPercentMatch[1], 10) : null;
+      const currPct = currPercentMatch ? parseInt(currPercentMatch[1], 10) : null;
+
+      const isMilestone = prevPct !== null && currPct !== null &&
+        (Math.floor(currPct / 10) > Math.floor(prevPct / 10));
+
+      if (isMilestone) {
+        job.logs.push(line);
+      } else {
+        job.logs[len - 1] = line;
+        return;
+      }
+    } else {
+      job.logs.push(line);
+    }
+  } else {
+    job.logs.push(line);
+  }
+
+  // 4. Smart buffer retention: Keep up to 1,000 lines.
+  // CRITICAL: NEVER drop the first 50 initialization/setup lines!
+  // Always drop from line index 50 onwards so the beginning of the download is ALWAYS preserved!
+  if (job.logs.length > 1000) {
+    job.logs.splice(50, 1);
+  }
+}
+
 loadJobsHistory();
 
 function formatJobSummary(job, detailed = false) {
@@ -403,7 +462,7 @@ function formatJobSummary(job, detailed = false) {
     isPermanent: !!job.isPermanent
   };
   base.lastLog = job.logs && job.logs.length > 0 ? stripAnsi(job.logs[job.logs.length - 1]) : '';
-  base.logs = job.logs ? job.logs.slice(detailed ? -60 : -30).map(stripAnsi) : [];
+  base.logs = job.logs ? job.logs.slice(detailed ? -500 : -50).map(stripAnsi) : [];
   if (detailed) {
     base.startTime = job.startTime;
     base.completedTime = job.completedTime;
@@ -480,7 +539,7 @@ function broadcastJobUpdate(jobId) {
       status: job.status,
       mode: job.mode,
       progress: job.progress,
-      logs: (job.logs || []).slice(-60).map(stripAnsi),
+      logs: (job.logs || []).slice(-500).map(stripAnsi),
       error: job.error,
       title: job.title,
       filename: job.filename,
@@ -5227,17 +5286,7 @@ function startTorrentJob(job) {
         const clean = stripAnsi(line).trim();
         if (!clean) continue;
 
-        if (!job.logs) job.logs = [];
-        if (isProgressLine(clean)) {
-          if (job.logs.length > 0 && isProgressLine(job.logs[job.logs.length - 1])) {
-            job.logs[job.logs.length - 1] = clean;
-          } else {
-            job.logs.push(clean);
-          }
-        } else {
-          job.logs.push(clean);
-        }
-        if (job.logs.length > 200) job.logs.shift();
+        appendJobLog(job, clean);
 
         // Robust match for aria2c output with or without ETA / DL speed
         const m = clean.match(/\[#\w+\s+([\d.]+\s*[a-zA-Z]+)\/([\d.]+\s*[a-zA-Z]+)\((\d+)%\)(?:.*?DL:([\d.]+\s*[a-zA-Z]+))?(?:.*?ETA:([\w\d:]+))?/i);
@@ -5257,9 +5306,10 @@ function startTorrentJob(job) {
     child.stderr.on('data', data => {
       const text = stripAnsi(data.toString()).trim();
       if (text) {
-        if (!job.logs) job.logs = [];
-        job.logs.push(`[ERR] ${text}`);
-        if (job.logs.length > 200) job.logs.shift();
+        const errLines = text.split(/[\r\n]+/).filter(Boolean);
+        for (const el of errLines) {
+          appendJobLog(job, `[ERR] ${el}`);
+        }
       }
       scheduleJobUpdate(job.id, false);
     });
@@ -6138,22 +6188,7 @@ function attachProcessListeners(job, child) {
     if (!clean) return;
     const finalLine = isErr && !clean.startsWith('[ERR]') ? `[ERR] ${clean}` : clean;
     parseProgress(clean);
-
-    if (!job.logs) job.logs = [];
-
-    if (isProgressLine(finalLine)) {
-      if (job.logs.length > 0 && isProgressLine(job.logs[job.logs.length - 1])) {
-        job.logs[job.logs.length - 1] = finalLine;
-      } else {
-        job.logs.push(finalLine);
-      }
-    } else {
-      job.logs.push(finalLine);
-    }
-
-    if (job.logs.length > 200) {
-      job.logs.splice(0, job.logs.length - 200);
-    }
+    appendJobLog(job, finalLine);
   };
 
   child.stdout.on('data', (data) => {

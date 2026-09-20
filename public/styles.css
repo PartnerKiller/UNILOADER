@@ -1727,28 +1727,114 @@ body {
 
 .log-drawer {
   margin-top: 12px;
-  padding: 12px;
   background-color: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  color: var(--text-secondary);
-  max-height: 220px;
-  overflow-y: auto;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-all;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
+.log-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.72rem;
+  user-select: none;
+}
+
+.log-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.log-header-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--accent-color, #38bdf8);
+  box-shadow: 0 0 6px var(--accent-color, #38bdf8);
+}
+
+.log-header-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.log-line-count {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.log-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-log-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-log-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  border-color: var(--border-focus, #38bdf8);
+}
+
+.log-drawer-body {
+  padding: 10px 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+}
+
+.log-drawer-body pre,
 .log-drawer pre {
   margin: 0;
   padding: 0;
-  font-family: inherit;
-  font-size: inherit;
-  color: inherit;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+.log-drawer-body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.log-drawer-body::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.15);
+}
+.log-drawer-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+.log-drawer-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 /* Empty States */
