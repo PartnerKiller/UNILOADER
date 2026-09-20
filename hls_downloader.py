@@ -2,12 +2,20 @@ import sys
 import os
 import time
 import signal
+import threading
 import concurrent.futures
 from curl_cffi import requests
 import subprocess
 import re
 import json
 import shutil
+
+thread_local = threading.local()
+
+def get_thread_session():
+    if not hasattr(thread_local, 'session'):
+        thread_local.session = requests.Session(impersonate='chrome124')
+    return thread_local.session
 
 active_temp_dir = None
 
@@ -165,15 +173,16 @@ def resolve_and_download(input_url, output_file, max_workers=32):
         if os.path.exists(part_path) and os.path.getsize(part_path) > 1024:
             return idx, os.path.getsize(part_path)
 
+        sess = get_thread_session()
         for attempt in range(5):
             try:
-                res = stream_session.get(seg_url, timeout=25)
+                res = sess.get(seg_url, timeout=20)
                 if res.status_code == 200 and len(res.content) > 0:
                     with open(part_path, 'wb') as f:
                         f.write(res.content)
                     return idx, len(res.content)
             except Exception:
-                time.sleep(0.3 * (attempt + 1))
+                time.sleep(0.2 * (attempt + 1))
 
         raise Exception(f"Failed to download segment {idx}")
 

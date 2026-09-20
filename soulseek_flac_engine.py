@@ -516,9 +516,9 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": term}, timeout=8)
             if r_post.status_code in [200, 201]:
                 search_id = r_post.json().get('id')
-                # Wait 6-7 seconds for responses to stream in from all distributed Soulseek peers across the world
+                # Wait 3-4 seconds for high-speed responses from distributed Soulseek peers
                 last_peer_count = 0
-                for sec in range(7):
+                for sec in range(4):
                     time.sleep(1)
                     try:
                         r_chk = session.get(f"{SLSKD_API_BASE}/searches/{search_id}", timeout=3)
@@ -526,9 +526,9 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                             chk_data = r_chk.json()
                             curr_peers = chk_data.get('responseCount', 0)
                             curr_files = chk_data.get('fileCount', 0)
-                            if chk_data.get('isComplete') and sec >= 4 and curr_files > 0:
+                            if chk_data.get('isComplete') and curr_files > 0:
                                 break
-                            if sec >= 5 and curr_peers >= 30 and curr_peers == last_peer_count:
+                            if sec >= 2 and curr_peers >= 12 and curr_peers == last_peer_count:
                                 break
                             last_peer_count = curr_peers
                     except Exception:
@@ -537,7 +537,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                 # CRITICAL: SLSKD only flushes buffered responses to /responses once search is completed or stopped!
                 try:
                     session.put(f"{SLSKD_API_BASE}/searches/{search_id}", json={}, timeout=4)
-                    time.sleep(0.4)
+                    time.sleep(0.3)
                 except Exception:
                     pass
 
@@ -554,8 +554,8 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                                     if f.get('filename') not in existing_files:
                                         all_peers_map[uname].setdefault('files', []).append(f)
 
-                    # If primary artist + title query already yielded rich peer discovery (>= 15 peers), avoid looser search
-                    if term_idx == 0 and len(all_peers_map) >= 15:
+                    # If primary artist + title query already yielded peer discovery (>= 6 peers with files), avoid looser search
+                    if term_idx == 0 and len(all_peers_map) >= 6:
                         break
         except Exception as e:
             print(f"[Soulseek HiFi] Query error: {e}", file=sys.stderr)
@@ -751,9 +751,9 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         last_bytes_tx = -1
         # Scale wait time with candidate file size so 100MB+ Hi-Res Studio Masters have full time to complete
         effective_max_wait = max(max_wait_sec, int(total_mb / 0.20) + 45)
-        MIN_SPEED_MB = 0.15    # Speed watchdog floor: 0.15 MiB/s (~1.2 Mbps) allows high-res masters over moderate peer connections
-        SPEED_GRACE_SEC = 10.0 # Grace period for peer connection ramp-up once data starts flowing
-        MAX_HANDSHAKE_SEC = 30 # Allow up to 30s for P2P connection handshake and remote queue allocation
+        MIN_SPEED_MB = 0.35    # Speed watchdog floor: 0.35 MiB/s (~3 Mbps)
+        SPEED_GRACE_SEC = 8.0  # Grace period for peer connection ramp-up
+        MAX_HANDSHAKE_SEC = 10 # Allow up to 10s for peer handshake before failing over to free-slot peer
 
         print(f"[download] 0.0% of {total_mb:.1f}MiB at 0.00MiB/s ETA --:-- (Soulseek HiFi)", flush=True)
         

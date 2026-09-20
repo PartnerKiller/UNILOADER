@@ -1345,7 +1345,7 @@ async function startDownload() {
     code: currentExtractedData.code,
     poster: currentExtractedData.poster,
     downloadFolder: selectedFolder || undefined,
-    concurrentFragments: parseInt(concurrencySelect.value, 10) || 8,
+    concurrentFragments: parseInt(concurrencySelect.value, 10) || 32,
     mode: currentMode,
     videoQuality: videoQualitySelect.value,
     videoFormat: videoFormatSelect.value,
@@ -1418,7 +1418,7 @@ async function startBatchDownload() {
     embedMetadata: chkEmbedMetadata.checked,
     embedSubtitles: chkEmbedSubtitles.checked,
     sponsorBlock: chkSponsorBlock.checked,
-    concurrentFragments: parseInt(concurrencySelect.value, 10) || 8
+    concurrentFragments: parseInt(concurrencySelect.value, 10) || 32
   };
 
   startBatchBtn.disabled = true;

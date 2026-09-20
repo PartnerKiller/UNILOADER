@@ -52,10 +52,10 @@ const BT_TRACKER_PARAMS = HIGH_SPEED_BT_TRACKERS.map(t => `tr=${encodeURICompone
 const ENGINE_CONFIG_FILE = path.join(__dirname, 'engine_config.json');
 const defaultEngineConfig = {
   maxConcurrentJobs: 4,
-  aria2cFragments: 16,
+  aria2cFragments: 32,
   aria2cMinSplitSize: '1M',
-  bufferSize: '16M',
-  httpChunkSize: '10M',
+  bufferSize: '32M',
+  httpChunkSize: '16M',
   retries: 10,
   features: {
     adultHub: true,
@@ -5311,7 +5311,9 @@ function startTorrentJob(job) {
     '--seed-time=0',
     '--max-connection-per-server=16',
     '--split=16',
-    '--bt-max-peers=160',
+    '--bt-max-peers=200',
+    '--bt-max-open-files=500',
+    '--async-dns=true',
     '--bt-stop-timeout=600',
     '--summary-interval=1',
     '--enable-dht=true',
@@ -5322,6 +5324,10 @@ function startTorrentJob(job) {
     '--bt-min-crypto-level=plain',
     '--bt-require-crypto=false',
     '--bt-request-peer-speed-limit=0',
+    '--listen-port=6881-6999',
+    '--dht-listen-port=6881-6999',
+    '--max-overall-download-limit=0',
+    '--max-download-limit=0',
     '--dht-entry-point=router.bittorrent.com:6881',
     '--dht-entry-point=dht.transmissionbt.com:6881',
     '--dht-entry-point=router.utorrent.com:6881',
@@ -5495,8 +5501,15 @@ function startDirectHttpJob(job) {
     '--dir=' + outDir,
     '--out=' + targetFilename,
     '--max-connection-per-server=16',
-    '--split=16',
+    '--split=32',
     '--min-split-size=1M',
+    '--disk-cache=64M',
+    '--stream-piece-selector=geom',
+    '--connect-timeout=10',
+    '--timeout=15',
+    '--max-tries=5',
+    '--retry-wait=2',
+    '--async-dns=true',
     '--summary-interval=1',
     '--allow-overwrite=true',
     '--auto-file-renaming=false',
@@ -5717,7 +5730,7 @@ function startJobProcess(job) {
   } = opts;
 
   mode = mode || 'video';
-  concurrentFragments = parseInt(concurrentFragments, 10) || 8;
+  concurrentFragments = parseInt(concurrentFragments, 10) || 32;
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
@@ -5902,23 +5915,26 @@ function startJobProcess(job) {
     job.process = child;
     attachProcessListeners(job, child);
   } else {
-    const concurrentFragments = parseInt(opts.concurrentFragments, 10) || engineConfig.aria2cFragments || 16;
+    const concurrentFragments = parseInt(opts.concurrentFragments, 10) || engineConfig.aria2cFragments || 32;
     const outputTemplate = path.join(TEMP_DIR, `${job.id}_${job.title}.%(ext)s`);
     const args = [
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
-      '--buffer-size', engineConfig.bufferSize || '16M',
+      '--buffer-size', engineConfig.bufferSize || '32M',
       '--retries', String(engineConfig.retries || 10),
       '--fragment-retries', String(engineConfig.retries || 10),
+      '--socket-timeout', '15',
+      '--hls-use-mpegts',
       '--newline',
       '--ignore-errors',
       '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
       '-o', outputTemplate
     ];
 
-    if (engineConfig.httpChunkSize && engineConfig.httpChunkSize !== '10M' && engineConfig.httpChunkSize !== 'default') {
-      args.push('--http-chunk-size', engineConfig.httpChunkSize);
-    }
+    const effectiveChunk = (engineConfig.httpChunkSize && engineConfig.httpChunkSize !== 'default' && engineConfig.httpChunkSize !== 'none')
+      ? engineConfig.httpChunkSize
+      : '16M';
+    args.push('--http-chunk-size', effectiveChunk);
 
     // Never force aria2c on YouTube or tokenized streaming sites (causes 403 Forbidden & severe throttling)
     const isDirectMediaUrl = (url && /\.(mp4|mkv|webm|avi|mov|flv|ts|mp3|flac|wav|m4a)(\?|$)/i.test(url)) || (rawTarget && /\.(mp4|mkv|webm|avi|mov|flv|ts|mp3|flac|wav|m4a)(\?|$)/i.test(rawTarget));
@@ -5927,10 +5943,10 @@ function startJobProcess(job) {
     if (process.platform === 'linux' && allowAria2c) {
       try {
         execSync('which aria2c', { stdio: 'ignore' });
-        const frag = engineConfig.aria2cFragments || 16;
+        const frag = engineConfig.aria2cFragments || 32;
         const split = engineConfig.aria2cMinSplitSize || '1M';
         args.push('--downloader', 'http,https:aria2c');
-        args.push('--downloader-args', `aria2c:-s ${frag} -x ${frag} -k 1M -j ${frag} --min-split-size=${split} --summary-interval=1`);
+        args.push('--downloader-args', `aria2c:-s ${frag} -x 16 -k 1M -j ${frag} --disk-cache=64M --min-split-size=${split} --summary-interval=1`);
       } catch (e) {}
     } else if (process.platform === 'win32') {
       args.push('--impersonate', 'chrome');

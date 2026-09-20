@@ -144,9 +144,13 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
                     print(f"[Audiophile HiFi] 🌟 Verified Authentic 24-bit Tidal Studio Master ({bps}-bit / {sr/1000:.1f} kHz)!", flush=True)
                     return True
                 else:
-                    print(f"[Audiophile HiFi] Tidal stream is standard 16-bit / 44.1 kHz. Checking Soulseek P2P for superior 24-bit Hi-Res Studio Master...", flush=True)
-                    tidal_16bit_backup = output_path + ".tidal16.bak"
-                    shutil.copy2(output_path, tidal_16bit_backup)
+                    if target_quality in ('24bit', '24', 'hires', 'master', 'studio'):
+                        print(f"[Audiophile HiFi] Tidal stream is 16-bit. Checking Soulseek P2P for requested 24-bit Hi-Res Studio Master...", flush=True)
+                        tidal_16bit_backup = output_path + ".tidal16.bak"
+                        shutil.copy2(output_path, tidal_16bit_backup)
+                    else:
+                        print(f"[Audiophile HiFi] ⚡ Authentic 16-bit / 44.1 kHz Lossless CD Master accepted directly from Tidal in seconds!", flush=True)
+                        return True
             except Exception:
                 return True
     except Exception as e:
