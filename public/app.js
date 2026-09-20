@@ -286,16 +286,16 @@ function updateAuthUI(user, limits) {
 
   if (user && user.role !== 'guest') {
     // Registered Member, Premium, Admin, or Owner
-    let badgeText = 'â˜… MEMBER';
+    let badgeText = 'MEMBER';
     let badgeClass = 'badge-tier badge-tier-premium';
     if (user.role === 'owner' || user.isOwner) {
-      badgeText = 'ðŸ‘‘ OWNER';
+      badgeText = 'OWNER';
       badgeClass = 'badge-tier badge-tier-owner';
     } else if (user.role === 'admin') {
-      badgeText = 'âš¡ ADMIN';
+      badgeText = 'ADMIN';
       badgeClass = 'badge-tier badge-tier-admin';
     } else if (user.role === 'premium') {
-      badgeText = 'â˜… PREMIUM';
+      badgeText = 'PREMIUM';
       badgeClass = 'badge-tier badge-tier-premium';
     }
 
@@ -305,11 +305,13 @@ function updateAuthUI(user, limits) {
       sidebarUserRole.className = badgeClass;
     }
     if (sidebarUserAvatar) {
-      sidebarUserAvatar.classList.add('is-premium');
+      sidebarUserAvatar.className = 'user-avatar-badge';
       if (user.role === 'owner' || user.isOwner) {
         sidebarUserAvatar.classList.add('is-owner');
+      } else if (user.role === 'admin') {
+        sidebarUserAvatar.classList.add('is-admin');
       } else {
-        sidebarUserAvatar.classList.remove('is-owner');
+        sidebarUserAvatar.classList.add('is-premium');
       }
     }
     if (sidebarAuthBtnText) sidebarAuthBtnText.textContent = 'Account';
@@ -322,11 +324,13 @@ function updateAuthUI(user, limits) {
       drawerUserRole.className = badgeClass;
     }
     if (drawerUserAvatar) {
-      drawerUserAvatar.classList.add('is-premium');
+      drawerUserAvatar.className = 'user-avatar-badge';
       if (user.role === 'owner' || user.isOwner) {
         drawerUserAvatar.classList.add('is-owner');
+      } else if (user.role === 'admin') {
+        drawerUserAvatar.classList.add('is-admin');
       } else {
-        drawerUserAvatar.classList.remove('is-owner');
+        drawerUserAvatar.classList.add('is-premium');
       }
     }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account';
@@ -524,35 +528,49 @@ function openAccountModal() {
   const folderPathEl = document.getElementById('accountModalFolderPath');
   const folderBadgeEl = document.getElementById('accountModalFolderBadge');
 
+  const modalAvatar = document.getElementById('accountModalAvatar');
+
   if (nameEl && currentUser) nameEl.textContent = currentUser.username;
   if (roleEl && currentUser) {
     if (currentUser.role === 'owner' || currentUser.isOwner) {
-      roleEl.textContent = 'ðŸ‘‘ OWNER / SYSTEM ADMIN';
+      roleEl.textContent = 'OWNER / SYSTEM ADMIN';
       roleEl.className = 'badge-tier badge-tier-owner';
     } else if (currentUser.role === 'admin') {
-      roleEl.textContent = 'âš¡ ADMIN ACCESS';
+      roleEl.textContent = 'ADMIN';
       roleEl.className = 'badge-tier badge-tier-admin';
     } else {
-      roleEl.textContent = 'â˜… PREMIUM MEMBER';
+      roleEl.textContent = 'PREMIUM MEMBER';
       roleEl.className = 'badge-tier badge-tier-premium';
     }
   }
 
+  if (modalAvatar && currentUser) {
+    modalAvatar.className = 'user-avatar-badge';
+    if (currentUser.role === 'owner' || currentUser.isOwner) {
+      modalAvatar.classList.add('is-owner');
+    } else if (currentUser.role === 'admin') {
+      modalAvatar.classList.add('is-admin');
+    } else {
+      modalAvatar.classList.add('is-premium');
+    }
+  }
+
   if (folderPathEl && folderBadgeEl && currentUser) {
-    if (currentUser.downloadFolder) {
+    if (currentUser.downloadFolder && currentUser.downloadFolder !== '*') {
       folderPathEl.textContent = currentUser.downloadFolder;
       folderPathEl.title = currentUser.downloadFolder;
-      folderBadgeEl.textContent = 'ðŸ“ Permanent Storage';
-      folderBadgeEl.style.background = 'rgba(16,185,129,0.15)';
-      folderBadgeEl.style.color = '#34d399';
-      folderBadgeEl.style.borderColor = 'rgba(16,185,129,0.3)';
+      folderBadgeEl.textContent = 'Permanent Storage';
+      folderBadgeEl.className = 'badge-tag badge-tag-emerald';
+    } else if (currentUser.downloadFolder === '*' || currentUser.role === 'owner' || currentUser.isOwner) {
+      folderPathEl.textContent = 'Unrestricted (Full Server Storage)';
+      folderPathEl.title = 'Full server storage access';
+      folderBadgeEl.textContent = 'Full Access';
+      folderBadgeEl.className = 'badge-tag badge-tag-emerald';
     } else {
       folderPathEl.textContent = 'Default Temporary Media Directory';
       folderPathEl.title = 'Default server temp storage';
-      folderBadgeEl.textContent = 'Temporary Cache';
-      folderBadgeEl.style.background = 'rgba(255,255,255,0.06)';
-      folderBadgeEl.style.color = '#94a3b8';
-      folderBadgeEl.style.borderColor = 'rgba(255,255,255,0.12)';
+      folderBadgeEl.textContent = 'Temporary Storage';
+      folderBadgeEl.className = 'badge-tag';
     }
   }
 
@@ -729,7 +747,7 @@ function setupAuthModalEvents() {
           }
 
           if (alertEl) {
-            alertEl.textContent = 'ðŸŒŸ Welcome back, ' + (data.user?.username || username) + '!';
+            alertEl.textContent = 'Welcome back, ' + (data.user?.username || username) + '!';
             alertEl.className = 'auth-alert auth-alert-success';
             alertEl.style.display = 'block';
           }
@@ -806,7 +824,7 @@ function setupAuthModalEvents() {
 
         if (res.ok && data.success) {
           if (alertEl) {
-            alertEl.textContent = 'ðŸŽ‰ ' + (data.message || 'Access request submitted! Sakura (Owner) will review and activate your account.');
+            alertEl.textContent = data.message || 'Access request submitted! Sakura (Owner) will review and activate your account.';
             alertEl.className = 'apply-status-alert alert-success';
             alertEl.style.display = 'block';
           }
@@ -856,7 +874,7 @@ function setupAuthModalEvents() {
     videoQualitySelect.addEventListener('change', (e) => {
       const val = String(e.target.value).toLowerCase();
       if (['2160', '1440', '1080'].includes(val) && !canAccess('quality_4k')) {
-        showToast('ðŸ‘‘ 4K & Full HD resolutions are restricted for your role. Please sign in or upgrade.', 'info');
+        showToast('4K & Full HD resolutions are restricted for your role. Please sign in or upgrade.', 'info');
       }
     });
   }
@@ -866,7 +884,7 @@ function setupAuthModalEvents() {
     audioFormatSelect.addEventListener('change', (e) => {
       const val = String(e.target.value).toLowerCase();
       if ((val === 'flac' || val === 'wav') && !canAccess('audiophile_flac')) {
-        showToast('ðŸ‘‘ Lossless Studio Master FLAC is restricted for your role. Please sign in or upgrade.', 'info');
+        showToast('Lossless Studio Master FLAC is restricted for your role. Please sign in or upgrade.', 'info');
       }
     });
   }

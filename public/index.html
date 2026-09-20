@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.12.2">
+  <link rel="stylesheet" href="styles.css?v=4.12.3">
 </head>
 <body>
   <div class="app-layout">
@@ -98,7 +98,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.12.2 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.12.3 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -258,7 +258,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.12.2 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.12.3 &bull; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -1624,57 +1624,57 @@
 
     <!-- User Account Modal (For Logged-in Users) -->
     <div class="modal-backdrop" id="accountModal" style="display: none;">
-      <div class="modal-dialog auth-modal-dialog">
-        <div class="auth-modal-header">
+      <div class="modal-dialog auth-modal-dialog account-modal-dialog">
+        <div class="auth-modal-header account-modal-header">
           <div class="auth-header-brand">
-            <div class="user-avatar-badge" style="width: 38px; height: 38px; font-size: 1.1rem;">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <div class="user-avatar-badge" id="accountModalAvatar" style="width: 38px; height: 38px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             </div>
-            <div>
+            <div class="account-header-info">
               <h3 class="auth-title" id="accountModalUsername">Username</h3>
-              <span class="badge-tier badge-tier-premium" id="accountModalRoleBadge">★ PREMIUM MEMBER</span>
+              <span class="badge-tier badge-tier-premium" id="accountModalRoleBadge">PREMIUM MEMBER</span>
             </div>
           </div>
           <button class="modal-close" id="btnCloseAccountModal" title="Close modal">&times;</button>
         </div>
 
-        <div class="auth-modal-body">
+        <div class="auth-modal-body account-modal-body">
           <div class="account-details-grid">
             <div class="account-stat-card">
               <span class="account-stat-label">Video Tier</span>
-              <span class="account-stat-val text-emerald">4K Ultra HD &amp; 8K</span>
+              <span class="account-stat-val"><span class="stat-dot"></span>4K Ultra HD &amp; 8K</span>
             </div>
             <div class="account-stat-card">
               <span class="account-stat-label">Audio Tier</span>
-              <span class="account-stat-val text-emerald">24-bit Studio Master FLAC</span>
+              <span class="account-stat-val"><span class="stat-dot"></span>24-bit Studio Master FLAC</span>
             </div>
             <div class="account-stat-card">
               <span class="account-stat-label">Batch Limit</span>
-              <span class="account-stat-val text-emerald">Unlimited URLs</span>
+              <span class="account-stat-val"><span class="stat-dot"></span>Unlimited URLs</span>
             </div>
             <div class="account-stat-card">
               <span class="account-stat-label">Concurrency</span>
-              <span class="account-stat-val text-emerald">Unthrottled Priority</span>
+              <span class="account-stat-val"><span class="stat-dot"></span>Unthrottled Priority</span>
             </div>
           </div>
 
           <div class="account-storage-card">
             <div class="account-storage-header">
-              <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Assigned Storage Target</span>
-              <span id="accountModalFolderBadge" class="badge-tag" style="font-size: 0.68rem; padding: 2px 8px; border-radius: 4px; background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3);">Permanent Storage</span>
+              <span class="account-storage-label">Assigned Storage Target</span>
+              <span id="accountModalFolderBadge" class="badge-tag">Permanent Storage</span>
             </div>
             <div id="accountModalFolderPath" class="account-storage-path">
-              Default Temporary Storage
+              Unrestricted (Full Server Storage)
             </div>
           </div>
 
           <div class="account-actions">
-            <a href="/admin" class="btn btn-primary" id="btnAccountAdminStudio" style="display: none; align-items: center; justify-content: center; gap: 8px; text-decoration: none; padding: 10px 16px; font-size: 0.85rem; font-weight: 600; border-radius: var(--radius-sm);" target="_blank">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+            <a href="/admin" class="btn-account-action btn-account-admin" id="btnAccountAdminStudio" style="display: none;" target="_blank">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
               <span>Sakura Admin Studio</span>
             </a>
-            <button type="button" class="btn btn-danger auth-logout-btn" id="btnLogoutBtn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            <button type="button" class="btn-account-action btn-account-logout" id="btnLogoutBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
               <span>Sign Out</span>
             </button>
           </div>
@@ -1684,6 +1684,6 @@
 
   </div>
 
-  <script src="app.js?v=4.12.2"></script>
+  <script src="app.js?v=4.12.3"></script>
 </body>
 </html>

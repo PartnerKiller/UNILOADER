@@ -5965,8 +5965,8 @@ body {
   box-sizing: border-box;
   margin: 0 0 2px 0;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   display: flex;
   flex-direction: row;
@@ -5975,17 +5975,13 @@ body {
   gap: 8px;
   cursor: pointer;
   user-select: none;
-  transition: all var(--transition-normal);
+  transition: all var(--transition-fast);
   text-align: left;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 .sidebar-user-card:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.16);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  background: var(--bg-surface-hover);
+  border-color: var(--border-color);
 }
 
 .sidebar-user-card:active {
@@ -6010,9 +6006,9 @@ body {
   height: 32px;
   min-width: 32px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(59, 130, 246, 0.1));
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  color: var(--border-focus, #60a5fa);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6026,17 +6022,22 @@ body {
 }
 
 .user-avatar-badge.is-premium {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  border-color: #fcd34d;
-  color: #ffffff;
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+
+.user-avatar-badge.is-admin {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #c084fc;
 }
 
 .user-avatar-badge.is-owner {
-  background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%) !important;
-  border-color: #fef08a !important;
-  color: #ffffff !important;
-  box-shadow: 0 0 14px rgba(245, 158, 11, 0.55) !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+  color: #fbbf24 !important;
+  box-shadow: none !important;
 }
 
 .user-card-meta {
@@ -6044,12 +6045,12 @@ body {
   flex-direction: column;
   min-width: 0;
   flex: 1;
-  gap: 2px;
+  gap: 3px;
 }
 
 .user-card-name {
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: 0.84rem;
+  font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -6058,43 +6059,45 @@ body {
 }
 
 .badge-tier {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   font-size: 0.60rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 1px 5px;
-  border-radius: 4px;
+  padding: 1.5px 5.5px;
+  border-radius: 3px;
   width: fit-content;
   line-height: 1.2;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .badge-tier-guest {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .badge-tier-premium {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.25));
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.45);
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
 .badge-tier-owner {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.35), rgba(180, 83, 9, 0.45));
-  color: #fef08a;
-  border: 1px solid rgba(245, 158, 11, 0.7);
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.35);
-  text-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fde68a;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  box-shadow: none;
+  text-shadow: none;
 }
 
 .badge-tier-admin {
-  background: linear-gradient(135deg, rgba(147, 51, 234, 0.25), rgba(126, 34, 206, 0.3));
-  color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.5);
-  box-shadow: 0 0 8px rgba(168, 85, 247, 0.25);
+  background: rgba(168, 85, 247, 0.12);
+  color: #d8b4fe;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  box-shadow: none;
 }
 
 .btn-user-auth {
@@ -6103,38 +6106,39 @@ body {
   justify-content: center;
   gap: 4px;
   flex-shrink: 0;
-  padding: 4px 8px;
-  font-size: 0.70rem;
+  padding: 4px 9px;
+  font-size: 0.72rem;
   font-weight: 600;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.9), rgba(29, 78, 216, 0.9));
+  background: var(--accent-primary);
   color: #ffffff;
-  border: 1px solid rgba(59, 130, 246, 0.5);
+  border: none;
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
 .btn-user-auth:hover {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+  background: var(--accent-primary-hover);
 }
 
-.btn-user-auth.btn-user-active {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: var(--text-secondary);
+.btn-user-auth.btn-user-active,
+body.authenticated-user .btn-user-auth {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 3px 4px;
+  font-weight: 500;
 }
 
-.btn-user-auth.btn-user-active:hover {
-  background: rgba(255, 255, 255, 0.14);
+.sidebar-user-card:hover .btn-user-auth.btn-user-active,
+body.authenticated-user .sidebar-user-card:hover .btn-user-auth {
   color: var(--text-primary);
-  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .btn-user-auth .auth-btn-icon {
-  opacity: 0.7;
-  transition: transform var(--transition-fast);
+  opacity: 0.55;
+  transition: all var(--transition-fast);
 }
 
 .sidebar-user-card:hover .btn-user-auth .auth-btn-icon {
@@ -6165,8 +6169,8 @@ body {
 .mobile-drawer-user-card {
   margin: 10px 0 16px 0;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   display: flex;
   flex-direction: row;
@@ -6178,8 +6182,8 @@ body {
 }
 
 .mobile-drawer-user-card:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--bg-surface-hover);
+  border-color: var(--border-color);
 }
 
 .drawer-user-info {
@@ -6195,12 +6199,12 @@ body {
   flex-direction: column;
   min-width: 0;
   flex: 1;
-  gap: 2px;
+  gap: 3px;
 }
 
 .drawer-user-name {
   font-size: 0.85rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -6218,17 +6222,33 @@ body {
   font-size: 0.74rem;
   font-weight: 600;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: var(--accent-primary);
   color: #ffffff;
-  border: 1px solid rgba(59, 130, 246, 0.4);
+  border: none;
   cursor: pointer;
   white-space: nowrap;
   transition: all var(--transition-fast);
 }
 
+.btn-drawer-auth:hover {
+  background: var(--accent-primary-hover);
+}
+
+body.authenticated-user .btn-drawer-auth {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 3px 4px;
+  font-weight: 500;
+}
+
+.mobile-drawer-user-card:hover .btn-drawer-auth {
+  color: var(--text-primary);
+}
+
 .btn-drawer-auth .auth-btn-icon {
-  opacity: 0.7;
-  transition: transform var(--transition-fast);
+  opacity: 0.55;
+  transition: all var(--transition-fast);
 }
 
 .mobile-drawer-user-card:hover .btn-drawer-auth .auth-btn-icon {
@@ -6459,18 +6479,53 @@ body {
   text-decoration: underline;
 }
 
-/* Account Details Grid */
+/* Account Modal Styles */
+.account-modal-dialog {
+  max-width: 440px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.account-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.account-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-header-info .auth-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.account-modal-body {
+  padding: 18px 20px 20px 20px;
+}
+
 .account-details-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .account-stat-card {
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
@@ -6478,7 +6533,7 @@ body {
 }
 
 .account-stat-label {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -6486,50 +6541,101 @@ body {
 }
 
 .account-stat-val {
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--text-primary);
-}
-
-.account-stat-val.text-emerald {
-  color: #34d399;
-}
-
-.auth-logout-btn {
-  width: 100%;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px;
-  font-weight: 600;
-  font-size: 0.85rem;
+  gap: 6px;
+}
+
+.account-stat-val .stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+  flex-shrink: 0;
 }
 
 .account-storage-card {
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .account-storage-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.account-storage-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .account-storage-path {
   font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
-  color: #93c5fd;
+  font-size: 0.80rem;
+  color: var(--text-secondary);
   word-break: break-all;
   background: rgba(0, 0, 0, 0.25);
-  padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-subtle);
+}
+
+.account-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn-account-action {
+  width: 100%;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none;
+}
+
+.btn-account-admin {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  color: #38bdf8;
+}
+
+.btn-account-admin:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #7dd3fc;
+}
+
+.btn-account-logout {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.btn-account-logout:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
 }
 
 /* ==========================================================================
