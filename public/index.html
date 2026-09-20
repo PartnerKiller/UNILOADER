@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.10.0">
+  <link rel="stylesheet" href="styles.css?v=4.11.4">
 </head>
 <body>
   <div class="app-layout">
@@ -102,7 +102,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.11.3 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.11.4 &bull; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -272,7 +272,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.11.3 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.11.4 &bull; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -578,13 +578,17 @@
            ========================================== -->
       <div class="view-panel" id="viewMovies" style="display: none;">
         <section class="section-card movie-hub-card">
-          <div class="section-header-flex">
-            <div style="width: 100%;">
-              <h2 class="section-title">Movie &amp; TV Show Direct Search &amp; Downloader</h2>
-              <p class="section-description">
-                Search and download cinema, anime, and TV blockbusters with ultra-fast Direct DDL and multi-threaded cloud acceleration.
-              </p>
-            </div>
+          <!-- Mode Switch Tabs -->
+          <div class="mode-tabs-container" id="movieSourceTabs">
+            <button type="button" class="mode-tab movie-tab active" data-source="ddl">
+              <span class="tab-label">Direct DDL (Fast Cloud)</span>
+            </button>
+            <button type="button" class="mode-tab movie-tab" data-source="yts">
+              <span class="tab-label">YTS</span>
+            </button>
+            <button type="button" class="mode-tab movie-tab" data-source="torrents">
+              <span class="tab-label">Torrents</span>
+            </button>
           </div>
 
           <!-- Movie Search & Filter Controls -->
@@ -595,7 +599,7 @@
                   <circle cx="11" cy="11" r="8"></circle>
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input type="text" id="movieSearchInput" class="movie-search-input" placeholder="Search movies, anime, or TV shows (e.g. A Silent Voice, Oppenheimer, Deadpool, Dune)..." autocomplete="off" />
+                <input type="text" id="movieSearchInput" class="movie-search-input" placeholder="Search movies, anime, or TV shows (e.g. A Silent Voice, Oppenheimer, Deadpool)..." autocomplete="off" />
                 <button type="button" class="btn-clear-movie-search" id="btnClearMovieSearch" style="display: none;">&times;</button>
               </div>
               <button type="submit" class="btn btn-primary btn-movie-search-submit" id="btnMovieSearchSubmit">
@@ -606,12 +610,6 @@
 
             <!-- Filter & Preset Pills -->
             <div class="movie-controls-row">
-              <div class="movie-source-tabs" id="movieSourceTabs">
-                <button type="button" class="movie-tab active" data-source="ddl">Direct DDL (Fast Cloud)</button>
-                <button type="button" class="movie-tab" data-source="yts">YTS</button>
-                <button type="button" class="movie-tab" data-source="torrents">Torrents</button>
-              </div>
-
               <div class="movie-quality-filters" id="movieQualityFilters">
                 <span class="quality-label">Quality:</span>
                 <button type="button" class="movie-q-pill active" data-quality="all">All Qualities</button>
@@ -638,10 +636,20 @@
           </div>
 
           <!-- Empty State -->
-          <div class="movie-empty-state" id="movieEmptyState">
-            <div class="empty-icon">🎬</div>
-            <h3>Discover &amp; Download Movies in Master Quality</h3>
-            <p>Enter any movie or series title above, or tap a trending title to instantly browse 4K UHD, 1080p, and multi-audio releases.</p>
+          <div class="empty-state movie-empty-state" id="movieEmptyState">
+            <div class="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                <line x1="7" y1="2" x2="7" y2="22"></line>
+                <line x1="17" y1="2" x2="17" y2="22"></line>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <line x1="2" y1="7" x2="7" y2="7"></line>
+                <line x1="2" y1="17" x2="7" y2="17"></line>
+                <line x1="17" y1="17" x2="22" y2="17"></line>
+                <line x1="17" y1="7" x2="22" y2="7"></line>
+              </svg>
+            </div>
+            <p>Search movies, anime, or series above to browse releases.</p>
           </div>
 
           <!-- Results Grid -->
@@ -661,13 +669,14 @@
            ========================================== -->
       <div class="view-panel" id="viewMusic" style="display: none;">
         <section class="section-card music-hub-card">
-          <div class="section-header-flex">
-            <div style="width: 100%;">
-              <h2 class="section-title">Music &amp; Album Direct Search &amp; Downloader</h2>
-              <p class="section-description">
-                Search tracks, artists, and album discographies with multi-codec resolution across 24-bit Hi-Res FLAC, 16-bit CDDA, 320 kbps MP3, 256 kbps AAC/M4A, and Opus.
-              </p>
-            </div>
+          <!-- Mode Switch Tabs -->
+          <div class="mode-tabs-container" id="musicSourceTabs">
+            <button type="button" class="mode-tab music-tab active" data-source="direct">
+              <span class="tab-label">Direct HiFi Tracks</span>
+            </button>
+            <button type="button" class="mode-tab music-tab" data-source="albums">
+              <span class="tab-label">Full Albums &amp; Discographies</span>
+            </button>
           </div>
 
           <!-- Music Search & Filter Controls -->
@@ -678,7 +687,7 @@
                   <circle cx="11" cy="11" r="8"></circle>
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input type="text" id="musicSearchInput" class="music-search-input" placeholder="Search songs, artists, or albums (e.g. Bohemian Rhapsody, Taylor Swift, Hans Zimmer, Coldplay)..." autocomplete="off" />
+                <input type="text" id="musicSearchInput" class="music-search-input" placeholder="Search songs, artists, or albums (e.g. Bohemian Rhapsody, Taylor Swift, Coldplay)..." autocomplete="off" />
                 <button type="button" class="btn-clear-music-search" id="btnClearMusicSearch" style="display: none;">&times;</button>
               </div>
               <button type="submit" class="btn btn-primary btn-music-search-submit" id="btnMusicSearchSubmit">
@@ -689,28 +698,23 @@
 
             <!-- Filter & Preset Pills -->
             <div class="music-controls-row">
-              <div class="music-source-tabs" id="musicSourceTabs">
-                <button type="button" class="music-tab active" data-source="direct">Direct HiFi Tracks</button>
-                <button type="button" class="music-tab" data-source="albums">Full Albums &amp; Discographies</button>
-              </div>
-
               <div class="music-format-filters" id="musicFormatFilters">
                 <span class="format-label">Codec:</span>
-                <button type="button" class="music-f-pill active" data-format="all">All Codecs</button>
-                <button type="button" class="music-f-pill" data-format="flac">FLAC (Hi-Res/CD)</button>
-                <button type="button" class="music-f-pill" data-format="mp3">MP3 320k</button>
-                <button type="button" class="music-f-pill" data-format="m4a">AAC / M4A</button>
-                <button type="button" class="music-f-pill" data-format="opus">OPUS</button>
+                <button type="button" class="preset-chip music-f-pill active" data-format="all">All Codecs</button>
+                <button type="button" class="preset-chip music-f-pill" data-format="flac">FLAC (Hi-Res/CD)</button>
+                <button type="button" class="preset-chip music-f-pill" data-format="mp3">MP3 320k</button>
+                <button type="button" class="preset-chip music-f-pill" data-format="m4a">AAC / M4A</button>
+                <button type="button" class="preset-chip music-f-pill" data-format="opus">OPUS</button>
               </div>
 
               <div class="music-quick-tags" id="musicQuickTags">
                 <span class="quick-tag-label">Trending:</span>
-                <button type="button" class="music-quick-chip" data-query="Bohemian Rhapsody Queen">Bohemian Rhapsody</button>
-                <button type="button" class="music-quick-chip" data-query="Blinding Lights The Weeknd">Blinding Lights</button>
-                <button type="button" class="music-quick-chip" data-query="Interstellar Hans Zimmer">Interstellar OST</button>
-                <button type="button" class="music-quick-chip" data-query="Hotel California Eagles">Hotel California</button>
-                <button type="button" class="music-quick-chip" data-query="Billie Eilish Birds of a Feather">Billie Eilish</button>
-                <button type="button" class="music-quick-chip" data-query="Yoasobi Idol">YOASOBI Idol</button>
+                <button type="button" class="preset-chip music-quick-chip" data-query="Bohemian Rhapsody Queen">Bohemian Rhapsody</button>
+                <button type="button" class="preset-chip music-quick-chip" data-query="Blinding Lights The Weeknd">Blinding Lights</button>
+                <button type="button" class="preset-chip music-quick-chip" data-query="Interstellar Hans Zimmer">Interstellar OST</button>
+                <button type="button" class="preset-chip music-quick-chip" data-query="Hotel California Eagles">Hotel California</button>
+                <button type="button" class="preset-chip music-quick-chip" data-query="Billie Eilish Birds of a Feather">Billie Eilish</button>
+                <button type="button" class="preset-chip music-quick-chip" data-query="Yoasobi Idol">YOASOBI Idol</button>
               </div>
             </div>
           </div>
@@ -722,10 +726,15 @@
           </div>
 
           <!-- Empty State -->
-          <div class="music-empty-state" id="musicEmptyState">
-            <div class="empty-icon">🎵</div>
-            <h3>Discover &amp; Download Music in Studio Quality</h3>
-            <p>Enter any song, artist, or album title above, or tap a trending chip to instantly browse FLAC Studio Masters, MP3 320k, AAC, and Opus releases.</p>
+          <div class="empty-state music-empty-state" id="musicEmptyState">
+            <div class="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18V5l12-2v13"></path>
+                <circle cx="6" cy="18" r="3"></circle>
+                <circle cx="18" cy="16" r="3"></circle>
+              </svg>
+            </div>
+            <p>Search songs, artists, or album discographies above.</p>
           </div>
 
           <!-- Results Grid -->
@@ -889,23 +898,6 @@
            ========================================== -->
       <div class="view-panel" id="viewCdrip" style="display: none;">
         <section class="section-card cdrip-hub-card">
-          <div class="section-header-flex">
-            <div style="width: 100%;">
-              <div class="cdrip-header-top-row">
-                <span class="badge-tag cdrip-hub-badge">💿 1:1 Physical Audio CD Preservation</span>
-                <span class="cdrip-source-pill">Red Book 16-bit / 44.1 kHz PCM &bull; AccurateRip &bull; CUE &bull; EAC Logs</span>
-                <button type="button" class="btn-cdrip-sources-toggle" id="btnOpenCdripSourcesModal" title="Manage Telegram Archival Channels &amp; BitTorrent Swarms">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                  <span>Telegram &amp; Tracker Sources</span>
-                </button>
-              </div>
-              <h2 class="section-title">Bengali 1:1 CD-Rip Collection &amp; Archival Engine</h2>
-              <p class="section-description">
-                Discover, acquire, and verify authentic bit-for-bit commercial CD releases (Asha Audio, Saregama/HMV, SVF, Cozmic) with exact Red Book PCM audio, EAC/XLD logs, sector pre-gaps, and packaging scans.
-              </p>
-            </div>
-          </div>
-
           <!-- CD-Rip Search & Catalogue Bar -->
           <div class="cdrip-search-bar-wrap">
             <form id="cdripSearchForm" class="cdrip-search-form" onsubmit="return false;">
@@ -915,23 +907,27 @@
                   <circle cx="12" cy="12" r="3"></circle>
                   <line x1="12" y1="2" x2="12" y2="5"></line>
                 </svg>
-                <input type="text" id="cdripSearchInput" class="cdrip-search-input" placeholder="Search by Catalogue No. (e.g. CD-1024, CDNF 154020, SIF-CD-042), EAN Barcode, or Album Title..." autocomplete="off" />
+                <input type="text" id="cdripSearchInput" class="cdrip-search-input" placeholder="Search by catalogue number, album title, or artist (e.g. CD-1024, Saregama, SVF)..." autocomplete="off" />
                 <button type="button" class="btn-clear-cdrip-search" id="btnClearCdripSearch" style="display: none;">&times;</button>
               </div>
               <button type="submit" class="btn btn-primary btn-cdrip-search-submit" id="btnCdripSearchSubmit">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                <span>Search CD Releases</span>
+                <span>Search</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-cdrip-sources-toggle" id="btnOpenCdripSourcesModal" title="Manage Telegram Archival Channels &amp; BitTorrent Swarms">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                <span>Sources</span>
               </button>
             </form>
 
             <!-- Quick Catalogue & Search Chips -->
-            <div class="cdrip-quick-tags" id="cdripQuickTags">
-              <span class="quick-tag-label">Catalogues:</span>
-              <button type="button" class="cdrip-quick-chip" data-query="Asha Audio CD-1024">Asha Audio CD-1024</button>
-              <button type="button" class="cdrip-quick-chip" data-query="cat:CDNF 154020">Saregama CDNF 154020</button>
-              <button type="button" class="cdrip-quick-chip" data-query="SVF SIF-CD-042">SVF SIF-CD-042</button>
-              <button type="button" class="cdrip-quick-chip" data-query="Mayabono Biharini">Mayabono Biharini</button>
-              <button type="button" class="cdrip-quick-chip" data-query="Chirodini Tumi Je Amar">Chirodini Tumi Je Amar</button>
+            <div class="presets-row cdrip-quick-tags" id="cdripQuickTags">
+              <span class="presets-label">Catalogues:</span>
+              <button type="button" class="preset-chip cdrip-quick-chip" data-query="Asha Audio CD-1024">Asha Audio CD-1024</button>
+              <button type="button" class="preset-chip cdrip-quick-chip" data-query="cat:CDNF 154020">Saregama CDNF 154020</button>
+              <button type="button" class="preset-chip cdrip-quick-chip" data-query="SVF SIF-CD-042">SVF SIF-CD-042</button>
+              <button type="button" class="preset-chip cdrip-quick-chip" data-query="Mayabono Biharini">Mayabono Biharini</button>
+              <button type="button" class="preset-chip cdrip-quick-chip" data-query="Chirodini Tumi Je Amar">Chirodini Tumi Je Amar</button>
             </div>
           </div>
 
@@ -973,10 +969,15 @@
           </div>
 
           <!-- CD-Rip Empty State -->
-          <div class="cdrip-empty-state" id="cdripEmptyState">
-            <div class="empty-icon">💿</div>
-            <h3>1:1 Physical CD-Rip Discovery</h3>
-            <p>Enter any Bengali album title, artist, or commercial catalogue number (e.g. <code>CD-1024</code>, <code>CDNF 154020</code>, <code>SIF-CD-042</code>) to search physical release swarms, or test any local folder below.</p>
+          <div class="empty-state cdrip-empty-state" id="cdripEmptyState">
+            <div class="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+                <line x1="12" y1="2" x2="12" y2="5"></line>
+              </svg>
+            </div>
+            <p>Search by catalogue number, album title, or artist to discover 1:1 CD releases.</p>
           </div>
 
           <!-- CD-Rip Results Grid -->
@@ -1863,6 +1864,6 @@
 
   </div>
 
-  <script src="app.js?v=4.11.2"></script>
+  <script src="app.js?v=4.11.4"></script>
 </body>
 </html>

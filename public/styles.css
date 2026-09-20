@@ -4299,34 +4299,38 @@ body {
   gap: 12px;
 }
 
-.movie-source-tabs {
-  display: flex;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  padding: 3px;
-  gap: 4px;
+.movie-source-tabs.mode-tabs-container {
+  margin-bottom: 16px;
+  width: 100%;
 }
 
 .movie-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
   background: transparent;
   border: none;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .movie-tab:hover {
   color: var(--text-primary);
+  background-color: var(--bg-surface-hover);
 }
 
 .movie-tab.active {
-  background: #2563eb;
-  color: #fff;
+  color: #ffffff;
+  background-color: #2563eb;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
 }
 
 .movie-tab.disabled-source,
@@ -4414,8 +4418,12 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 16px;
+  padding: 36px 16px;
   text-align: center;
+}
+
+.movie-empty-state .empty-icon svg {
+  opacity: 0.75;
 }
 
 .movie-loading-text {
@@ -5395,31 +5403,32 @@ body {
   gap: 12px;
 }
 
-.music-source-tabs {
-  display: flex;
-  gap: 6px;
-  background: rgba(15, 23, 42, 0.6);
-  padding: 4px;
-  border-radius: 10px;
-  border: 1px solid var(--border-color, #1f2937);
-  width: fit-content;
+.music-source-tabs.mode-tabs-container {
+  margin-bottom: 16px;
+  width: 100%;
 }
 
 .music-tab {
-  padding: 7px 16px;
-  font-size: 0.82rem;
-  font-weight: 500;
-  border-radius: 8px;
-  border: none;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
   background: transparent;
-  color: var(--text-muted, #94a3b8);
+  border: none;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all var(--transition-fast);
 }
 
 .music-tab:hover {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  background-color: var(--bg-surface-hover);
 }
 
 .music-tab.active {
@@ -5501,7 +5510,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  padding: 36px 16px;
   text-align: center;
 }
 
@@ -5511,24 +5520,8 @@ body {
   font-size: 0.92rem;
 }
 
-.music-empty-state .empty-icon {
-  font-size: 3.5rem;
-  margin-bottom: 12px;
-  opacity: 0.85;
-}
-
-.music-empty-state h3 {
-  font-size: 1.15rem;
-  font-weight: 600;
-  margin-bottom: 6px;
-  color: var(--text-color, #f8fafc);
-}
-
-.music-empty-state p {
-  font-size: 0.85rem;
-  color: var(--text-muted, #94a3b8);
-  max-width: 460px;
-  line-height: 1.5;
+.music-empty-state .empty-icon svg {
+  opacity: 0.75;
 }
 
 /* Results Grid */
@@ -6838,31 +6831,6 @@ body.authenticated-user .guest-only-nav {
   border-top: 3px solid #38bdf8;
 }
 
-.cdrip-header-top-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.cdrip-hub-badge {
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  color: #38bdf8;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-.cdrip-source-pill {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
 .cdrip-search-bar-wrap {
   margin: 20px 0;
 }
@@ -7284,47 +7252,38 @@ body.authenticated-user .guest-only-nav {
   color: #38bdf8;
 }
 
-.cdrip-loading-state, .cdrip-empty-state {
-  text-align: center;
-  padding: 48px 20px;
+.cdrip-loading-state,
+.cdrip-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  padding: 36px 16px;
+  text-align: center;
 }
 
-.cdrip-empty-state .empty-icon {
-  font-size: 2.5rem;
-}
-
-.cdrip-empty-state h3 {
-  font-size: 1.15rem;
-  color: var(--text-primary);
-  margin: 0;
+.cdrip-empty-state .empty-icon svg {
+  opacity: 0.75;
 }
 
 .cdrip-empty-state p {
   font-size: 0.88rem;
   color: var(--text-muted);
-  max-width: 520px;
   margin: 0;
-  line-height: 1.5;
 }
 
 /* Multi-Source CD-Rip Badges & Modal */
 .btn-cdrip-sources-toggle {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  font-size: 0.76rem;
+  padding: 12px 18px;
+  font-size: 0.88rem;
   font-weight: 600;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
 .btn-cdrip-sources-toggle:hover {
