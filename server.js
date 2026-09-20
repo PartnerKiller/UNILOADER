@@ -1227,6 +1227,12 @@ function getUserDownloadFolder(userOrId) {
   return null;
 }
 
+function isPathInside(targetPath, parentPath) {
+  if (!targetPath || !parentPath) return false;
+  const rel = path.relative(parentPath, targetPath);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 function isPermanentUserFile(filePath) {
   if (!filePath) return false;
   const resolved = path.resolve(filePath);
@@ -1236,13 +1242,27 @@ function isPermanentUserFile(filePath) {
     if (j.isPermanent && j.filePath && path.resolve(j.filePath) === resolved) {
       return true;
     }
+    if (j.downloadFolder && typeof j.downloadFolder === 'string' && j.downloadFolder.trim() !== '*') {
+      const dfResolved = path.resolve(j.downloadFolder.trim());
+      if (isPathInside(resolved, dfResolved)) {
+        return true;
+      }
+    }
   }
 
-  // 2. Check if file is located inside any user's assigned permanent downloadFolder or allowedFolders
+  // 2. Shield /media/storage, /media/*, /mnt/* dedicated mounts (excluding TEMP_DIR)
+  const tempResolved = path.resolve(TEMP_DIR);
+  if (!isPathInside(resolved, tempResolved)) {
+    if (resolved.startsWith('/media/storage') || resolved.startsWith('/mnt/storage') || resolved.startsWith('/media/') || resolved.startsWith('/mnt/')) {
+      return true;
+    }
+  }
+
+  // 3. Check if file is located inside any user's assigned permanent downloadFolder or allowedFolders
   for (const u of users.values()) {
     if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim() !== '*') {
       const folderResolved = path.resolve(u.downloadFolder.trim());
-      if (resolved === folderResolved || resolved.startsWith(folderResolved + path.sep)) {
+      if (isPathInside(resolved, folderResolved)) {
         return true;
       }
     }
@@ -1250,12 +1270,54 @@ function isPermanentUserFile(filePath) {
       for (const f of u.allowedFolders) {
         if (typeof f === 'string' && f.trim() && f.trim() !== '*') {
           const folderResolved = path.resolve(f.trim());
-          if (resolved === folderResolved || resolved.startsWith(folderResolved + path.sep)) {
+          if (isPathInside(resolved, folderResolved)) {
             return true;
           }
         }
       }
     }
+  }
+
+  return false;
+}
+
+function isPermanentUserDirectory(dirPath) {
+  if (!dirPath) return false;
+  const resolved = path.resolve(dirPath);
+
+  // Protect system roots
+  if (resolved === '/' || resolved === path.parse(resolved).root) return true;
+
+  // Protect /media and /mnt storage mounts (excluding TEMP_DIR)
+  const tempResolved = path.resolve(TEMP_DIR);
+  if (!isPathInside(resolved, tempResolved)) {
+    if (resolved.startsWith('/media') || resolved.startsWith('/mnt')) return true;
+  }
+
+  // Protect any user's assigned permanent downloadFolder, allowedFolders, and parent/sub directories
+  for (const u of users.values()) {
+    if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim() !== '*') {
+      const folderResolved = path.resolve(u.downloadFolder.trim());
+      if (isPathInside(resolved, folderResolved) || isPathInside(folderResolved, resolved)) {
+        return true;
+      }
+    }
+    if (Array.isArray(u.allowedFolders)) {
+      for (const f of u.allowedFolders) {
+        if (typeof f === 'string' && f.trim() && f.trim() !== '*') {
+          const folderResolved = path.resolve(f.trim());
+          if (isPathInside(resolved, folderResolved) || isPathInside(folderResolved, resolved)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  // Protect standard category subfolder names
+  const baseName = path.basename(resolved);
+  if (['Movies and Shows', 'Music', 'Adult', 'Uni-Downloads'].includes(baseName)) {
+    return true;
   }
 
   return false;
@@ -2350,19 +2412,16 @@ app.post('/api/jobs/:id/save-to-folder', identifyUser, (req, res) => {
   }
 });
 
-// Helper: FLAC storage directories on server
+// Helper: FLAC storage directories on server (only temporary staging cache directories)
 function getFlacStorageDirs() {
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  return [
+  const candidateDirs = [
     TEMP_DIR,
     path.join(__dirname, 'temp_media'),
     path.join(homeDir, 'slskd_downloads'),
-    path.join(homeDir, 'OrpheusDL', 'downloads'),
-    path.join(homeDir, 'Downloads', 'JAV-Downloader'),
-    path.join(homeDir, 'Downloads'),
-    path.join(homeDir, 'music'),
-    path.join(process.env.USERPROFILE || 'C:\\Users\\sayan', 'Downloads', 'JAV-Downloader')
-  ].filter(Boolean);
+    path.join(homeDir, 'OrpheusDL', 'downloads')
+  ];
+  return candidateDirs.filter(d => Boolean(d) && !isPermanentUserDirectory(d));
 }
 
 function scanFlacFiles() {
@@ -2371,12 +2430,13 @@ function scanFlacFiles() {
   const seen = new Set();
 
   function scanDir(dir, maxDepth = 2, currentDepth = 0) {
-    if (!dir || !fs.existsSync(dir) || currentDepth > maxDepth) return;
+    if (!dir || !fs.existsSync(dir) || isPermanentUserDirectory(dir) || currentDepth > maxDepth) return;
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isFile() && entry.name.toLowerCase().endsWith('.flac')) {
+          if (isPermanentUserFile(fullPath)) continue;
           if (!seen.has(fullPath)) {
             seen.add(fullPath);
             try {
@@ -2391,7 +2451,9 @@ function scanFlacFiles() {
             } catch (e) {}
           }
         } else if (entry.isDirectory() && entry.name !== 'incomplete' && !entry.name.startsWith('.') && currentDepth < maxDepth) {
-          scanDir(fullPath, maxDepth, currentDepth + 1);
+          if (!isPermanentUserDirectory(fullPath)) {
+            scanDir(fullPath, maxDepth, currentDepth + 1);
+          }
         }
       }
     } catch (e) {}
@@ -2409,7 +2471,7 @@ function purgeFlacFiles() {
   const activePaths = new Set();
   for (const j of jobs.values()) {
     if (j.status === 'downloading' && j.filePath) {
-      activePaths.add(j.filePath);
+      activePaths.add(path.resolve(j.filePath));
     }
   }
 
@@ -2418,20 +2480,31 @@ function purgeFlacFiles() {
   let freedBytes = 0;
 
   for (const f of allFlacs) {
-    if (!activePaths.has(f.filePath)) {
+    if (!f.filePath || isPermanentUserFile(f.filePath)) {
+      continue; // Strictly preserve permanent files
+    }
+
+    const resolvedFile = path.resolve(f.filePath);
+    if (!activePaths.has(resolvedFile)) {
       let deleted = false;
       try {
-        fs.unlinkSync(f.filePath);
-        deleted = true;
+        if (!isPermanentUserFile(resolvedFile)) {
+          fs.unlinkSync(resolvedFile);
+          deleted = true;
+        }
       } catch (err) {
         if (process.platform !== 'win32') {
           try {
-            execSync(`rm -f "${f.filePath}"`, { stdio: 'ignore' });
-            deleted = true;
+            if (!isPermanentUserFile(resolvedFile)) {
+              execSync(`rm -f "${resolvedFile}"`, { stdio: 'ignore' });
+              deleted = true;
+            }
           } catch (e) {
             try {
-              execSync(`echo 'sakura' | sudo -S -p '' rm -f "${f.filePath}"`, { stdio: 'ignore' });
-              deleted = true;
+              if (!isPermanentUserFile(resolvedFile)) {
+                execSync(`echo 'sakura' | sudo -S -p '' rm -f "${resolvedFile}"`, { stdio: 'ignore' });
+                deleted = true;
+              }
             } catch (e2) {}
           }
         }
@@ -2441,8 +2514,8 @@ function purgeFlacFiles() {
         deletedCount++;
         freedBytes += f.sizeBytes;
         try {
-          const parent = path.dirname(f.filePath);
-          if (fs.readdirSync(parent).length === 0) {
+          const parent = path.dirname(resolvedFile);
+          if (!isPermanentUserDirectory(parent) && fs.readdirSync(parent).length === 0) {
             try {
               fs.rmdirSync(parent);
             } catch (e) {
@@ -2622,17 +2695,19 @@ app.post('/api/admin/clean-temp', requireAdmin, (req, res) => {
     ];
 
     for (const targetDir of tempDirs) {
-      if (fs.existsSync(targetDir)) {
+      if (fs.existsSync(targetDir) && !isPermanentUserDirectory(targetDir)) {
         try {
           const files = fs.readdirSync(targetDir);
           for (const f of files) {
+            const full = path.join(targetDir, f);
+            if (isPermanentUserFile(full)) continue;
+
             if (f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || targetDir.includes('incomplete')) {
               let isCurrent = false;
               for (const act of activeFiles) {
                 if (f.includes(act)) isCurrent = true;
               }
               if (!isCurrent) {
-                const full = path.join(targetDir, f);
                 try {
                   const sz = fs.statSync(full).size;
                   fs.unlinkSync(full);
@@ -3108,11 +3183,14 @@ app.get('/api/admin/storage/raw-download', requireAdmin, (req, res) => {
 // Delete specific file
 app.post('/api/admin/storage/delete', requireAdmin, (req, res) => {
   try {
-    const { filePath } = req.body || {};
+    const { filePath, forcePermanent } = req.body || {};
     if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
     }
     const resolved = path.resolve(filePath);
+    if (isPermanentUserFile(resolved) && !forcePermanent) {
+      return res.status(403).json({ error: 'Cannot delete files in permanent user storage' });
+    }
     const home = path.resolve(process.env.HOME || process.env.USERPROFILE || '');
     const temp = path.resolve(TEMP_DIR);
     if (!resolved.startsWith(temp) && !resolved.startsWith(home)) {
@@ -3154,15 +3232,19 @@ app.post('/api/admin/storage/delete-bulk', requireAdmin, (req, res) => {
       ];
 
       function gatherFiles(dirPath, maxDepth = 3, currentDepth = 0) {
-        if (!dirPath || !fs.existsSync(dirPath) || currentDepth > maxDepth) return;
+        if (!dirPath || !fs.existsSync(dirPath) || isPermanentUserDirectory(dirPath) || currentDepth > maxDepth) return;
         try {
           const entries = fs.readdirSync(dirPath, { withFileTypes: true });
           for (const ent of entries) {
             const full = path.join(dirPath, ent.name);
             if (ent.isFile() && !ent.name.startsWith('.')) {
-              targets.push(full);
+              if (!isPermanentUserFile(full)) {
+                targets.push(full);
+              }
             } else if (ent.isDirectory() && !ent.name.startsWith('.') && currentDepth < maxDepth) {
-              gatherFiles(full, maxDepth, currentDepth + 1);
+              if (!isPermanentUserDirectory(full)) {
+                gatherFiles(full, maxDepth, currentDepth + 1);
+              }
             }
           }
         } catch (e) {}
@@ -3186,6 +3268,10 @@ app.post('/api/admin/storage/delete-bulk', requireAdmin, (req, res) => {
     for (const fp of targets) {
       if (!fp) continue;
       const resolved = path.resolve(fp);
+      if (isPermanentUserFile(resolved)) {
+        failedCount++;
+        continue;
+      }
       if (!resolved.startsWith(temp) && !resolved.startsWith(home)) {
         failedCount++;
         continue;
@@ -3220,7 +3306,7 @@ app.post('/api/admin/storage/delete-bulk', requireAdmin, (req, res) => {
         for (const sub of subdirs) {
           const subPath = path.join(TEMP_DIR, sub.name);
           try {
-            if (fs.readdirSync(subPath).length === 0) {
+            if (!isPermanentUserDirectory(subPath) && fs.readdirSync(subPath).length === 0) {
               fs.rmdirSync(subPath);
             }
           } catch (e) {}
@@ -3253,12 +3339,13 @@ app.post('/api/admin/storage/purge-incomplete', requireAdmin, (req, res) => {
     ];
 
     function cleanIncomplete(dirPath) {
-      if (!fs.existsSync(dirPath)) return;
+      if (!fs.existsSync(dirPath) || isPermanentUserDirectory(dirPath)) return;
       try {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
         for (const ent of entries) {
           const full = path.join(dirPath, ent.name);
           if (ent.isFile()) {
+            if (isPermanentUserFile(full)) continue;
             if (ent.name.endsWith('.part') || ent.name.endsWith('.ytdl') || ent.name.endsWith('.temp') || ent.name.endsWith('.aria2') || dirPath.includes('incomplete')) {
               try {
                 freedBytes += fs.statSync(full).size;
@@ -3274,16 +3361,18 @@ app.post('/api/admin/storage/purge-incomplete', requireAdmin, (req, res) => {
               }
             }
           } else if (ent.isDirectory()) {
-            cleanIncomplete(full);
-            try {
-              if (fs.readdirSync(full).length === 0) {
-                fs.rmdirSync(full);
-              }
-            } catch (e) {
-              if (process.platform !== 'win32') {
-                try {
-                  execSync(`echo 'sakura' | sudo -S -p '' rmdir "${full}"`, { stdio: 'ignore' });
-                } catch (e2) {}
+            if (!isPermanentUserDirectory(full)) {
+              cleanIncomplete(full);
+              try {
+                if (!isPermanentUserDirectory(full) && fs.readdirSync(full).length === 0) {
+                  fs.rmdirSync(full);
+                }
+              } catch (e) {
+                if (process.platform !== 'win32') {
+                  try {
+                    execSync(`echo 'sakura' | sudo -S -p '' rmdir "${full}"`, { stdio: 'ignore' });
+                  } catch (e2) {}
+                }
               }
             }
           }
@@ -6799,9 +6888,9 @@ app.delete('/api/jobs/:id', identifyUser, (req, res) => {
     }
   } catch (e) {}
 
-  // 2. Remove specific job.filePath if exists
+  // 2. Remove specific job.filePath ONLY if it is still a temporary unfinalized download (NEVER if permanent!)
   try {
-    if (job && job.filePath && fs.existsSync(job.filePath)) {
+    if (job && job.filePath && !job.isPermanent && !isPermanentUserFile(job.filePath) && fs.existsSync(job.filePath)) {
       fs.rmSync(job.filePath, { recursive: true, force: true });
     }
   } catch (e) {}
@@ -6842,7 +6931,7 @@ app.delete('/api/jobs', identifyUser, (req, res) => {
         if (fs.existsSync(jobDir)) {
           fs.rmSync(jobDir, { recursive: true, force: true });
         }
-        if (job.filePath && fs.existsSync(job.filePath)) {
+        if (job.filePath && !job.isPermanent && !isPermanentUserFile(job.filePath) && fs.existsSync(job.filePath)) {
           fs.rmSync(job.filePath, { recursive: true, force: true });
         }
         const files = fs.readdirSync(TEMP_DIR);

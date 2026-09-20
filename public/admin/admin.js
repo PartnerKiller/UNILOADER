@@ -27,7 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupTools();
   setupCreds();
   setupQueue();
-  setupFlacLab();
   setupUsersTab();
 
   if (adminToken) {
@@ -172,8 +171,6 @@ function setupNavigation() {
         loadSystemMetrics();
       } else if (tabName === 'creds') {
         loadCredsData();
-      } else if (tabName === 'flac-lab') {
-        loadRecentFlacFiles();
       } else if (tabName === 'users') {
         loadAdminUsers();
         loadAccessRequests();
@@ -188,7 +185,6 @@ function loadAllAdminData() {
   loadEngineConfig();
   loadSystemMetrics();
   loadCredsData();
-  loadRecentFlacFiles();
   loadAdminUsers();
   loadAccessRequests();
   loadRolePermissions();
@@ -417,7 +413,6 @@ function setupTools() {
           const statusText = document.getElementById('purgeFlacStatusText');
           if (statusText) statusText.textContent = `Purged ${data.deletedCount} files (${data.freedMB} MB freed)`;
           loadSystemMetrics();
-          loadRecentFlacFiles();
           showToast(`Purged ${data.deletedCount} FLAC files (${data.freedMB} MB freed)`);
         } else {
           showToast(data.error || 'Failed to purge FLAC cache', 'error');
@@ -744,193 +739,6 @@ window.adminCancelJob = async function(id) {
   });
   loadQueueData();
 };
-
-// 5. FLAC TEST BENCH LOGIC
-function setupFlacLab() {
-  const refreshBtn = document.getElementById('refreshRecentFlacBtn');
-  if (refreshBtn) refreshBtn.addEventListener('click', loadRecentFlacFiles);
-
-  const selectEl = document.getElementById('flacRecentSelect');
-  if (selectEl) {
-    selectEl.addEventListener('change', () => {
-      if (selectEl.value) {
-        const inputEl = document.getElementById('flacFilePath');
-        if (inputEl) inputEl.value = selectEl.value;
-      }
-    });
-  }
-
-  const runBtn = document.getElementById('runFlacTestBtn');
-  if (runBtn) {
-    runBtn.addEventListener('click', runFlacAnalysis);
-  }
-
-  const clearBenchBtn = document.getElementById('adminClearFlacBenchBtn');
-  if (clearBenchBtn) {
-    clearBenchBtn.addEventListener('click', async () => {
-      if (!confirm('Are you sure you want to purge all downloaded FLAC files from server storage?')) return;
-      clearBenchBtn.disabled = true;
-      try {
-        const res = await fetch('/api/admin/purge-flac-cache', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${adminToken}` }
-        });
-        const data = await res.json();
-        if (res.ok) {
-          showToast(`Purged ${data.deletedCount} FLAC files (${data.freedMB} MB freed)`);
-          loadRecentFlacFiles();
-          loadSystemMetrics();
-          const inputEl = document.getElementById('flacFilePath');
-          if (inputEl) inputEl.value = '';
-        } else {
-          showToast(data.error || 'Failed to purge FLAC cache', 'error');
-        }
-      } catch (err) {
-        showToast('Purge error: ' + err.message, 'error');
-      } finally {
-        clearBenchBtn.disabled = false;
-      }
-    });
-  }
-}
-
-async function loadRecentFlacFiles() {
-  const selectEl = document.getElementById('flacRecentSelect');
-  if (!selectEl) return;
-  try {
-    const res = await fetch('/api/flac-check/recent', {
-      headers: { 'Authorization': `Bearer ${adminToken}` }
-    });
-    if (!res.ok) return;
-    const files = await res.json();
-    selectEl.innerHTML = '<option value="">-- Choose a recent file on server --</option>';
-    if (Array.isArray(files) && files.length > 0) {
-      files.forEach(f => {
-        const opt = document.createElement('option');
-        opt.value = f.filePath;
-        opt.textContent = `${f.filename} (${f.sizeMB} MB)`;
-        selectEl.appendChild(opt);
-      });
-    } else {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '(No recent FLAC files found in download directories)';
-      selectEl.appendChild(opt);
-    }
-  } catch (e) {
-    console.warn('Failed to load recent FLAC files:', e);
-  }
-}
-
-async function runFlacAnalysis() {
-  const inputEl = document.getElementById('flacFilePath');
-  const filePath = inputEl ? inputEl.value.trim() : '';
-  const runBtn = document.getElementById('runFlacTestBtn');
-  const reportBox = document.getElementById('flacTestReport');
-
-  if (!filePath) {
-    showToast('Please specify a file path or choose a recent file', 'error');
-    return;
-  }
-
-  if (runBtn) {
-    runBtn.disabled = true;
-    runBtn.innerHTML = '<span>Analyzing Spectrum...</span>';
-  }
-
-  if (reportBox) {
-    reportBox.style.display = 'block';
-    reportBox.innerHTML = '<div style="color: var(--admin-text-muted); padding: 16px; text-align: center;">Running deep Fourier spectral analysis & checking bitstream authenticity...</div>';
-  }
-
-  try {
-    const res = await fetch('/api/flac-check', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${adminToken}`
-      },
-      body: JSON.stringify({ filePath })
-    });
-
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      if (reportBox) reportBox.innerHTML = `<div class="test-result-box error">Error: ${escapeHtml(data.error || 'Analysis failed')}</div>`;
-      return;
-    }
-
-    const isGenuine = data.verdict === 'GENUINE_LOSSLESS' || data.verdict === 'STUDIO_MASTER' || data.verdict === 'AUTHENTIC_CDDA';
-    const verdictClass = isGenuine ? 'genuine' : (data.verdict === 'SUSPICIOUS_TRANSCODE' ? 'suspicious' : 'fake');
-    const verdictText = data.verdictBadge || data.verdictTitle || data.verdict || 'FLAC Analyzed';
-
-    const detailsList = Array.isArray(data.details) && data.details.length > 0
-      ? data.details.map(d => `<div>&bull; ${escapeHtml(d)}</div>`).join('')
-      : '';
-
-    const warningsList = Array.isArray(data.warnings) && data.warnings.length > 0
-      ? data.warnings.map(w => `<div style="color: var(--admin-pink); font-weight: 600;">⚠ ${escapeHtml(w)}</div>`).join('')
-      : '';
-
-    if (reportBox) {
-      reportBox.innerHTML = `
-        <div class="flac-report-header">
-          <div>
-            <h3>${escapeHtml(data.filename || filePath.split('/').pop().split('\\').pop())}</h3>
-            <span style="font-size: 0.8rem; color: var(--admin-text-muted); font-family: var(--font-mono); word-break: break-all;">${escapeHtml(data.filePath || filePath)}</span>
-          </div>
-          <span class="flac-verdict-tag ${verdictClass}">${escapeHtml(verdictText)}</span>
-        </div>
-
-        <div class="flac-metrics-row">
-          <div class="flac-metric-card">
-            <span class="f-label">Sample Rate</span>
-            <span class="f-val">${data.sampleRate ? (data.sampleRate / 1000).toFixed(1) + ' kHz' : '--'}</span>
-          </div>
-          <div class="flac-metric-card">
-            <span class="f-label">Bit Depth</span>
-            <span class="f-val">${data.bitsPerSample ? data.bitsPerSample + '-bit' : '--'}</span>
-          </div>
-          <div class="flac-metric-card">
-            <span class="f-label">Bitrate</span>
-            <span class="f-val">${data.bitrateKbps ? Math.round(data.bitrateKbps) + ' kbps' : '--'}</span>
-          </div>
-          <div class="flac-metric-card">
-            <span class="f-label">Cutoff Frequency</span>
-            <span class="f-val">${data.cutoffFrequencyHz ? (data.cutoffFrequencyHz / 1000).toFixed(1) + ' kHz' : '--'}</span>
-          </div>
-          <div class="flac-metric-card">
-            <span class="f-label">Nyquist Limit</span>
-            <span class="f-val">${data.nyquistLimitHz ? (data.nyquistLimitHz / 1000).toFixed(1) + ' kHz' : '--'}</span>
-          </div>
-          <div class="flac-metric-card">
-            <span class="f-label">File Size</span>
-            <span class="f-val">${data.fileSizeMB ? data.fileSizeMB + ' MB' : '--'}</span>
-          </div>
-        </div>
-
-        ${(detailsList || warningsList) ? `
-          <div class="flac-reason-text">
-            ${warningsList}
-            ${detailsList}
-          </div>
-        ` : ''}
-
-        ${data.spectrogram ? `
-          <div class="flac-spectrogram-box">
-            <img src="${data.spectrogram}" alt="Spectrogram Analysis" />
-          </div>
-        ` : ''}
-      `;
-    }
-  } catch (err) {
-    if (reportBox) reportBox.innerHTML = `<div class="test-result-box error">Analysis failed: ${escapeHtml(err.message)}</div>`;
-  } finally {
-    if (runBtn) {
-      runBtn.disabled = false;
-      runBtn.innerHTML = 'Analyze Spectrum';
-    }
-  }
-}
 
 // ==========================================================================
 // 6. SERVICE & LIVE LOGS CONTROLLER
@@ -1462,9 +1270,6 @@ function renderStorageTable() {
             ${f.downloadUrl ? `
               <a href="${f.downloadUrl}&admin_token=${encodeURIComponent(adminToken)}" class="btn btn-primary btn-xs" download title="Download to local device">⬇ Save</a>
             ` : ''}
-            ${isFlac ? `
-              <button type="button" class="btn btn-outline btn-xs" onclick="sendToFlacLab('${escapeHtml(f.fullPath)}')" title="Inspect spectrum in FLAC Analyzer">🔬 Analyze</button>
-            ` : ''}
             <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteStorageFile('${escapeHtml(f.fullPath)}')" title="Delete file">🗑 Delete</button>
           </div>
         </td>
@@ -1493,17 +1298,6 @@ window.deleteStorageFile = async function(filePath) {
     }
   } catch (e) {
     showToast('Delete error: ' + e.message, 'error');
-  }
-};
-
-window.sendToFlacLab = function(filePath) {
-  const tabBtn = document.querySelector('.admin-tabs button[data-tab="flac-lab"]');
-  if (tabBtn) tabBtn.click();
-  const input = document.getElementById('flacFilePath');
-  if (input) {
-    input.value = filePath;
-    const runBtn = document.getElementById('runFlacTestBtn');
-    if (runBtn) runBtn.click();
   }
 };
 

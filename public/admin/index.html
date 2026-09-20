@@ -111,9 +111,6 @@
       <button class="tab-btn" data-tab="queue">
         <span>📋 Queue Inspector</span>
       </button>
-      <button class="tab-btn" data-tab="flac-lab">
-        <span>🔬 FLAC Analyzer</span>
-      </button>
       <button class="tab-btn" data-tab="users">
         <span>👥 User Accounts</span>
       </button>
@@ -855,39 +852,7 @@
         </div>
       </section>
 
-      <!-- 5. FLAC TEST BENCH TAB -->
-      <section class="tab-panel" id="tab-flac-lab">
-        <div class="panel-header">
-          <div>
-            <h2>Audiophile FLAC Authenticity Test Bench</h2>
-            <p>Directly analyze any audio file or recently downloaded track for lossy brickwall cutoffs and fake upscales.</p>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-outline btn-sm" id="refreshRecentFlacBtn">↻ Refresh Recent</button>
-            <button class="btn btn-danger-outline btn-sm" id="adminClearFlacBenchBtn">🗑 Purge FLAC Cache</button>
-          </div>
-        </div>
-
-        <div class="flac-lab-box">
-          <div class="form-group" style="margin-bottom: 16px;">
-            <label for="flacRecentSelect">Quick Pick Recent Download on Server</label>
-            <select id="flacRecentSelect" class="admin-select" style="width: 100%; padding: 10px 14px; background: var(--admin-bg); border: 1px solid var(--admin-border); border-radius: 8px; color: #fff; font-size: 0.9rem;">
-              <option value="">-- Choose a recent file on server --</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="flacFilePath">File Path or URL on Server</label>
-            <div class="input-with-btn">
-              <input type="text" id="flacFilePath" placeholder="/home/sakura/slskd_downloads/... or file path">
-              <button class="btn btn-primary" id="runFlacTestBtn">Analyze Spectrum</button>
-            </div>
-          </div>
-          <div id="flacTestReport" class="flac-report-container" style="display: none;"></div>
-        </div>
-      </section>
-
-      <!-- 6. USER ACCOUNTS MANAGEMENT TAB -->
+      <!-- 5. USER ACCOUNTS MANAGEMENT TAB -->
       <section class="tab-panel" id="tab-users">
         <div class="panel-header">
           <div>
@@ -1133,6 +1098,6 @@
     </div>
   </div>
 
-  <script src="/admin/admin.js?v=4.12.6"></script>
+  <script src="/admin/admin.js?v=4.12.7"></script>
 </body>
 </html>
