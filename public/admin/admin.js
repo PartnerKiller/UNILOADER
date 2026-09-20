@@ -59,6 +59,7 @@ function showApp() {
   loginModal.style.display = 'none';
   adminApp.style.display = 'flex';
   loadAllAdminData();
+  if (typeof initAdminQueueSSE === 'function') initAdminQueueSSE();
 }
 
 async function verifySession() {
@@ -655,6 +656,134 @@ async function loadCredsData() {
 }
 
 // 4. QUEUE INSPECTOR LOGIC
+let adminQueueSSE = null;
+
+function renderAdminQueue(jobs) {
+  const listEl = document.getElementById('adminQueueList');
+  if (!listEl) return;
+
+  if (!jobs || jobs.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">No downloads currently in queue.</div>';
+    return;
+  }
+
+  listEl.innerHTML = jobs.map(job => renderAdminQueueRowHtml(job)).join('');
+}
+
+function renderAdminQueueRowHtml(job) {
+  const safeTitle = escapeHtml(job.title || job.filename || 'Task ' + job.id);
+  const safeOwner = escapeHtml(job.ownerId || 'owner');
+  const pct = (job.progress && typeof job.progress.percent === 'number') ? job.progress.percent.toFixed(1) : '0.0';
+  const spd = (job.progress && job.progress.speed) || '0 MB/s';
+  const eta = (job.progress && job.progress.eta) || '--';
+
+  return `
+    <div class="queue-row" id="admin-queue-row-${job.id}">
+      <div class="queue-row-info">
+        <h4>${safeTitle}</h4>
+        <div class="queue-row-meta" id="admin-queue-meta-${job.id}">
+          <span>[${job.status.toUpperCase()}]</span> &bull; 
+          <span>User: <strong>${safeOwner}</strong></span> &bull; 
+          <span>${pct}%</span> &bull; 
+          <span>${spd}</span> &bull; 
+          <span>ETA: ${eta}</span>
+        </div>
+      </div>
+      <div class="queue-row-actions" id="admin-queue-actions-${job.id}">
+        ${job.status === 'downloading' ? `
+          <button class="btn btn-warning btn-sm" onclick="adminPauseJob('${job.id}')">Pause</button>
+        ` : job.status === 'paused' ? `
+          <button class="btn btn-primary btn-sm" onclick="adminResumeJob('${job.id}')">Resume</button>
+        ` : ''}
+        <button class="btn btn-danger-outline btn-sm" onclick="adminCancelJob('${job.id}')">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function updateAdminQueueRow(job) {
+  const listEl = document.getElementById('adminQueueList');
+  if (!listEl) return;
+
+  const existingRow = document.getElementById(`admin-queue-row-${job.id}`);
+  if (!existingRow) {
+    const emptyState = listEl.querySelector('.empty-state');
+    if (emptyState) emptyState.remove();
+    listEl.insertAdjacentHTML('afterbegin', renderAdminQueueRowHtml(job));
+    return;
+  }
+
+  const metaEl = document.getElementById(`admin-queue-meta-${job.id}`);
+  if (metaEl) {
+    const safeOwner = escapeHtml(job.ownerId || 'owner');
+    const pct = (job.progress && typeof job.progress.percent === 'number') ? job.progress.percent.toFixed(1) : '0.0';
+    const spd = (job.progress && job.progress.speed) || '0 MB/s';
+    const eta = (job.progress && job.progress.eta) || '--';
+    metaEl.innerHTML = `
+      <span>[${job.status.toUpperCase()}]</span> &bull; 
+      <span>User: <strong>${safeOwner}</strong></span> &bull; 
+      <span>${pct}%</span> &bull; 
+      <span>${spd}</span> &bull; 
+      <span>ETA: ${eta}</span>
+    `;
+  }
+
+  const actionsEl = document.getElementById(`admin-queue-actions-${job.id}`);
+  if (actionsEl) {
+    actionsEl.innerHTML = `
+      ${job.status === 'downloading' ? `
+        <button class="btn btn-warning btn-sm" onclick="adminPauseJob('${job.id}')">Pause</button>
+      ` : job.status === 'paused' ? `
+        <button class="btn btn-primary btn-sm" onclick="adminResumeJob('${job.id}')">Resume</button>
+      ` : ''}
+      <button class="btn btn-danger-outline btn-sm" onclick="adminCancelJob('${job.id}')">Cancel</button>
+    `;
+  }
+}
+
+function initAdminQueueSSE() {
+  if (adminQueueSSE) {
+    try { adminQueueSSE.close(); } catch (e) {}
+    adminQueueSSE = null;
+  }
+  if (!adminToken) return;
+
+  try {
+    const es = new EventSource(`/api/jobs/stream?token=${encodeURIComponent(adminToken)}&all=1`);
+    adminQueueSSE = es;
+
+    es.addEventListener('sync', (e) => {
+      try {
+        const jobs = JSON.parse(e.data);
+        if (Array.isArray(jobs)) renderAdminQueue(jobs);
+      } catch (err) {}
+    });
+
+    es.onmessage = (e) => {
+      if (!e.data || e.data.startsWith(':')) return;
+      try {
+        const jobs = JSON.parse(e.data);
+        if (Array.isArray(jobs)) renderAdminQueue(jobs);
+      } catch (err) {}
+    };
+
+    es.addEventListener('job_progress', (e) => {
+      try {
+        const job = JSON.parse(e.data);
+        if (job && job.id) updateAdminQueueRow(job);
+      } catch (err) {}
+    });
+
+    es.onerror = () => {
+      try { es.close(); } catch (err) {}
+      adminQueueSSE = null;
+      setTimeout(initAdminQueueSSE, 6000);
+    };
+  } catch (err) {
+    console.warn('Failed to start Admin Queue SSE:', err);
+  }
+}
+
 function setupQueue() {
   const refreshQueueBtn = document.getElementById('refreshQueueBtn');
   if (refreshQueueBtn) refreshQueueBtn.addEventListener('click', loadQueueData);
@@ -672,6 +801,8 @@ function setupQueue() {
       } catch (e) {}
     });
   }
+
+  initAdminQueueSSE();
 }
 
 async function loadQueueData() {
@@ -683,34 +814,7 @@ async function loadQueueData() {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
     const jobs = await res.json();
-
-    if (!jobs || jobs.length === 0) {
-      listEl.innerHTML = '<div class="empty-state">No downloads currently in queue.</div>';
-      return;
-    }
-
-    listEl.innerHTML = jobs.map(job => `
-      <div class="queue-row">
-        <div class="queue-row-info">
-          <h4>${escapeHtml(job.title || job.filename || 'Task ' + job.id)}</h4>
-          <div class="queue-row-meta">
-            <span>[${job.status.toUpperCase()}]</span> &bull; 
-            <span>User: <strong>${escapeHtml(job.ownerId || 'owner')}</strong></span> &bull; 
-            <span>${(job.progress.percent || 0).toFixed(1)}%</span> &bull; 
-            <span>${job.progress.speed || '0 MB/s'}</span> &bull; 
-            <span>ETA: ${job.progress.eta || '--'}</span>
-          </div>
-        </div>
-        <div class="queue-row-actions">
-          ${job.status === 'downloading' ? `
-            <button class="btn btn-warning btn-sm" onclick="adminPauseJob('${job.id}')">Pause</button>
-          ` : job.status === 'paused' ? `
-            <button class="btn btn-primary btn-sm" onclick="adminResumeJob('${job.id}')">Resume</button>
-          ` : ''}
-          <button class="btn btn-danger-outline btn-sm" onclick="adminCancelJob('${job.id}')">Cancel</button>
-        </div>
-      </div>
-    `).join('');
+    renderAdminQueue(jobs);
   } catch (err) {
     listEl.innerHTML = `<div class="empty-state">Error loading queue: ${err.message}</div>`;
   }

@@ -1,7 +1,8 @@
 // Universal Downloader &bull; Online Media Downloader Controller
 
 let currentExtractedData = null;
-let activeEventSources = new Map(); // jobId -> EventSource
+let activeEventSources = new Map(); // Kept for legacy backward compatibility
+let activeJobStatusTracker = new Map(); // jobId -> previous status for completion triggers
 let currentMode = 'video'; // 'video' | 'audio' | 'batch'
 let activeReadyJob = null;
 
@@ -944,7 +945,14 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAuthModalEvents();
   checkUserSession();
   loadJobs();
-  setInterval(loadJobs, 4000);
+  initGlobalSSEStream();
+
+  // Passive fallback watchdog (every 30s) in case SSE connection closes silently or network changes
+  setInterval(() => {
+    if (!sseEventSource || sseEventSource.readyState !== EventSource.OPEN) {
+      loadJobs();
+    }
+  }, 30000);
 });
 
 function setupEventListeners() {
@@ -1382,7 +1390,7 @@ async function startDownload() {
     sessionJobIds.add(data.jobId);
     saveSessionJobs();
 
-    subscribeToJob(data.jobId);
+    activeJobStatusTracker.set(data.jobId, 'queued');
     loadJobs();
   } catch (err) {
     showToast(`Download Error: ${err.message}`, 'error');
@@ -1441,7 +1449,7 @@ async function startBatchDownload() {
     if (data.jobs) {
       data.jobs.forEach(j => {
         sessionJobIds.add(j.jobId);
-        subscribeToJob(j.jobId);
+        activeJobStatusTracker.set(j.jobId, 'queued');
       });
       saveSessionJobs();
     }
@@ -1490,48 +1498,9 @@ function triggerDeviceDownload(job) {
   }
 }
 
-// 4. SSE Stream Connection for Live Progress with Auto-Reconnect Backoff
+// 4. SSE Stream Connection (Legacy backward compatibility wrapper)
 function subscribeToJob(jobId, retryCount = 0) {
-  if (activeEventSources.has(jobId)) return;
-
-  const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
-  const cid = getClientId();
-  const q = new URLSearchParams();
-  if (token) q.set('token', token);
-  if (cid) q.set('client_id', cid);
-  const qs = q.toString() ? `?${q.toString()}` : '';
-
-  const es = new EventSource(`/api/jobs/${jobId}/events${qs}`);
-  activeEventSources.set(jobId, es);
-
-  es.onmessage = (event) => {
-    try {
-      const job = JSON.parse(event.data);
-      updateJobCard(job);
-
-      if (job.status === 'completed') {
-        es.close();
-        activeEventSources.delete(jobId);
-        triggerDeviceDownload(job);
-      } else if (job.status === 'failed' || job.status === 'cancelled') {
-        es.close();
-        activeEventSources.delete(jobId);
-      }
-    } catch (e) {
-      console.error('SSE parse error:', e);
-    }
-  };
-
-  es.onerror = () => {
-    es.close();
-    activeEventSources.delete(jobId);
-    // If job card is still in downloading state, retry SSE connection with backoff
-    const card = document.getElementById(`job-card-${jobId}`);
-    if (card && card.classList.contains('downloading') && retryCount < 6) {
-      const delay = Math.min(1000 * Math.pow(1.5, retryCount), 8000);
-      setTimeout(() => subscribeToJob(jobId, retryCount + 1), delay);
-    }
-  };
+  // Real-time synchronization is now unified via the persistent Global SSE stream (/api/jobs/stream)
 }
 
 // 5. Job List Rendering & Updates
@@ -1562,6 +1531,7 @@ function renderJobsList(jobs) {
       try { es.close(); } catch (e) {}
     }
     activeEventSources.clear();
+    activeJobStatusTracker.clear();
     jobsList.innerHTML = '';
     return;
   }
@@ -1578,6 +1548,7 @@ function renderJobsList(jobs) {
         try { activeEventSources.get(id).close(); } catch (e) {}
         activeEventSources.delete(id);
       }
+      activeJobStatusTracker.delete(id);
       card.remove();
     }
   });
@@ -1614,16 +1585,24 @@ function renderJobsList(jobs) {
 
   jobs.forEach(job => {
     if (window.allJobsMap) window.allJobsMap.set(job.id, job);
+
+    // Track state transitions to trigger device download modal / notification on completion
+    const prevStatus = activeJobStatusTracker.get(job.id);
+    if ((prevStatus === 'downloading' || prevStatus === 'queued' || prevStatus === 'resolving_ddl' || prevStatus === 'resolving_olamovies') && job.status === 'completed') {
+      activeJobStatusTracker.delete(job.id);
+      triggerDeviceDownload(job);
+    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') {
+      activeJobStatusTracker.set(job.id, job.status);
+    } else if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+      activeJobStatusTracker.delete(job.id);
+    }
+
     let card = document.getElementById(`job-card-${job.id}`);
     if (!card) {
       card = createJobCardElement(job);
       jobsList.appendChild(card);
     }
     updateJobCard(job);
-
-    if ((job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') && !activeEventSources.has(job.id)) {
-      subscribeToJob(job.id);
-    }
   });
 }
 
@@ -2024,7 +2003,7 @@ window.resumeJob = async function(jobId) {
     if (!res.ok) {
       showToast(data.error || 'Failed to resume download', 'error');
     } else {
-      subscribeToJob(jobId);
+      activeJobStatusTracker.set(jobId, 'downloading');
     }
     loadJobs();
   } catch (err) {
@@ -2079,6 +2058,7 @@ window.cancelJob = async function(jobId) {
       activeEventSources.get(jobId).close();
       activeEventSources.delete(jobId);
     }
+    activeJobStatusTracker.delete(jobId);
 
     await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
     loadJobs();
@@ -2101,6 +2081,7 @@ window.removeJob = async function(jobId) {
       activeEventSources.get(jobId).close();
       activeEventSources.delete(jobId);
     }
+    activeJobStatusTracker.delete(jobId);
 
     sessionJobIds.delete(jobId);
     saveSessionJobs();
@@ -2237,6 +2218,28 @@ window.addEventListener('DOMContentLoaded', () => {
 
 let sseEventSource = null;
 let sseReconnectTimer = null;
+let sseReconnectAttempts = 0;
+
+function updateSseStatus(status) {
+  const badge = document.getElementById('liveSyncBadge');
+  if (!badge) return;
+  if (status === 'connected') {
+    badge.style.background = 'rgba(16, 185, 129, 0.15)';
+    badge.style.color = '#10b981';
+    badge.innerHTML = '<span style="width:5px;height:5px;border-radius:50%;background:#10b981;display:inline-block;"></span><span>SYNC</span>';
+    badge.title = 'Real-time Live Sync Connected';
+  } else if (status === 'connecting') {
+    badge.style.background = 'rgba(245, 158, 11, 0.15)';
+    badge.style.color = '#f59e0b';
+    badge.innerHTML = '<span style="width:5px;height:5px;border-radius:50%;background:#f59e0b;display:inline-block;"></span><span>CONNECTING...</span>';
+    badge.title = 'Reconnecting to live sync...';
+  } else {
+    badge.style.background = 'rgba(239, 68, 68, 0.15)';
+    badge.style.color = '#ef4444';
+    badge.innerHTML = '<span style="width:5px;height:5px;border-radius:50%;background:#ef4444;display:inline-block;"></span><span>OFFLINE</span>';
+    badge.title = 'Live sync offline';
+  }
+}
 
 function restartJobsSSE() {
   if (sseEventSource) {
@@ -2247,6 +2250,7 @@ function restartJobsSSE() {
     clearTimeout(sseReconnectTimer);
     sseReconnectTimer = null;
   }
+  sseReconnectAttempts = 0;
   initGlobalSSEStream();
 }
 
@@ -2263,6 +2267,8 @@ function initGlobalSSEStream() {
       sseEventSource = null;
     }
 
+    updateSseStatus('connecting');
+
     const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
     const cid = getClientId();
     const q = new URLSearchParams();
@@ -2272,6 +2278,25 @@ function initGlobalSSEStream() {
 
     sseEventSource = new EventSource(`/api/jobs/stream${qs}`);
 
+    sseEventSource.onopen = () => {
+      sseReconnectAttempts = 0;
+      updateSseStatus('connected');
+    };
+
+    // Full queue synchronization event
+    sseEventSource.addEventListener('sync', (event) => {
+      if (!event.data || event.data.startsWith(':')) return;
+      try {
+        const jobs = JSON.parse(event.data);
+        if (Array.isArray(jobs)) {
+          renderJobsList(jobs);
+        }
+      } catch (e) {
+        console.warn('SSE sync parse error:', e);
+      }
+    });
+
+    // Default message fallback (sync payload)
     sseEventSource.onmessage = (event) => {
       if (!event.data || event.data.startsWith(':')) return;
       try {
@@ -2282,23 +2307,69 @@ function initGlobalSSEStream() {
       } catch (e) {}
     };
 
+    // Real-time incremental job progress event
+    sseEventSource.addEventListener('job_progress', (event) => {
+      if (!event.data || event.data.startsWith(':')) return;
+      try {
+        const job = JSON.parse(event.data);
+        if (!job || !job.id) return;
+
+        // Check completion transition
+        const prevStatus = activeJobStatusTracker.get(job.id);
+        if ((prevStatus === 'downloading' || prevStatus === 'queued' || prevStatus === 'resolving_ddl' || prevStatus === 'resolving_olamovies') && job.status === 'completed') {
+          activeJobStatusTracker.delete(job.id);
+          triggerDeviceDownload(job);
+        } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') {
+          activeJobStatusTracker.set(job.id, job.status);
+        } else if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+          activeJobStatusTracker.delete(job.id);
+        }
+
+        let card = document.getElementById(`job-card-${job.id}`);
+        if (!card) {
+          if (emptyJobsState) emptyJobsState.style.display = 'none';
+          card = createJobCardElement(job);
+          if (jobsList) jobsList.prepend(card);
+        }
+        updateJobCard(job);
+
+        // Update active count & header dot dynamically
+        const activeElements = document.querySelectorAll('.job-card.downloading');
+        const pausedElements = document.querySelectorAll('.job-card.paused');
+        if (activeCountLabel) {
+          let txt = `${activeElements.length} Active`;
+          if (pausedElements.length > 0) txt += ` • ${pausedElements.length} Paused`;
+          activeCountLabel.textContent = txt;
+        }
+        if (queueStatusIndicator) {
+          const dot = queueStatusIndicator.querySelector('.status-dot');
+          if (dot) {
+            if (activeElements.length > 0) dot.classList.add('active');
+            else dot.classList.remove('active');
+          }
+        }
+      } catch (e) {
+        console.warn('SSE job_progress parse error:', e);
+      }
+    });
+
     sseEventSource.onerror = () => {
       try { sseEventSource.close(); } catch (e) {}
       sseEventSource = null;
+      updateSseStatus('offline');
       if (!sseReconnectTimer) {
+        sseReconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(1.5, sseReconnectAttempts - 1), 10000);
         sseReconnectTimer = setTimeout(() => {
           sseReconnectTimer = null;
           connect();
-        }, 4000);
+        }, delay);
       }
     };
   }
 
   connect();
 }
-
-// Initialize SSE Stream on startup
-initGlobalSSEStream();
 
 // ==========================================================================
 // 9. Windows Desktop & Downloads Folder Management

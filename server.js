@@ -471,9 +471,9 @@ function formatJobSummary(job, detailed = false) {
 }
 
 function getJobsForUser(currentUser, options = {}) {
-  const isOwner = currentUser && (currentUser.isOwner || currentUser.role === 'owner' || currentUser.userId === 'owner');
+  const isOwner = currentUser && (currentUser.isOwner || currentUser.role === 'owner' || currentUser.userId === 'owner' || currentUser.username?.toLowerCase() === 'sakura');
   const targetUserId = currentUser ? currentUser.userId : null;
-  const showAll = options.all && isOwner;
+  const showAll = Boolean(options.all || isOwner);
 
   const result = [];
   for (const job of jobs.values()) {
@@ -483,7 +483,7 @@ function getJobsForUser(currentUser, options = {}) {
     }
 
     const jobOwner = job.ownerId || 'owner';
-    if (targetUserId && jobOwner === targetUserId) {
+    if (targetUserId && (jobOwner === targetUserId || jobOwner === 'owner')) {
       result.push(formatJobSummary(job, options.detailed));
     }
   }
@@ -492,17 +492,23 @@ function getJobsForUser(currentUser, options = {}) {
   return result;
 }
 
-function broadcastGlobalJobUpdate() {
+// Real-Time Queue Synchronization Broadcast across all connected devices & sessions
+function broadcastGlobalJobSync() {
   if (globalSseClients.size === 0) return;
   for (const [clientRes, clientUser] of globalSseClients.entries()) {
     try {
       const userJobs = getJobsForUser(clientUser, { detailed: false });
-      clientRes.write(`data: ${JSON.stringify(userJobs)}\n\n`);
+      const payload = JSON.stringify(userJobs);
+      clientRes.write(`event: sync\ndata: ${payload}\n\n`);
+      clientRes.write(`data: ${payload}\n\n`);
     } catch (e) {
       globalSseClients.delete(clientRes);
     }
   }
 }
+
+// Backward-compatible alias
+const broadcastGlobalJobUpdate = broadcastGlobalJobSync;
 
 const jobUpdateTimers = new Map();
 
@@ -521,7 +527,7 @@ function scheduleJobUpdate(jobId, immediate = false) {
   const timer = setTimeout(() => {
     jobUpdateTimers.delete(jobId);
     broadcastJobUpdate(jobId);
-  }, 180);
+  }, 160);
 
   jobUpdateTimers.set(jobId, timer);
 }
@@ -529,34 +535,38 @@ function scheduleJobUpdate(jobId, immediate = false) {
 function broadcastJobUpdate(jobId) {
   const job = jobs.get(jobId);
   if (!job) return;
-  
-  broadcastGlobalJobUpdate();
 
+  const jobSummary = formatJobSummary(job, true);
+  const jsonPayload = JSON.stringify(jobSummary);
+
+  // 1. Live incremental progress event over Global SSE stream to authorized clients
+  if (globalSseClients.size > 0) {
+    for (const [clientRes, clientUser] of globalSseClients.entries()) {
+      try {
+        const isOwner = clientUser && (clientUser.isOwner || clientUser.role === 'owner' || clientUser.userId === 'owner' || clientUser.username?.toLowerCase() === 'sakura');
+        const targetUserId = clientUser ? clientUser.userId : null;
+        const jobOwner = job.ownerId || 'owner';
+
+        if (isOwner || (targetUserId && (jobOwner === targetUserId || jobOwner === 'owner'))) {
+          clientRes.write(`event: job_progress\ndata: ${jsonPayload}\n\n`);
+        }
+      } catch (e) {
+        globalSseClients.delete(clientRes);
+      }
+    }
+  }
+
+  // 2. Synchronize queue structure on terminal states
+  if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+    broadcastGlobalJobSync();
+  }
+
+  // 3. Dedicated per-job SSE clients (backward compatibility)
   const clients = sseClients.get(jobId);
   if (clients && clients.size > 0) {
-    const data = JSON.stringify({
-      id: job.id,
-      status: job.status,
-      mode: job.mode,
-      progress: job.progress,
-      logs: (job.logs || []).slice(-500).map(stripAnsi),
-      error: job.error,
-      title: job.title,
-      code: job.code || 'MEDIA',
-      poster: job.poster || '',
-      url: job.url || '',
-      filename: job.filename,
-      filesize: job.filesize || '',
-      downloadUrl: `/api/download-file/${job.id}`,
-      streamUrl: `/api/stream/${job.id}`,
-      filePath: job.filePath || '',
-      ownerId: job.ownerId || 'owner',
-      downloadFolder: job.downloadFolder || '',
-      isPermanent: !!job.isPermanent
-    });
     for (const res of clients) {
       try {
-        res.write(`data: ${data}\n\n`);
+        res.write(`data: ${jsonPayload}\n\n`);
       } catch (e) {
         clients.delete(res);
       }
@@ -564,27 +574,39 @@ function broadcastJobUpdate(jobId) {
   }
 }
 
-// Global SSE Stream Endpoint (Real-time live updates isolated per user)
+// Global SSE Stream Endpoint (Real-time live updates isolated per user with proxy buffering bypass)
 app.get('/api/jobs/stream', identifyUser, (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
     'Access-Control-Allow-Origin': '*'
   });
-  res.write('\n');
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+  res.write(': connected\n\n');
   globalSseClients.set(res, req.currentUser);
 
   // Send initial jobs payload strictly filtered for this user
   const initial = getJobsForUser(req.currentUser, { detailed: false });
-  res.write(`data: ${JSON.stringify(initial)}\n\n`);
+  const initialPayload = JSON.stringify(initial);
+  clientResWriteSafe(res, `event: sync\ndata: ${initialPayload}\n\n`);
+  clientResWriteSafe(res, `data: ${initialPayload}\n\n`);
 
   req.on('close', () => {
     globalSseClients.delete(res);
   });
 });
 
-// SSE Heartbeat every 15 seconds to keep connections persistent
+function clientResWriteSafe(res, chunk) {
+  try {
+    res.write(chunk);
+  } catch (e) {}
+}
+
+// SSE Heartbeat every 15 seconds to keep reverse-proxy connections persistent
 setInterval(() => {
   for (const client of globalSseClients.keys()) {
     try {
@@ -4843,6 +4865,7 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
     };
 
     jobs.set(jobId, job);
+    broadcastGlobalJobSync();
     broadcastJobUpdate(jobId);
 
     // Launch direct DDL resolver
@@ -6400,6 +6423,7 @@ function createAndStartJob(opts) {
   };
 
   jobs.set(jobId, job);
+  broadcastGlobalJobSync();
 
   // Check if we can start immediately or queue
   if (getActiveDownloadCount() < getMaxConcurrentDownloads()) {
@@ -6767,6 +6791,7 @@ app.post('/api/jobs/:id/pause', identifyUser, (req, res) => {
 
   const ok = pauseJob(job);
   if (ok) {
+    broadcastGlobalJobSync();
     res.json({ success: true, status: 'paused' });
   } else {
     res.status(400).json({ error: `Cannot pause job with status: ${job.status}` });
@@ -6785,6 +6810,7 @@ app.post('/api/jobs/:id/resume', identifyUser, (req, res) => {
 
   const ok = resumeJob(job);
   if (ok) {
+    broadcastGlobalJobSync();
     res.json({ success: true, status: job.status });
   } else {
     res.status(400).json({ error: `Cannot resume job with status: ${job.status}` });
@@ -6801,6 +6827,7 @@ app.post('/api/jobs/pause-all', identifyUser, (req, res) => {
       }
     }
   }
+  if (count > 0) broadcastGlobalJobSync();
   res.json({ success: true, pausedCount: count });
 });
 
@@ -6814,6 +6841,7 @@ app.post('/api/jobs/resume-all', identifyUser, (req, res) => {
       }
     }
   }
+  if (count > 0) broadcastGlobalJobSync();
   res.json({ success: true, resumedCount: count });
 });
 
@@ -6918,6 +6946,7 @@ app.delete('/api/jobs/:id', identifyUser, (req, res) => {
 
   jobs.delete(jobId);
   saveJobsHistory();
+  broadcastGlobalJobSync();
   processDownloadQueue();
   res.json({ success: true, message: 'Job deleted' });
 });
