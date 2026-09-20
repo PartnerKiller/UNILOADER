@@ -857,7 +857,6 @@ const FEATURE_METADATA = [
   { key: 'movies', label: 'Movie & TV Hub', description: 'Search, stream resolvers, and Direct DDL downloads for cinema & shows' },
   { key: 'music', label: 'Music Hub (Lossy)', description: 'Search and direct MP3/M4A/Opus downloads for tracks and albums' },
   { key: 'audiophile_flac', label: 'Audiophile FLAC (24-bit/Hi-Res)', description: 'Lossless Studio Masters via Tidal Monochrome, SLSKD P2P, and Deezer HiFi' },
-  { key: 'cdrip', label: '1:1 CD-Rip Archival', description: 'Acquisition and multi-pass verification of 1:1 physical Red Book Audio CD releases' },
   { key: 'flac_checker', label: 'FLAC Authenticity Checker', description: 'Audio spectral Nyquist cutoff analysis and counterfeit detection' },
   { key: 'adult', label: 'Adult & JAV Hub', description: 'Censored & Uncensored JAV streams, Rule34Video, and Tube engine' },
   { key: 'quality_4k', label: '4K & 8K Ultra HD', description: 'Unclamped 2160p and 4320p maximum resolution streaming' },
@@ -872,7 +871,6 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: false,
     music: false,
     audiophile_flac: false,
-    cdrip: false,
     flac_checker: false,
     adult: false,
     quality_4k: false,
@@ -885,7 +883,6 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: true,
     music: true,
     audiophile_flac: true,
-    cdrip: true,
     flac_checker: true,
     adult: true,
     quality_4k: true,
@@ -898,7 +895,6 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: true,
     music: true,
     audiophile_flac: true,
-    cdrip: true,
     flac_checker: true,
     adult: true,
     quality_4k: true,
@@ -4751,239 +4747,6 @@ app.get('/api/music/search', identifyUser, async (req, res) => {
   }
 });
 
-async function searchTelegramCdrip(query) {
-  try {
-    const pythonBin = getPythonBin();
-    const script = path.join(__dirname, 'telegram_cdrip_engine.py');
-    const child = spawn(pythonBin, [script, '--search', query]);
-    let stdout = '';
-    child.stdout.on('data', d => stdout += d.toString());
-    await new Promise(resolve => child.on('close', resolve));
-    const parsed = JSON.parse(stdout.trim() || '[]');
-    return parsed.map(item => ({
-      id: item.id,
-      title: item.fileName,
-      artist: item.channelTitle || `@${item.channel}`,
-      album: item.caption || item.fileName,
-      size: item.sizeStr,
-      source: 'telegram',
-      provider: 'telegram',
-      channel: item.channel,
-      messageId: item.messageId,
-      isArchive: item.isArchive,
-      hasLog: item.hasLogMention,
-      hasCue: item.hasCueMention,
-      score: item.score,
-      isCdRipCandidate: true,
-      provenanceTierHint: item.isArchive || item.hasLog ? 'CD_RIP_STRONGLY_VERIFIED' : 'CD_RIP_CREDIBLE',
-      expectedFormat: '1:1 Optical Archive (.ZIP / Red Book FLAC)'
-    }));
-  } catch (e) {
-    console.warn('[CD-Rip Search] Telegram search notice:', e.message);
-    return [];
-  }
-}
-
-async function searchTorrentCdrip(query) {
-  try {
-    const pythonBin = getPythonBin();
-    const script = path.join(__dirname, 'torrent_cdrip_engine.py');
-    const child = spawn(pythonBin, [script, '--search', query]);
-    let stdout = '';
-    child.stdout.on('data', d => stdout += d.toString());
-    await new Promise(resolve => child.on('close', resolve));
-    const parsed = JSON.parse(stdout.trim() || '[]');
-    return parsed.map(item => ({
-      id: item.id,
-      title: item.name,
-      artist: item.tracker,
-      album: 'BitTorrent Lossless Swarm',
-      size: item.sizeStr,
-      source: 'torrent',
-      provider: 'torrent',
-      seeders: item.seeders,
-      magnet: item.magnet,
-      infoHash: item.infoHash,
-      score: item.score,
-      isCdRipCandidate: true,
-      provenanceTierHint: 'CD_RIP_CREDIBLE',
-      expectedFormat: '16-bit / 44.1 kHz Red Book FLAC Swarm'
-    }));
-  } catch (e) {
-    console.warn('[CD-Rip Search] Torrent search notice:', e.message);
-    return [];
-  }
-}
-
-// Dedicated 1:1 CD-Rip Search & Release Discovery API
-app.get('/api/cdrip/search', identifyUser, async (req, res) => {
-  try {
-    if (!isFeatureAllowed(req.currentUser, 'cdrip') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
-      return res.status(403).json({
-        success: false,
-        results: [],
-        error: '1:1 CD-Rip Hub is restricted for your role. Please sign in.',
-        requireAuth: req.currentUser.role === 'guest'
-      });
-    }
-
-    const q = (req.query.q || '').trim();
-    if (!q) {
-      return res.json({ success: true, results: [], catalogue: null, total: 0 });
-    }
-
-    // 1. Run catalogue tokenizer via Python
-    const pythonBin = getPythonBin();
-    const catScript = path.join(__dirname, 'catalogue_parser.py');
-    let catMeta = null;
-
-    try {
-      const child = spawn(pythonBin, ['-c', `
-import json, catalogue_parser
-res = catalogue_parser.parse_catalogue_number(${JSON.stringify(q)})
-print(json.dumps(res or {}))
-      `]);
-      let stdout = '';
-      child.stdout.on('data', d => stdout += d.toString());
-      await new Promise(resolve => child.on('close', resolve));
-      const parsed = JSON.parse(stdout.trim());
-      if (parsed && parsed.detected) {
-        catMeta = parsed;
-      }
-    } catch (e) {
-      console.warn('[CD-Rip Search] Tokenizer notice:', e.message);
-    }
-
-    // 2. Discover candidates concurrently across Telegram, Torrents, and Direct CDDA
-    const [tgRes, torRes, dirRes] = await Promise.allSettled([
-      searchTelegramCdrip(q),
-      searchTorrentCdrip(q),
-      searchDirectMusic(q, 1)
-    ]);
-
-    const tgCandidates = tgRes.status === 'fulfilled' ? tgRes.value : [];
-    const torCandidates = torRes.status === 'fulfilled' ? torRes.value : [];
-    const dirCandidates = (dirRes.status === 'fulfilled' ? dirRes.value : []).map(c => ({
-      ...c,
-      source: 'deezer',
-      isCdRipCandidate: true,
-      catalogueMatch: catMeta,
-      provenanceTierHint: catMeta ? 'CD_RIP_CREDIBLE' : 'CD_QUALITY_UNCERTAIN',
-      expectedFormat: '16-bit / 44.1 kHz Red Book CDDA'
-    }));
-
-    // Prioritize Telegram archives, then Torrents, then Streaming CDN candidates
-    const allCandidates = [...tgCandidates, ...torCandidates, ...dirCandidates];
-
-    res.json({
-      success: true,
-      query: q,
-      catalogue: catMeta,
-      isCatalogueQuery: !!catMeta,
-      total: allCandidates.length,
-      breakdown: {
-        telegram: tgCandidates.length,
-        torrent: torCandidates.length,
-        direct: dirCandidates.length
-      },
-      results: allCandidates
-    });
-  } catch (err) {
-    console.error('[CD-Rip Search] Error:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Channels management for CD-Rip Telegram sources
-app.get('/api/cdrip/channels', identifyUser, (req, res) => {
-  try {
-    const configPath = path.join(__dirname, 'telegram_channels.json');
-    if (fs.existsSync(configPath)) {
-      const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      return res.json({ success: true, ...data });
-    }
-    res.json({ success: true, channels: [] });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/cdrip/channels', identifyUser, (req, res) => {
-  try {
-    const { username, name, description, enabled } = req.body || {};
-    if (!username) {
-      return res.status(400).json({ success: false, error: 'Username is required.' });
-    }
-    const configPath = path.join(__dirname, 'telegram_channels.json');
-    let config = { channels: [] };
-    if (fs.existsSync(configPath)) {
-      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    }
-    const cleanUser = username.replace(/^@/, '').trim();
-    const existingIdx = config.channels.findIndex(c => c.username && c.username.toLowerCase() === cleanUser.toLowerCase());
-    if (existingIdx >= 0) {
-      config.channels[existingIdx] = {
-        ...config.channels[existingIdx],
-        name: name || config.channels[existingIdx].name,
-        description: description || config.channels[existingIdx].description,
-        enabled: enabled !== undefined ? enabled : config.channels[existingIdx].enabled
-      };
-    } else {
-      config.channels.push({
-        username: cleanUser,
-        name: name || `@${cleanUser}`,
-        description: description || 'Custom Lossless Channel',
-        enabled: enabled !== undefined ? enabled : true
-      });
-    }
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-    res.json({ success: true, channels: config.channels });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// Dedicated CD-Rip File & Directory Integrity Inspector API
-app.post('/api/cdrip/verify', identifyUser, async (req, res) => {
-  try {
-    const { targetPath } = req.body || {};
-    if (!targetPath) {
-      return res.status(400).json({ success: false, error: 'Path is required for verification' });
-    }
-
-    // Sanitize path
-    const resolved = path.resolve(targetPath);
-    if (!fs.existsSync(resolved)) {
-      return res.status(404).json({ success: false, error: 'File or folder not found on server' });
-    }
-
-    const pythonBin = getPythonBin();
-    const verifierScript = path.join(__dirname, 'cdrip_verifier.py');
-    const child = spawn(pythonBin, [verifierScript, resolved]);
-
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', d => stdout += d.toString());
-    child.stderr.on('data', d => stderr += d.toString());
-
-    child.on('close', (code) => {
-      try {
-        const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const report = JSON.parse(jsonMatch[0]);
-          return res.json({ success: true, report });
-        }
-        res.json({ success: code === 0, raw: stdout || stderr });
-      } catch (e) {
-        res.json({ success: false, error: 'Failed to parse verification output', raw: stdout });
-      }
-    });
-  } catch (err) {
-    console.error('[CD-Rip Verify] Error:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 // Music 1-Click Multi-Format Download API
 app.post('/api/music/download', identifyUser, async (req, res) => {
   try {
@@ -4999,17 +4762,9 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
     const isTorrent = source === 'torrent' || !!magnet || !!torrentUrl;
     const requestedFormat = (format || 'mp3').toLowerCase();
     const requestedQuality = (quality || '320k').toLowerCase();
-    const isCdRip = requestedFormat === 'cdrip' || requestedQuality === 'cdrip' || item.isCdRip;
-    const isFlac = requestedFormat === 'flac' && !isCdRip;
+    const isFlac = requestedFormat === 'flac';
 
-    // Role-based feature enforcement for Music Hub & Audiophile FLAC / CD-Rip
-    if (isCdRip && !isFeatureAllowed(req.currentUser, 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'cdrip')) {
-      return res.status(403).json({
-        success: false,
-        error: '1:1 CD-Rip archival downloads are restricted for your role. Please sign in or upgrade.',
-        requireAuth: req.currentUser.role === 'guest'
-      });
-    }
+    // Role-based feature enforcement for Music Hub & Audiophile FLAC
     if (isFlac && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
       return res.status(403).json({
         success: false,
@@ -5017,7 +4772,7 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
         requireAuth: req.currentUser.role === 'guest'
       });
     }
-    if (!isFeatureAllowed(req.currentUser, 'music') && !isCdRip) {
+    if (!isFeatureAllowed(req.currentUser, 'music')) {
       return res.status(403).json({
         success: false,
         error: 'Music Hub downloads are restricted for your role.',
@@ -5061,15 +4816,14 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
       cover: cover || '',
       poster: cover || '',
       duration: duration || 0,
-      code: isCdRip ? 'CD_RIP_1TO1' : (isFlac ? 'FLAC_HIFI' : `AUDIO_${requestedFormat.toUpperCase()}`),
-      mode: isCdRip ? 'cdrip' : (isFlac ? 'audiophile_flac' : 'audio'),
+      code: isFlac ? 'FLAC_HIFI' : `AUDIO_${requestedFormat.toUpperCase()}`,
+      mode: isFlac ? 'audiophile_flac' : 'audio',
       format: requestedFormat,
       quality: requestedQuality,
-      audioFormat: isCdRip ? 'cdrip' : (isFlac ? 'flac' : requestedFormat),
+      audioFormat: isFlac ? 'flac' : requestedFormat,
       audioBitrate: requestedQuality === '320k' ? '320k' : (requestedQuality === '256k' ? '256k' : '160k'),
-      type: isCdRip ? 'cdrip' : 'audio',
+      type: 'audio',
       isMusicTrack: true,
-      isCdRip: isCdRip,
       ownerId: req.currentUser.userId,
       isPremium: req.currentUser.isPremium
     };
@@ -5766,52 +5520,6 @@ function startJobProcess(job) {
     });
     job.process = child;
     attachProcessListeners(job, child);
-  } else if (mode === 'cdrip' || (opts && opts.isCdRip) || audioFormat === 'cdrip') {
-    const pythonBin = getPythonBin();
-    const cdripScript = path.join(__dirname, 'cdrip_engine.py');
-    const safeTitle = (job.title || 'cdrip_release').replace(/[\\/:*?"<>|]/g, '_').trim();
-    const releaseOutDir = path.join(TEMP_DIR, `${job.id}_${safeTitle}_CDRIP`);
-
-    let artist = (opts && opts.artist) || '';
-    let trackTitle = (opts && opts.trackTitle) || '';
-    if (!artist || !trackTitle) {
-      if (job.title && job.title.includes(' - ')) {
-        const parts = job.title.split(' - ');
-        if (!artist) artist = parts[0].trim();
-        if (!trackTitle) trackTitle = parts.slice(1).join(' - ').trim();
-      } else {
-        if (!trackTitle) trackTitle = job.title || '';
-        if (!artist) artist = job.uploader || '';
-      }
-    }
-
-    job.logs.push(`1:1 CD-Rip archival requested: "${job.title}"`);
-    job.logs.push(`Initiating 1:1 Physical CD-Rip Acquisition & Provenance Pipeline...`);
-    job.logs.push(`Strict Red Book Standard: 16-bit / 44.1 kHz PCM with .CUE, .LOG & Scans prioritization.`);
-
-    const cdripArgs = [
-      cdripScript,
-      artist || '',
-      trackTitle || '',
-      releaseOutDir,
-      (opts && opts.isrc) || 'None',
-      (opts && (opts.cover || opts.poster)) || 'None'
-    ];
-
-    if (opts && (opts.source === 'telegram' || opts.provider === 'telegram') && opts.channel && opts.messageId) {
-      cdripArgs.push('--source', 'telegram', '--tg-channel', opts.channel, '--tg-msg-id', String(opts.messageId));
-      job.logs.push(`Targeting Telegram Archival Channel: @${opts.channel} (Msg ID: ${opts.messageId})`);
-    } else if (opts && (opts.source === 'torrent' || opts.provider === 'torrent' || opts.magnet)) {
-      cdripArgs.push('--source', 'torrent', '--torrent-magnet', opts.magnet || '');
-      job.logs.push(`Targeting BitTorrent Swarm: ${opts.title || 'Lossless audio torrent'}`);
-    }
-
-    const child = spawn(pythonBin, cdripArgs, { 
-      windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' }
-    });
-    job.process = child;
-    attachProcessListeners(job, child);
   } else if (isYouTubeFlac || isDeezerFlac || (isTidal && isAudioFlac) || mode === 'audiophile_flac' || (mode === 'audio' && audioFormat === 'flac')) {
     const pythonBin = getPythonBin();
     const audiophileScript = path.join(__dirname, 'audiophile_flac_engine.py');
@@ -6358,7 +6066,7 @@ function createAndStartJob(opts) {
   const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-  const ext = (mode === 'audio' || mode === 'audiophile_flac' || mode === 'cdrip') ? (audioFormat || (mode === 'audiophile_flac' || mode === 'cdrip' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
+  const ext = (mode === 'audio' || mode === 'audiophile_flac') ? (audioFormat || (mode === 'audiophile_flac' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
   const finalFilename = `${safeTitle}.${ext}`;
   const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
   const isPremium = !!opts.isPremium;
@@ -6444,20 +6152,9 @@ app.post('/api/download', identifyUser, async (req, res) => {
       });
     }
 
-    // 1. Lossless Audio check: FLAC / WAV / CD-Rip
+    // 1. Lossless Audio check: FLAC / WAV
     const audioFmt = (payload.audioFormat || '').toLowerCase();
-    const isCdRip = audioFmt === 'cdrip' || payload.isCdRip || payload.mode === 'cdrip';
-    if (isCdRip) {
-      if (!isFeatureAllowed(req.currentUser, 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'cdrip')) {
-        return res.status(403).json({
-          error: '1:1 CD-Rip archival downloads are restricted for your role. Please upgrade or contact administrator.',
-          requireAuth: req.currentUser.role === 'guest'
-        });
-      }
-      payload.mode = 'cdrip';
-      payload.code = 'CD_RIP_1TO1';
-      payload.isCdRip = true;
-    } else if ((audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
+    if ((audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
       return res.status(403).json({
         error: 'Lossless Studio Master FLAC and Uncompressed WAV are restricted for your role. Please upgrade or contact administrator.',
         requireAuth: req.currentUser.role === 'guest'
@@ -6575,13 +6272,6 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
     }
 
     const audioFmt = (opts.audioFormat || '').toLowerCase();
-    const isCdRip = audioFmt === 'cdrip' || opts.isCdRip || opts.mode === 'cdrip';
-    if (isCdRip && !isFeatureAllowed(req.currentUser, 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'cdrip')) {
-      return res.status(403).json({
-        error: '1:1 CD-Rip archival batch downloads are restricted for your role. Please upgrade or contact administrator.',
-        requireAuth: req.currentUser.role === 'guest'
-      });
-    }
     if ((audioFmt === 'flac' || audioFmt === 'wav' || opts.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
       return res.status(403).json({
         error: 'Lossless Studio FLAC batch downloads are restricted for your role. Please upgrade or contact administrator.',
