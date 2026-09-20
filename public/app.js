@@ -555,23 +555,35 @@ function openAccountModal() {
     }
   }
 
+  const subfoldersNoteEl = document.getElementById('accountModalSubfoldersNote');
+  const changeFolderBtn = document.getElementById('btnChangeDownloadFolder');
+
   if (folderPathEl && folderBadgeEl && currentUser) {
     if (currentUser.downloadFolder && currentUser.downloadFolder !== '*') {
       folderPathEl.textContent = currentUser.downloadFolder;
       folderPathEl.title = currentUser.downloadFolder;
       folderBadgeEl.textContent = 'Permanent Storage';
       folderBadgeEl.className = 'badge-tag badge-tag-emerald';
-    } else if (currentUser.downloadFolder === '*' || currentUser.role === 'owner' || currentUser.isOwner) {
+      if (subfoldersNoteEl) subfoldersNoteEl.style.display = 'block';
+    } else if (currentUser.downloadFolder === '*' || (!currentUser.downloadFolder && (currentUser.role === 'owner' || currentUser.isOwner))) {
       folderPathEl.textContent = 'Unrestricted (Full Server Storage)';
       folderPathEl.title = 'Full server storage access';
       folderBadgeEl.textContent = 'Full Access';
       folderBadgeEl.className = 'badge-tag badge-tag-emerald';
+      if (subfoldersNoteEl) subfoldersNoteEl.style.display = 'none';
     } else {
       folderPathEl.textContent = 'Default Temporary Media Directory';
       folderPathEl.title = 'Default server temp storage';
       folderBadgeEl.textContent = 'Temporary Storage';
       folderBadgeEl.className = 'badge-tag';
+      if (subfoldersNoteEl) subfoldersNoteEl.style.display = 'none';
     }
+  }
+
+  if (changeFolderBtn && currentUser) {
+    const isOwnerOrAdmin = currentUser.role === 'owner' || currentUser.isOwner || currentUser.role === 'admin' || canAccess('custom_storage');
+    changeFolderBtn.style.display = isOwnerOrAdmin ? 'inline-flex' : 'none';
+    changeFolderBtn.textContent = (currentUser.downloadFolder && currentUser.downloadFolder !== '*') ? '✏️ Change Storage Folder' : '📁 Set Permanent Download Folder';
   }
 
   if (adminLinkBtn) {
@@ -653,6 +665,36 @@ function setupAuthModalEvents() {
 
   if (closeAuthBtn) closeAuthBtn.addEventListener('click', closeAuthModal);
   if (closeAccountBtn) closeAccountBtn.addEventListener('click', closeAccountModal);
+
+  const changeFolderBtn = document.getElementById('btnChangeDownloadFolder');
+  if (changeFolderBtn) {
+    changeFolderBtn.addEventListener('click', async () => {
+      const current = (currentUser && currentUser.downloadFolder) || (currentUser && (currentUser.role === 'owner' || currentUser.isOwner) ? '/media/storage/sakura' : '');
+      const entered = prompt(
+        'Enter permanent download folder path on server:\n(Subfolders "Movies and Shows", "Music", and "Adult" will be automatically created inside)',
+        current
+      );
+      if (entered === null) return;
+      const cleanPath = entered.trim();
+      try {
+        const res = await fetch('/api/user/download-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ downloadFolder: cleanPath })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          currentUser.downloadFolder = data.downloadFolder;
+          showToast(data.message || 'Permanent download folder updated successfully!', 'success');
+          openAccountModal();
+        } else {
+          showToast(data.error || 'Failed to update download folder', 'error');
+        }
+      } catch (err) {
+        showToast('Network error updating download folder', 'error');
+      }
+    });
+  }
 
   if (authModal) {
     authModal.addEventListener('click', (e) => {

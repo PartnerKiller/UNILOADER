@@ -1924,14 +1924,32 @@ async function loadAdminUsers() {
         ? u.allowedFolders
         : (u.downloadFolder ? [u.downloadFolder] : []);
       const folderCount = folders.length;
+      const ownerDownloadFolder = u.downloadFolder || (folders.length > 0 ? folders[0] : '');
       const folderDisplay = isOwner
-        ? `<span style="display: inline-flex; align-items: center; gap: 4px; color: #fbbf24; font-size: 0.75rem;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #fbbf24;"></span> Root System Access</span>`
+        ? (ownerDownloadFolder
+          ? `<div style="display: flex; flex-direction: column; gap: 3px;">
+               <div style="display: inline-flex; align-items: center; gap: 4px; color: #fbbf24; font-size: 0.72rem; font-weight: 600;">
+                 <span style="width: 6px; height: 6px; border-radius: 50%; background: #fbbf24;"></span> Root System Access
+               </div>
+               <span style="font-size: 0.75rem; color: #93c5fd; font-weight: 600;">📁 Permanent Folder:</span>
+               <code style="font-size: 0.72rem; color: #a7f3d0; background: rgba(16,185,129,0.1); padding: 2px 6px; border-radius: 4px; word-break: break-all; max-width: 220px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ownerDownloadFolder)}">
+                 ${escapeHtml(ownerDownloadFolder)}
+               </code>
+               <span style="font-size: 0.68rem; color: #94a3b8;">🎬 Movies &amp; Shows • 🎵 Music • 🔞 Adult</span>
+             </div>`
+          : `<div style="display: flex; flex-direction: column; gap: 2px;">
+               <div style="display: inline-flex; align-items: center; gap: 4px; color: #fbbf24; font-size: 0.72rem; font-weight: 600;">
+                 <span style="width: 6px; height: 6px; border-radius: 50%; background: #fbbf24;"></span> Root System Access
+               </div>
+               <span style="font-size: 0.72rem; color: var(--text-muted); font-style: italic;">No permanent folder assigned (uses temp cache)</span>
+             </div>`)
         : (folderCount > 0
           ? `<div style="display: flex; flex-direction: column; gap: 3px;">
                <span style="font-size: 0.75rem; color: #93c5fd; font-weight: 600;">📁 ${folderCount} folder${folderCount === 1 ? '' : 's'}:</span>
                <code style="font-size: 0.72rem; color: #a7f3d0; background: rgba(16,185,129,0.1); padding: 2px 6px; border-radius: 4px; word-break: break-all; max-width: 220px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(folders.join(', '))}">
                  ${escapeHtml(folders[0])}${folderCount > 1 ? ` +${folderCount - 1} more` : ''}
                </code>
+               <span style="font-size: 0.68rem; color: #94a3b8;">🎬 Movies &amp; Shows • 🎵 Music • 🔞 Adult</span>
              </div>`
           : `<span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Default (Temp Cache)</span>`);
 
@@ -1952,8 +1970,11 @@ async function loadAdminUsers() {
           <td style="padding: 12px 14px; text-align: right;">
             <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
               ${isOwner ? `
-                <button type="button" class="btn btn-outline btn-xs" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', 'owner')" style="border-color: #3b82f6; color: #60a5fa;" title="Browse system drives and folders">
-                  📁 Drives
+                <button type="button" class="btn btn-primary btn-xs" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', 'owner')" style="font-size: 0.75rem; padding: 3px 8px;" title="Browse drives and assign permanent folder">
+                  📁 Assign Folder
+                </button>
+                <button type="button" class="btn btn-outline btn-xs" onclick="openQuickFolderPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(ownerDownloadFolder)}')" style="border-color: #3b82f6; color: #60a5fa; font-size: 0.75rem; padding: 3px 8px;" title="Set or edit path directly">
+                  ✏️ Path
                 </button>
                 <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3);">
                   👑 Owner
@@ -1961,6 +1982,9 @@ async function loadAdminUsers() {
               ` : `
                 <button type="button" class="btn btn-outline btn-xs" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" style="border-color: #3b82f6; color: #60a5fa;" title="Configure folder allocations">
                   📁 Folders (${folderCount})
+                </button>
+                <button type="button" class="btn btn-outline btn-xs" onclick="openQuickFolderPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.downloadFolder || '')}')" style="border-color: #3b82f6; color: #60a5fa; font-size: 0.75rem; padding: 3px 8px;" title="Set or edit path directly">
+                  ✏️ Path
                 </button>
                 <button type="button" class="btn btn-outline btn-xs" onclick="toggleUserRole('${escapeHtml(u.id)}', '${isPrem ? 'user' : 'premium'}')">
                   ${isPrem ? 'Demote' : 'Make Premium'}
@@ -1976,6 +2000,35 @@ async function loadAdminUsers() {
     }).join('');
   } catch (e) {}
 }
+
+window.openQuickFolderPrompt = async function(userId, username, currentPath) {
+  const defaultVal = currentPath || (username.toLowerCase() === 'sakura' ? '/media/storage/sakura' : `/media/storage/${username}`);
+  const entered = prompt(
+    `Assign permanent download folder for "${username}":\n(Subfolders "Movies and Shows", "Music", and "Adult" will be automatically created inside)`,
+    defaultVal
+  );
+  if (entered === null) return;
+  const cleanPath = entered.trim();
+  try {
+    const res = await fetch('/api/admin/users/folder', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ id: userId, downloadFolder: cleanPath })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(data.message || `Assigned folder for "${username}" updated!`, 'success');
+      loadAdminUsers();
+    } else {
+      showToast(data.error || 'Failed to update folder', 'error');
+    }
+  } catch (err) {
+    showToast('Network error updating download folder', 'error');
+  }
+};
 
 async function loadAccessRequests() {
   try {

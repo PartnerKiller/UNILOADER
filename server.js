@@ -975,6 +975,34 @@ function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
 }
 
+const CATEGORY_SUBFOLDERS = {
+  movies: 'Movies and Shows',
+  music: 'Music',
+  adult: 'Adult'
+};
+
+function ensureCategorySubfolders(baseFolder) {
+  if (!baseFolder || typeof baseFolder !== 'string') return;
+  const resolved = path.resolve(baseFolder.trim());
+  const baseName = path.basename(resolved);
+  if (Object.values(CATEGORY_SUBFOLDERS).includes(baseName)) {
+    return;
+  }
+  for (const sub of Object.values(CATEGORY_SUBFOLDERS)) {
+    const subPath = path.join(resolved, sub);
+    try {
+      if (!fs.existsSync(subPath)) {
+        fs.mkdirSync(subPath, { recursive: true });
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(subPath, 0o775); } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.warn(`[Storage] Failed to ensure category subfolder "${subPath}":`, e.message);
+    }
+  }
+}
+
 function loadUsers() {
   try {
     if (fs.existsSync(USERS_FILE)) {
@@ -991,6 +1019,9 @@ function loadUsers() {
                 u.downloadFolder = firstAllowed.trim();
                 modified = true;
               }
+            }
+            if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim() && u.downloadFolder.trim() !== '*') {
+              try { ensureCategorySubfolders(u.downloadFolder); } catch (e) {}
             }
             users.set(u.username.toLowerCase(), u);
           }
@@ -1115,8 +1146,16 @@ function getUserDownloadFolder(userOrId) {
   let user = null;
   if (typeof userOrId === 'string') {
     const lower = userOrId.toLowerCase().trim();
-    if (lower === 'owner' || lower === 'sakura') {
+    if (lower === 'owner' || lower === 'sakura' || lower === 'owner_sakura') {
       user = users.get('sakura');
+      if (!user) {
+        for (const u of users.values()) {
+          if (u.role === 'owner' || u.id === 'owner_sakura' || (u.username && u.username.toLowerCase() === 'sakura')) {
+            user = u;
+            break;
+          }
+        }
+      }
     } else if (users.has(lower)) {
       user = users.get(lower);
     } else {
@@ -1217,6 +1256,56 @@ function isPermanentUserFile(filePath) {
   return false;
 }
 
+function getJobCategory(jobOrOpts) {
+  if (!jobOrOpts) return 'movies';
+
+  const adultDomains = [
+    'xvideos.com', 'pornhub.com', 'eporner.com', 'redtube.com', 'hqporner.com',
+    'sukebei.nyaa.si', 'sukebei', 'jable.tv', 'missav', 'fc2.com', 'fanza.com',
+    'dmm.co.jp', 'spankbang.com', 'youporn.com', 'tube8.com', 'brazzers.com',
+    'rule34video.com', 'javlibrary.com', 'javdb.com', 'javbus.com', '7mmtv',
+    'hpjav', 'avgle.com', 'supjav', 'jav'
+  ];
+
+  const codeUpper = String(jobOrOpts.code || (jobOrOpts.opts && jobOrOpts.opts.code) || '').toUpperCase();
+  const titleStr = `${jobOrOpts.title || ''} ${jobOrOpts.filename || ''} ${(jobOrOpts.opts && jobOrOpts.opts.title) || ''}`;
+  const urlStr = String(jobOrOpts.url || (jobOrOpts.opts && (jobOrOpts.opts.url || jobOrOpts.opts.magnet || jobOrOpts.opts.torrentUrl)) || '').toLowerCase();
+  const provider = String((jobOrOpts.opts && jobOrOpts.opts.provider) || jobOrOpts.provider || '').toLowerCase();
+  const typeStr = String((jobOrOpts.opts && jobOrOpts.opts.type) || jobOrOpts.type || '').toLowerCase();
+
+  // 1. Adult & JAV checks
+  const isAdultCode = codeUpper === 'ADULT' || codeUpper === 'JAV';
+  const isAdultType = typeStr === 'jav' || typeStr === 'tube' || !!(jobOrOpts.opts && jobOrOpts.opts.isAdult) || !!jobOrOpts.isAdult;
+  const isAdultDomain = adultDomains.some(d => urlStr.includes(d) || provider.includes(d));
+  const hasJavCode = !!(extractJavCode(jobOrOpts.title) || extractJavCode(jobOrOpts.filename) || (jobOrOpts.opts && extractJavCode(jobOrOpts.opts.title)));
+  const hasAdultKeywords = /\b(jav|censored|uncensored|hentai|fanza|r18|xvideos|pornhub)\b/i.test(titleStr);
+
+  if (isAdultCode || isAdultType || isAdultDomain || hasJavCode || hasAdultKeywords) {
+    return 'adult';
+  }
+
+  // 2. Audio & Music checks
+  const mode = String(jobOrOpts.mode || (jobOrOpts.opts && jobOrOpts.opts.mode) || '').toLowerCase();
+  const audioFmt = String((jobOrOpts.opts && jobOrOpts.opts.audioFormat) || jobOrOpts.audioFormat || '').toLowerCase();
+  const isAudioMode = ['audio', 'audiophile_flac', 'cdrip'].includes(mode);
+  const isAudioCode = ['CD_RIP_1TO1', 'FLAC_MASTER', 'FLAC'].includes(codeUpper);
+  const isCdRip = !!((jobOrOpts.opts && jobOrOpts.opts.isCdRip) || jobOrOpts.isCdRip || isAudioCode || mode === 'cdrip' || audioFmt === 'cdrip');
+
+  const ext = path.extname(jobOrOpts.filePath || jobOrOpts.filename || '').toLowerCase().replace('.', '');
+  const audioExts = ['flac', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'alac', 'aiff', 'wma'];
+  const isAudioExt = audioExts.includes(ext) || audioExts.includes(audioFmt);
+
+  const musicDomains = ['spotify.com', 'deezer.com', 'tidal.com', 'jiosaavn.com', 'music.apple.com', 'music.youtube.com', 'soundcloud.com', 'bandcamp.com'];
+  const isMusicDomain = musicDomains.some(d => urlStr.includes(d));
+
+  if (isAudioMode || isAudioCode || isCdRip || isAudioExt || isMusicDomain) {
+    return 'music';
+  }
+
+  // 3. Default to Movies and Shows (ddl_direct, video streams, torrent movies/series, web videos)
+  return 'movies';
+}
+
 function finalizeJobPermanentStorage(job) {
   if (!job || !job.filePath || !fs.existsSync(job.filePath)) return;
 
@@ -1229,8 +1318,20 @@ function finalizeJobPermanentStorage(job) {
   }
 
   try {
-    if (!fs.existsSync(userFolder)) {
-      fs.mkdirSync(userFolder, { recursive: true });
+    ensureCategorySubfolders(userFolder);
+
+    const category = getJobCategory(job);
+    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Movies and Shows';
+    const baseName = path.basename(userFolder);
+    const targetFolder = Object.values(CATEGORY_SUBFOLDERS).includes(baseName)
+      ? userFolder
+      : path.join(userFolder, subfolderName);
+
+    if (!fs.existsSync(targetFolder)) {
+      fs.mkdirSync(targetFolder, { recursive: true });
+      if (process.platform !== 'win32') {
+        try { fs.chmodSync(targetFolder, 0o775); } catch (e) {}
+      }
     }
 
     const currentName = path.basename(job.filePath);
@@ -1242,15 +1343,15 @@ function finalizeJobPermanentStorage(job) {
     targetName = targetName.replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!targetName) targetName = `${job.title || 'media'}_${Date.now()}`;
 
-    let destPath = path.join(userFolder, targetName);
+    let destPath = path.join(targetFolder, targetName);
     if (fs.existsSync(destPath) && path.resolve(destPath) !== path.resolve(job.filePath)) {
       const parsed = path.parse(targetName);
       let count = 1;
-      while (fs.existsSync(path.join(userFolder, `${parsed.name} (${count})${parsed.ext}`))) {
+      while (fs.existsSync(path.join(targetFolder, `${parsed.name} (${count})${parsed.ext}`))) {
         count++;
       }
       targetName = `${parsed.name} (${count})${parsed.ext}`;
-      destPath = path.join(userFolder, targetName);
+      destPath = path.join(targetFolder, targetName);
     }
 
     if (path.resolve(job.filePath) !== path.resolve(destPath)) {
@@ -1264,10 +1365,10 @@ function finalizeJobPermanentStorage(job) {
       try { fs.chmodSync(destPath, 0o664); } catch (e) {}
     }
 
-    job.downloadFolder = userFolder;
+    job.downloadFolder = targetFolder;
     job.isPermanent = true;
-    job.logs.push(`📁 Permanent Storage: File saved to assigned user folder: ${destPath}`);
-    console.log(`[PermanentStorage] Job ${job.id} (${job.ownerId}) saved to: ${destPath}`);
+    job.logs.push(`📁 Permanent Storage [${subfolderName}]: File saved to assigned user folder: ${destPath}`);
+    console.log(`[PermanentStorage] Job ${job.id} (${job.ownerId}) [${subfolderName}] saved to: ${destPath}`);
   } catch (err) {
     console.error(`[PermanentStorage] Error moving job ${job.id} to ${userFolder}:`, err.message);
     job.logs.push(`⚠️ Could not save to permanent user folder (${err.message}). Stored in temp media.`);
@@ -1656,6 +1757,7 @@ app.post('/api/admin/users/folder', requireAdmin, (req, res) => {
         } catch (e) {
           return res.status(400).json({ error: `Cannot create directory "${cleanFolder}": ${e.message}` });
         }
+        ensureCategorySubfolders(cleanFolder);
       }
 
       u.downloadFolder = cleanFolder;
@@ -2076,20 +2178,21 @@ app.post('/api/admin/users/:id/folders', requireAdmin, (req, res) => {
   }
   for (const u of users.values()) {
     if (u.id === id || u.username.toLowerCase() === id.toLowerCase()) {
-      if (u.role === 'owner' || u.username.toLowerCase() === 'sakura') {
-        return res.status(400).json({ error: 'Owner account has root access to all system drives' });
-      }
       u.allowedFolders = Array.from(new Set(folders.map(f => String(f).trim()).filter(Boolean)));
-      if ((!u.downloadFolder || !u.downloadFolder.trim() || !u.allowedFolders.includes(u.downloadFolder)) && u.allowedFolders.length > 0) {
+      if (u.allowedFolders.length > 0) {
         const first = u.allowedFolders.find(f => f && f !== '*');
-        u.downloadFolder = first || '';
+        if (first) {
+          u.downloadFolder = first;
+          ensureCategorySubfolders(first);
+        }
       }
       saveUsers();
       return res.json({
         success: true,
-        message: `Allocated ${u.allowedFolders.length} folder(s) to "${u.username}"`,
+        message: `Allocated ${u.allowedFolders.length} folder(s) to "${u.username}". Category subfolders (Movies and Shows, Music, Adult) configured.`,
         allowedFolders: u.allowedFolders,
-        downloadFolder: u.downloadFolder
+        downloadFolder: u.downloadFolder,
+        subfolders: Object.values(CATEGORY_SUBFOLDERS)
       });
     }
   }
@@ -2107,6 +2210,82 @@ app.get('/api/user/allocated-folders', identifyUser, (req, res) => {
     folders = getSystemDrives().map(d => d.path);
   }
   res.json({ success: true, isOwner: u.isOwner, folders });
+});
+
+// User Assign Own Download Folder API (Owner & Authenticated Members)
+app.post('/api/user/download-folder', identifyUser, (req, res) => {
+  const u = req.currentUser;
+  if (!u || u.role === 'guest') {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const { downloadFolder } = req.body || {};
+  let cleanFolder = (downloadFolder || '').trim();
+
+  // Find user record in users map
+  let userRecord = null;
+  for (const record of users.values()) {
+    if (record.id === u.userId || (record.username && record.username.toLowerCase() === (u.username || '').toLowerCase())) {
+      userRecord = record;
+      break;
+    }
+  }
+
+  if (!userRecord) {
+    return res.status(404).json({ error: 'User account not found' });
+  }
+
+  if (cleanFolder) {
+    cleanFolder = path.resolve(cleanFolder);
+
+    // If not owner, verify folder permission
+    if (!u.isOwner && !isFeatureAllowed(u, 'custom_storage')) {
+      return res.status(403).json({ error: 'Custom folder storage is not enabled for your account' });
+    }
+
+    if (!u.isOwner) {
+      const allowed = (userRecord.allowedFolders || []).map(f => path.resolve(f));
+      const isPermitted = allowed.some(a => cleanFolder === a || cleanFolder.startsWith(a + path.sep));
+      if (!isPermitted) {
+        return res.status(403).json({ error: 'Selected folder is outside your permitted storage allocations' });
+      }
+    }
+
+    try {
+      if (!fs.existsSync(cleanFolder)) {
+        fs.mkdirSync(cleanFolder, { recursive: true });
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(cleanFolder, 0o775); } catch (e) {}
+        }
+      }
+    } catch (e) {
+      return res.status(400).json({ error: `Cannot access or create directory "${cleanFolder}": ${e.message}` });
+    }
+
+    // Ensure 3 category subfolders exist
+    ensureCategorySubfolders(cleanFolder);
+  }
+
+  userRecord.downloadFolder = cleanFolder;
+  if (cleanFolder) {
+    userRecord.allowedFolders = Array.isArray(userRecord.allowedFolders) ? userRecord.allowedFolders : [];
+    if (!userRecord.allowedFolders.includes(cleanFolder)) {
+      userRecord.allowedFolders.push(cleanFolder);
+    }
+  }
+  saveUsers();
+
+  // Update in-memory session user if present
+  u.downloadFolder = cleanFolder;
+
+  return res.json({
+    success: true,
+    message: cleanFolder
+      ? `Permanent storage assigned: ${cleanFolder}`
+      : 'Permanent storage cleared. Using temporary storage.',
+    downloadFolder: cleanFolder,
+    subfolders: Object.values(CATEGORY_SUBFOLDERS)
+  });
 });
 
 app.post('/api/jobs/:id/save-to-folder', identifyUser, (req, res) => {
@@ -4528,6 +4707,7 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
     }
     const jobId = 'job_ddl_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
 
+    const ownerFolder = getUserDownloadFolder(req.currentUser.userId);
     const job = {
       id: jobId,
       url: url || link || '',
@@ -4545,6 +4725,8 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
       mode: 'ddl_direct',
       ownerId: req.currentUser.userId,
       isPremium: req.currentUser.isPremium,
+      downloadFolder: ownerFolder || '',
+      isPermanent: !!ownerFolder,
       status: 'resolving_ddl',
       progress: {
         percent: 15,
@@ -6080,7 +6262,9 @@ function createAndStartJob(opts) {
     initialLogs.push('🌟 Priority bandwidth allocated (Premium User)');
   }
   if (assignedFolder) {
-    initialLogs.push(`📁 Permanent Storage: Downloads routed to assigned folder: ${assignedFolder}`);
+    const category = getJobCategory(opts);
+    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Movies and Shows';
+    initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${path.join(assignedFolder, subfolderName)}`);
   }
 
   const job = {
