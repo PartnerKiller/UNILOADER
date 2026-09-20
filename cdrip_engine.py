@@ -38,6 +38,35 @@ session = requests.Session(impersonate="chrome124")
 def log(msg):
     print(f"[CD-Rip Engine] {msg}", flush=True)
 
+def find_flac_files(d):
+    if not os.path.exists(d):
+        return []
+    flacs = []
+    for root, _, files in os.walk(d):
+        for f in files:
+            if f.lower().endswith('.flac'):
+                flacs.append(os.path.join(root, f))
+    return flacs
+
+def convert_wav_to_flac_if_needed(directory):
+    if not os.path.exists(directory):
+        return
+    for root, _, files in os.walk(directory):
+        for f in files:
+            if f.lower().endswith('.wav'):
+                wav_path = os.path.join(root, f)
+                flac_path = os.path.splitext(wav_path)[0] + '.flac'
+                if not os.path.exists(flac_path):
+                    try:
+                        import subprocess
+                        log(f"Encoding uncompressed WAV to Lossless FLAC: {f}...")
+                        subprocess.run(['ffmpeg', '-y', '-i', wav_path, '-c:a', 'flac', flac_path],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                        if os.path.exists(flac_path) and os.path.getsize(flac_path) > 1000:
+                            os.remove(wav_path)
+                    except Exception as e:
+                        log(f"Notice during WAV to FLAC conversion: {e}")
+
 def is_slskd_online():
     try:
         r = session.get(f"{SLSKD_API_BASE}/options", timeout=2)
@@ -244,8 +273,10 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
         except Exception as e:
             log(f"Peer transfer handling notice: {e}")
 
+    convert_wav_to_flac_if_needed(output_dir)
+
     # 3. Check Telegram Archival Channels if no optical P2P package acquired
-    existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')] if os.path.exists(output_dir) else []
+    existing_flacs = find_flac_files(output_dir)
     if not existing_flacs:
         log("🔍 Querying Telegram Lossless Archival Channels & Joined Repositories...")
         try:
@@ -259,7 +290,8 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
                 best_tg = tg_candidates[0]
                 log(f"Found Telegram CD-Rip release: @{best_tg['channel']} - {best_tg['fileName']} ({best_tg['sizeStr']}) [Score: {best_tg['score']}]")
                 download_telegram_cdrip(best_tg['channel'], best_tg['messageId'], output_dir)
-                existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')]
+                convert_wav_to_flac_if_needed(output_dir)
+                existing_flacs = find_flac_files(output_dir)
                 if existing_flacs:
                     log(f"Successfully unpacked {len(existing_flacs)} FLAC tracks from Telegram archive.")
             else:
@@ -268,7 +300,7 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
             log(f"Telegram acquisition notice: {e}")
 
     # 4. Check BitTorrent Lossless Swarms if still unseeded
-    existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')] if os.path.exists(output_dir) else []
+    existing_flacs = find_flac_files(output_dir)
     if not existing_flacs:
         log("🔍 Querying Lossless BitTorrent Swarms (Apibay / Trackers)...")
         try:
@@ -282,7 +314,8 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
                 best_tor = tor_candidates[0]
                 log(f"Found BitTorrent CD-Rip swarm: \"{best_tor['name']}\" ({best_tor['sizeStr']}) - 🟢 {best_tor['seeders']} Seeds [Score: {best_tor['score']}]")
                 download_torrent_cdrip(best_tor['magnet'], output_dir, timeout_secs=180)
-                existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')]
+                convert_wav_to_flac_if_needed(output_dir)
+                existing_flacs = find_flac_files(output_dir)
                 if existing_flacs:
                     log(f"Successfully downloaded {len(existing_flacs)} FLAC tracks from BitTorrent swarm.")
             else:
@@ -291,7 +324,7 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
             log(f"BitTorrent acquisition notice: {e}")
 
     # 5. Fallback to 16-bit CDDA Bitstream (Deezer HiFi / Tidal) if no optical rip was found anywhere
-    existing_flacs = [f for f in os.listdir(output_dir) if f.endswith('.flac')] if os.path.exists(output_dir) else []
+    existing_flacs = find_flac_files(output_dir)
     if not existing_flacs:
         log("⚠️ No active optical CD-Rip package was found across Soulseek, Telegram, or Torrents.")
         log("⚡ Falling back to 16-bit / 44.1 kHz Lossless CDDA Bitstream (Deezer HiFi CDN / Tidal)...")
@@ -380,8 +413,12 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
     # Package full CD-Rip directory into a release zip archive
     try:
         zip_base = output_dir.rstrip('/\\')
-        shutil.make_archive(zip_base, 'zip', output_dir)
-        log(f"📦 Packaged complete 1:1 CD-Rip archive: {zip_base}.zip")
+        zip_file = shutil.make_archive(zip_base, 'zip', output_dir)
+        if os.path.exists(zip_file) and os.path.getsize(zip_file) > 0:
+            log(f"📦 Packaged complete 1:1 CD-Rip archive: {zip_file}")
+            shutil.rmtree(output_dir, ignore_errors=True)
+        else:
+            log(f"📦 Archive packaging notice: {zip_file} was not created properly.")
     except Exception as e:
         log(f"Archive zip notice: {e}")
 
@@ -401,6 +438,8 @@ def acquire_cdrip_targeted(source, out_dir, tg_channel=None, tg_msg_id=None, tor
         from torrent_cdrip_engine import download_torrent_cdrip
         download_torrent_cdrip(torrent_magnet, out_dir)
 
+    convert_wav_to_flac_if_needed(out_dir)
+
     # Verification & packaging
     log("Running multi-pass CD-Rip Provenance Verification...")
     verification_result = inspect_cdrip_directory(out_dir)
@@ -418,8 +457,12 @@ def acquire_cdrip_targeted(source, out_dir, tg_channel=None, tg_msg_id=None, tor
 
     try:
         zip_base = out_dir.rstrip('/\\')
-        shutil.make_archive(zip_base, 'zip', out_dir)
-        log(f"📦 Packaged complete 1:1 CD-Rip archive: {zip_base}.zip")
+        zip_file = shutil.make_archive(zip_base, 'zip', out_dir)
+        if os.path.exists(zip_file) and os.path.getsize(zip_file) > 0:
+            log(f"📦 Packaged complete 1:1 CD-Rip archive: {zip_file}")
+            shutil.rmtree(out_dir, ignore_errors=True)
+        else:
+            log(f"📦 Archive packaging notice: {zip_file} was not created properly.")
     except Exception as e:
         log(f"Archive zip notice: {e}")
 

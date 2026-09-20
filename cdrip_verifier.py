@@ -16,13 +16,28 @@ import re
 import json
 import glob
 import struct
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     from mutagen.flac import FLAC
     HAS_MUTAGEN = True
 except ImportError:
     HAS_MUTAGEN = False
+
+def is_valid_flac(file_path: str) -> bool:
+    if not os.path.exists(file_path) or os.path.getsize(file_path) < 10000:
+        return False
+    if HAS_MUTAGEN:
+        try:
+            audio = FLAC(file_path)
+            return bool(audio.info and getattr(audio.info, 'sample_rate', 0) > 0)
+        except Exception:
+            return False
+    try:
+        with open(file_path, 'rb') as f:
+            return f.read(4) == b'fLaC'
+    except Exception:
+        return False
 
 # ==============================================================================
 # 1. Red Book PCM Container Verification
@@ -41,7 +56,12 @@ def verify_red_book_pcm(file_path: str):
             bps = getattr(audio.info, 'bits_per_sample', 0)
             sr = getattr(audio.info, 'sample_rate', 0)
             ch = getattr(audio.info, 'channels', 0)
+            bitrate_kbps = int(audio.info.bitrate / 1000) if audio.info.bitrate else 0
 
+            if bps == 16 and sr == 44100 and ch == 2:
+                return True, f"Red Book CDDA Verified (16-bit / 44.1 kHz stereo, {bitrate_kbps} kbps)"
+            if bps >= 24 or sr > 44100:
+                return False, f"Hi-Res Lossless ({bps}-bit / {sr/1000:.1f} kHz stereo, {bitrate_kbps} kbps)"
             if bps != 16:
                 return False, f"Non-Red Book bit depth: {bps}-bit (Expected 16-bit CDDA)"
             if sr != 44100:
@@ -49,7 +69,6 @@ def verify_red_book_pcm(file_path: str):
             if ch != 2:
                 return False, f"Non-Red Book channel count: {ch} (Expected 2 channels stereo)"
 
-            bitrate_kbps = int(audio.info.bitrate / 1000) if audio.info.bitrate else 0
             return True, f"Red Book CDDA Verified (16-bit / 44.1 kHz stereo, {bitrate_kbps} kbps)"
         except Exception as e:
             return False, f"Mutagen FLAC inspection error: {e}"
@@ -276,29 +295,53 @@ def inspect_cdrip_directory(release_dir: str):
     if not os.path.exists(release_dir):
         return {"success": False, "error": f"Directory not found: {release_dir}"}
 
-    flac_files = sorted(glob.glob(os.path.join(release_dir, "**", "*.flac"), recursive=True))
-    cue_files = sorted(glob.glob(os.path.join(release_dir, "**", "*.cue"), recursive=True))
-    log_files = sorted(glob.glob(os.path.join(release_dir, "**", "*.log"), recursive=True))
-    
-    scan_exts = ('*.jpg', '*.jpeg', '*.png', '*.webp')
+    flac_files = []
+    cue_files = []
+    log_files = []
     scans = []
-    for ext in scan_exts:
-        scans.extend(glob.glob(os.path.join(release_dir, "**", ext), recursive=True))
+    scan_exts = ('.jpg', '.jpeg', '.png', '.webp')
+
+    for root, _, files in os.walk(release_dir):
+        for f in files:
+            full_path = os.path.join(root, f)
+            f_lower = f.lower()
+            if f_lower.endswith('.flac'):
+                flac_files.append(full_path)
+            elif f_lower.endswith('.cue'):
+                cue_files.append(full_path)
+            elif f_lower.endswith('.log'):
+                log_files.append(full_path)
+            elif any(f_lower.endswith(ext) for ext in scan_exts):
+                scans.append(full_path)
+
+    flac_files.sort()
+    cue_files.sort()
+    log_files.sort()
+    scans.sort()
 
     if not flac_files:
         return {"success": False, "error": "No FLAC audio files found in directory"}
 
-    # Pass 1: Red Book PCM Check
+    # Pass 1: Red Book PCM Check & Lossless Authenticity
     cdda_passed = True
+    all_lossless_valid = True
+    is_any_hires = False
     track_details = []
     for idx, f in enumerate(flac_files, 1):
         ok, msg = verify_red_book_pcm(f)
+        valid_flac = is_valid_flac(f)
         if not ok:
             cdda_passed = False
+        if not valid_flac:
+            all_lossless_valid = False
+        if "Hi-Res" in msg or "24-bit" in msg or "32-bit" in msg:
+            is_any_hires = True
+
         track_details.append({
             "trackIndex": idx,
             "filename": os.path.basename(f),
             "redBook": ok,
+            "validLossless": valid_flac,
             "detail": msg,
             "sizeBytes": os.path.getsize(f)
         })
@@ -331,12 +374,18 @@ def inspect_cdrip_directory(release_dir: str):
     elif cdda_passed:
         provenance = "LOSSLESS_CONFIRMED"
         score = 55
+    elif is_any_hires and all_lossless_valid:
+        provenance = "HI_RES_STUDIO_MASTER"
+        score = 95
+    elif all_lossless_valid:
+        provenance = "LOSSLESS_CONFIRMED"
+        score = 50
     else:
         provenance = "UNKNOWN"
-        score = 30
+        score = 0
 
     result = {
-        "success": len(flac_files) > 0 and cdda_passed,
+        "success": len(flac_files) > 0 and all_lossless_valid,
         "provenanceLevel": provenance,
         "fidelityScore": score,
         "summary": {
@@ -352,7 +401,7 @@ def inspect_cdrip_directory(release_dir: str):
         "logReport": log_report,
         "cueReport": cue_report,
         "tracks": track_details,
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     # Save provenance.json into directory
