@@ -4203,10 +4203,6 @@ body {
    MOVIE & TV SHOW HUB STYLING
    ========================================================================== */
 
-.movie-hub-card {
-  border-top: 3px solid #3b82f6;
-}
-
 .movie-search-bar-wrap {
   margin-top: 20px;
   display: flex;

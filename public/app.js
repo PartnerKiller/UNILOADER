@@ -3378,7 +3378,6 @@ function initMoviesView() {
   const clearBtn = document.getElementById('btnClearMovieSearch');
   const sourceTabs = document.getElementById('movieSourceTabs');
   const qualityFilters = document.getElementById('movieQualityFilters');
-  const quickTags = document.getElementById('movieQuickTags');
   const prevBtn = document.getElementById('btnMoviePrevPage');
   const nextBtn = document.getElementById('btnMovieNextPage');
   const modalClose = document.getElementById('btnCloseMovieReleasesModal');
@@ -3449,21 +3448,6 @@ function initMoviesView() {
         currentMoviePage = 1;
         executeMovieSearch(currentMovieQuery, currentMoviePage);
       }
-    });
-  }
-
-  if (quickTags) {
-    quickTags.addEventListener('click', (e) => {
-      const chip = e.target.closest('.movie-quick-chip');
-      if (!chip) return;
-      const q = chip.dataset.query;
-      if (!q) return;
-      if (input) {
-        input.value = q;
-        if (clearBtn) clearBtn.style.display = 'block';
-      }
-      currentMoviePage = 1;
-      executeMovieSearch(q, currentMoviePage);
     });
   }
 
