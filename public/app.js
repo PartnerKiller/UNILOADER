@@ -99,7 +99,7 @@ function showToast(message, type = 'error') {
   const toast = document.createElement('div');
   toast.className = `toast-item toast-${type}`;
   toast.innerHTML = `
-    <div class="toast-icon">${type === 'error' ? 'âš ï¸' : 'âœ“'}</div>
+    <div class="toast-icon">${type === 'error' ? '!' : '✓'}</div>
     <div class="toast-content">${message}</div>
     <button class="toast-close" type="button">&times;</button>
   `;
@@ -1473,12 +1473,12 @@ function triggerDeviceDownload(job) {
   }
 
   // Show non-intrusive success notification toast
-  showToast(`âœ“ Download completed: ${job.title || job.filename || 'Media'}`, 'success');
+  showToast(`✓ Download completed: ${job.title || job.filename || 'Media'}`, 'success');
 
   // Native Windows Desktop Notification
   if (window.electronAPI && window.electronAPI.notify) {
     window.electronAPI.notify({
-      title: 'Download Complete! ðŸŽ‰',
+      title: 'Download Complete!',
       body: `${job.title || job.filename || 'Media'} is ready in your Downloads folder.`
     });
   }
@@ -1582,7 +1582,7 @@ function renderJobsList(jobs) {
 
   let activeText = `${activeJobs.length} Active`;
   if (pausedJobs.length > 0) {
-    activeText += ` â€¢ ${pausedJobs.length} Paused`;
+    activeText += ` • ${pausedJobs.length} Paused`;
   }
   activeCountLabel.textContent = activeText;
   
@@ -1648,7 +1648,7 @@ function createJobCardElement(job) {
       <div class="job-title-group">
         <h4 class="job-title" id="job-title-${job.id}">${job.title}</h4>
         <div class="job-meta">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
-        ${job.downloadFolder ? `<div class="job-storage-tag" style="font-size: 0.72rem; color: #34d399; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;" title="Assigned permanent storage folder: ${escapeHtml(job.downloadFolder)}">ðŸ“ <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span></div>` : ''}
+        ${job.downloadFolder ? `<div class="job-storage-tag" style="font-size: 0.72rem; color: #34d399; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;" title="Assigned permanent storage folder: ${escapeHtml(job.downloadFolder)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span></div>` : ''}
       </div>
     </div>
 
@@ -1879,7 +1879,7 @@ function updateJobCard(job) {
     }
     if (storageTag) {
       storageTag.title = `Assigned permanent storage folder: ${job.downloadFolder}`;
-      storageTag.innerHTML = `ðŸ“ <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span>`;
+      storageTag.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span>`;
     }
   } else if (storageTag) {
     storageTag.remove();
@@ -1940,7 +1940,7 @@ window.copyJobLogs = function(jobId) {
   const text = content.textContent;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text)
-      .then(() => showToast('Logs copied to clipboard! ðŸ“‹', 'success'))
+      .then(() => showToast('Logs copied to clipboard!', 'success'))
       .catch(() => copyFallback(text));
   } else {
     copyFallback(text);
@@ -1956,7 +1956,7 @@ window.copyJobLogs = function(jobId) {
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      showToast('Logs copied to clipboard! ðŸ“‹', 'success');
+      showToast('Logs copied to clipboard!', 'success');
     } catch (e) {
       showToast('Failed to copy logs', 'error');
     }
@@ -2607,15 +2607,15 @@ function renderFlacReport(report) {
 
   if (iconWrap) {
     iconWrap.innerHTML = report.verdictBadge === 'success'
-      ? '<span class="verdict-symbol">âœ“</span>'
-      : (report.verdictBadge === 'warning' ? '<span class="verdict-symbol">!</span>' : '<span class="verdict-symbol">âœ•</span>');
+      ? '<span class="verdict-symbol">✓</span>'
+      : (report.verdictBadge === 'warning' ? '<span class="verdict-symbol">!</span>' : '<span class="verdict-symbol">✕</span>');
   }
 
   if (desc) {
     if (report.warnings && report.warnings.length > 0) {
-      desc.textContent = report.warnings.join(' â€¢ ');
+      desc.textContent = report.warnings.join(' • ');
     } else if (report.details && report.details.length > 0) {
-      desc.textContent = report.details.join(' â€¢ ');
+      desc.textContent = report.details.join(' • ');
     } else {
       desc.textContent = 'Audio frequency spectrum matches true uncompressed studio PCM standards.';
     }
@@ -2663,7 +2663,7 @@ function renderFlacReport(report) {
     durEl.textContent = `Duration: ${m}:${(s % 60).toString().padStart(2, '0')}`;
   }
   if (md5El) {
-    md5El.textContent = report.md5Signature ? 'Verified âœ“' : 'OK';
+    md5El.textContent = report.md5Signature ? 'Verified ✓' : 'OK';
   }
 
   // 3. Multi-Band Energy Bars
@@ -2928,7 +2928,7 @@ async function executeAdultSearch() {
     if (currentAdultResults.length === 0) {
       if (emptyState) {
         emptyState.innerHTML = `
-          <div class="empty-icon">ðŸ”</div>
+          <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>
           <h3>No Results Found for "${escapeHtml(currentAdultQuery)}"</h3>
           <p>Try switching Duration to "All Lengths", or search by JAV product code (e.g. SSIS, IPX, MIDV), actress name, or broader keywords.</p>
         `;
@@ -2948,7 +2948,7 @@ async function executeAdultSearch() {
     showToast(`Search failed: ${err.message}`, 'error');
     if (emptyState) {
       emptyState.innerHTML = `
-        <div class="empty-icon">âš ï¸</div>
+        <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
         <h3>Search Encountered an Error</h3>
         <p>${escapeHtml(err.message)}</p>
       `;
@@ -2990,8 +2990,8 @@ function renderAdultResults(items) {
     }
 
     const metaTag = isJav 
-      ? `ðŸŽ¬ ${item.size || 'Full Movie'} â€¢ ${item.seeders || 0} Seeds`
-      : `â±ï¸ ${item.duration || 'Full Video'} â€¢ ${item.quality || 'HD'}`;
+      ? `${item.size || 'Full Movie'} • ${item.seeders || 0} Seeds`
+      : `${item.duration || 'Full Video'} • ${item.quality || 'HD'}`;
 
     const defaultImg = isJav
       ? 'https://pics.dmm.co.jp/mono/movie/adult/default/defaultpl.jpg'
@@ -3012,7 +3012,7 @@ function renderAdultResults(items) {
           <div class="adult-card-badges">
             <span class="adult-badge ${badgeClass}">${sourceLabel}</span>
             ${item.code ? `<span class="adult-badge badge-code">${escapeHtml(item.code)}</span>` : ''}
-            ${isTeaser ? `<span class="adult-badge badge-teaser">âš ï¸ Short Clip</span>` : ''}
+            ${isTeaser ? `<span class="adult-badge badge-teaser">Short Clip</span>` : ''}
             ${isJav ? `<span class="adult-badge badge-full-movie">Full Movie</span>` : ''}
           </div>
           <span class="adult-card-meta-pill">${escapeHtml(metaTag)}</span>
@@ -3080,7 +3080,7 @@ window.openAdultPreview = function(idx) {
 
   title.textContent = item.title;
   const isJav = item.type === 'jav';
-  meta.innerHTML = `${escapeHtml((item.provider || '').toUpperCase())} â€¢ ${escapeHtml(item.duration || item.size || 'HD')} â€¢ ${escapeHtml(item.quality || (isJav ? 'Studio Master' : 'HD'))}`;
+  meta.innerHTML = `${escapeHtml((item.provider || '').toUpperCase())} • ${escapeHtml(item.duration || item.size || 'HD')} • ${escapeHtml(item.quality || (isJav ? 'Studio Master' : 'HD'))}`;
 
   if (dlText) {
     dlText.textContent = isJav
@@ -3132,7 +3132,7 @@ window.dispatchAdultDownload = async function(idx) {
     if (res.ok && data.success) {
       showToast(`Added to Active Queue: ${item.title.substring(0, 30)}...`, 'success');
       if (btn) {
-        btn.innerHTML = `<span>âœ“ Enqueued</span>`;
+        btn.innerHTML = `<span>✓ Enqueued</span>`;
         btn.classList.add('btn-success');
       }
     } else {
@@ -3407,7 +3407,7 @@ async function executeMovieSearch(query, page = 1) {
     if (loading) loading.style.display = 'none';
     if (emptyState) {
       emptyState.innerHTML = `
-        <div class="empty-icon">ðŸ›¡ï¸</div>
+        <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
         <h3>Movie Providers Disabled</h3>
         <p>All movie catalog and torrent search engines are currently disabled in Admin Engine Settings.</p>
       `;
@@ -3436,7 +3436,7 @@ async function executeMovieSearch(query, page = 1) {
     if (currentMovieResults.length === 0) {
       if (emptyState) {
         emptyState.innerHTML = `
-          <div class="empty-icon">ðŸ”</div>
+          <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>
           <h3>No Movies Found</h3>
           <p>No results found for "<strong>${escapeHtml(query)}</strong>" under the selected filter. Try another keyword or switch source filter to "All Sources".</p>
         `;
@@ -3456,7 +3456,7 @@ async function executeMovieSearch(query, page = 1) {
     showToast(`Movie search failed: ${err.message}`, 'error');
     if (emptyState) {
       emptyState.innerHTML = `
-        <div class="empty-icon">âš ï¸</div>
+        <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
         <h3>Search Error</h3>
         <p>${escapeHtml(err.message)}</p>
       `;
@@ -3471,7 +3471,7 @@ function renderMovieResults(items) {
   const grid = document.getElementById('movieResultsGrid');
   if (!grid) return;
 
-  const defaultPoster = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22300%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%2312151c%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2248%25%22%20fill%3D%22%234a5568%22%20font-size%3D%2242%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%3EðŸŽ¬%3C%2Ftext%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2260%25%22%20fill%3D%22%23718096%22%20font-size%3D%2216%22%20text-anchor%3D%22middle%22%20font-family%3D%22sans-serif%22%3ENo%20Poster%3C%2Ftext%3E%3C%2Fsvg%3E';
+  const defaultPoster = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22300%22%20height%3D%22450%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20fill%3D%22%2312151c%22%2F%3E%3Cpath%20d%3D%22M110%20195h80v60h-80z%22%20fill%3D%22%232d3748%22%20rx%3D%226%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2252%25%22%20fill%3D%22%23718096%22%20font-size%3D%2215%22%20text-anchor%3D%22middle%22%20font-family%3D%22sans-serif%22%3ENo%20Poster%3C%2Ftext%3E%3C%2Fsvg%3E';
 
   grid.innerHTML = items.map((item, idx) => {
     const isDdl = item.provider === 'ddl';
@@ -3485,7 +3485,7 @@ function renderMovieResults(items) {
       providerBadge = 'YTS 4K';
       providerClass = 'badge-provider-yts';
     } else if (isTorrent) {
-      providerBadge = isSeries ? 'TV Series â€¢ Swarm' : 'BitTorrent';
+      providerBadge = isSeries ? 'TV Series • Swarm' : 'BitTorrent';
       providerClass = isSeries ? 'badge-provider-series' : 'badge-provider-torrent';
     }
 
@@ -3494,7 +3494,7 @@ function renderMovieResults(items) {
       posterUrl = `/api/proxy-image?url=${encodeURIComponent(posterUrl)}`;
     }
     const yearText = item.year ? `${item.year}` : '';
-    const ratingText = item.rating ? `â­ ${item.rating}` : '';
+    const ratingText = item.rating ? `★ ${item.rating}` : '';
 
     const has4K = (item.releases || []).some(r => /4k|2160p/i.test(r.quality || r.label));
     const has1080p = (item.releases || []).some(r => /1080p/i.test(r.quality || r.label));
@@ -3505,7 +3505,6 @@ function renderMovieResults(items) {
     const releaseCount = item.releasesCount || (item.releases ? item.releases.length : 0);
 
     const displayTitle = item.pureTitle || item.title;
-    const releaseFilename = (item.pureTitle && item.pureTitle !== item.title) ? item.title : '';
 
     return `
       <div class="movie-card" data-index="${idx}">
@@ -3531,29 +3530,27 @@ function renderMovieResults(items) {
           <h4 class="movie-card-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</h4>
           
           <div class="movie-card-meta-line">
-            ${isDdl ? `
-              <span class="movie-meta-item meta-fallback" title="Direct Multi-Thread Cloud Download Ready">âš¡ Direct Cloud</span>
-            ` : ''}
             ${bestRelease && bestRelease.size ? `
-              <span class="movie-meta-item meta-size">ðŸ’¾ ${escapeHtml(bestRelease.size)}</span>
+              <span class="movie-meta-item meta-size">${escapeHtml(bestRelease.size)}</span>
             ` : ''}
             ${bestRelease && bestRelease.seeders !== undefined ? `
-              <span class="movie-meta-item meta-seeds" title="Active BitTorrent Seeders">ðŸŸ¢ ${bestRelease.seeders} Seeds</span>
+              <span class="movie-meta-item meta-seeds">${bestRelease.seeders} Seeds</span>
             ` : ''}
-            ${releaseFilename ? `
-              <span class="movie-meta-item meta-release-name" title="${escapeHtml(releaseFilename)}" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; color: var(--text-muted);">${escapeHtml(releaseFilename)}</span>
+            ${isDdl ? `
+              <span class="movie-meta-item meta-cloud">Direct Cloud</span>
             ` : ''}
           </div>
 
           <div class="movie-card-actions">
             <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="${isDdl ? `dispatchDdlDownload(${idx}, 0, event)` : `dispatchMovieDownload(${idx}, 0, event)`}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              <span>${isDdl ? 'âš¡ Direct DDL' : '1-Click Download'}</span>
+              <span>${isDdl ? 'Direct DDL' : 'Download'}</span>
             </button>
 
             ${releaseCount > 0 ? `
               <button type="button" class="btn btn-secondary btn-sm movie-options-btn" onclick="openMovieReleasesModal(${idx})">
-                <span>ðŸ“¦ Releases (${releaseCount})</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                <span>Releases (${releaseCount})</span>
               </button>
             ` : ''}
           </div>
@@ -3568,7 +3565,7 @@ window.copyMovieReleaseLink = function(text, btnEl) {
   navigator.clipboard.writeText(text).then(() => {
     if (btnEl) {
       const orig = btnEl.innerHTML;
-      btnEl.innerHTML = '<span>âœ“ Copied</span>';
+      btnEl.innerHTML = '<span>✓ Copied</span>';
       setTimeout(() => { btnEl.innerHTML = orig; }, 1800);
     }
     showToast('Direct link copied to clipboard!', 'success');
@@ -3604,7 +3601,7 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
 
   if (clickedBtn) {
     clickedBtn.disabled = true;
-    clickedBtn.innerHTML = `<span>â³ Starting...</span>`;
+    clickedBtn.innerHTML = `<span>Starting...</span>`;
   } else if (mainCardBtn) {
     mainCardBtn.disabled = true;
     mainCardBtn.innerHTML = `<span>Starting Download...</span>`;
@@ -3621,12 +3618,12 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
       showToast(`Added to Download Queue: ${payload.title.substring(0, 32)}...`, 'success');
       
       if (clickedBtn) {
-        clickedBtn.innerHTML = `<span>âœ“ Enqueued</span>`;
+        clickedBtn.innerHTML = `<span>✓ Enqueued</span>`;
         clickedBtn.classList.add('btn-success', 'enqueued');
         clickedBtn.disabled = true;
       }
       if (mainCardBtn && !clickedBtn) {
-        mainCardBtn.innerHTML = `<span>âœ“ Enqueued</span>`;
+        mainCardBtn.innerHTML = `<span>✓ Enqueued</span>`;
         mainCardBtn.classList.add('btn-success');
       }
 
@@ -3662,7 +3659,7 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
       showToast(data.error || 'Failed to start download', 'error');
       if (clickedBtn) {
         clickedBtn.disabled = false;
-        clickedBtn.innerHTML = `<span>âš¡ Download</span>`;
+        clickedBtn.innerHTML = `<span>Download</span>`;
       }
       if (mainCardBtn && !clickedBtn) {
         mainCardBtn.disabled = false;
@@ -3673,7 +3670,7 @@ window.dispatchMovieDownload = async function(idx, releaseIdx = 0, event = null)
     showToast(`Download error: ${err.message}`, 'error');
     if (clickedBtn) {
       clickedBtn.disabled = false;
-      clickedBtn.innerHTML = `<span>âš¡ Download</span>`;
+      clickedBtn.innerHTML = `<span>Download</span>`;
     }
     if (mainCardBtn && !clickedBtn) {
       mainCardBtn.disabled = false;
@@ -3692,11 +3689,11 @@ window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
 
   if (clickedBtn) {
     clickedBtn.disabled = true;
-    clickedBtn.innerHTML = `<span>â³ Resolving...</span>`;
+    clickedBtn.innerHTML = `<span>Resolving...</span>`;
   }
   if (mainCardBtn && !clickedBtn) {
     mainCardBtn.disabled = true;
-    mainCardBtn.innerHTML = `<span>â³ Resolving...</span>`;
+    mainCardBtn.innerHTML = `<span>Resolving...</span>`;
   }
 
   const payload = {
@@ -3719,13 +3716,13 @@ window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
 
     const data = await res.json();
     if (res.ok && data.success) {
-      showToast(`â˜ï¸ Started Direct DDL Download: ${item.title.substring(0, 30)}...`, 'success');
+      showToast(`Started Direct DDL Download: ${item.title.substring(0, 30)}...`, 'success');
       if (clickedBtn) {
-        clickedBtn.innerHTML = `<span>âœ“ Enqueued</span>`;
+        clickedBtn.innerHTML = `<span>✓ Enqueued</span>`;
         clickedBtn.classList.add('btn-success');
       }
       if (mainCardBtn && !clickedBtn) {
-        mainCardBtn.innerHTML = `<span>âœ“ Enqueued</span>`;
+        mainCardBtn.innerHTML = `<span>✓ Enqueued</span>`;
         mainCardBtn.classList.add('btn-success');
       }
 
@@ -3759,22 +3756,22 @@ window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
       showToast(data.error || 'Failed to start DDL download', 'error');
       if (clickedBtn) {
         clickedBtn.disabled = false;
-        clickedBtn.innerHTML = `<span>âš¡ Direct DDL</span>`;
+        clickedBtn.innerHTML = `<span>Direct DDL</span>`;
       }
       if (mainCardBtn && !clickedBtn) {
         mainCardBtn.disabled = false;
-        mainCardBtn.innerHTML = `<span>âš¡ Direct DDL</span>`;
+        mainCardBtn.innerHTML = `<span>Direct DDL</span>`;
       }
     }
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error');
     if (clickedBtn) {
       clickedBtn.disabled = false;
-      clickedBtn.innerHTML = `<span>âš¡ Direct DDL</span>`;
+      clickedBtn.innerHTML = `<span>Direct DDL</span>`;
     }
     if (mainCardBtn && !clickedBtn) {
       mainCardBtn.disabled = false;
-      mainCardBtn.innerHTML = `<span>âš¡ Direct DDL</span>`;
+      mainCardBtn.innerHTML = `<span>Direct DDL</span>`;
     }
   }
 };
@@ -3844,9 +3841,9 @@ function renderModalReleasesList() {
           <div class="release-text-block">
             <span class="release-label" title="${escapeHtml(relTitle)}">${escapeHtml(relTitle)}</span>
             <div class="release-secondary-row">
-              ${rel.size ? `<span class="release-meta-badge meta-size">ðŸ’¾ ${escapeHtml(rel.size)}</span>` : ''}
-              ${rel.seeders !== undefined ? `<span class="release-meta-badge">ðŸŸ¢ ${rel.seeders} Seeds</span>` : ''}
-              ${isDdl ? `<span class="release-meta-badge">âš¡ Direct Cloud</span>` : ''}
+              ${rel.size ? `<span class="release-meta-badge meta-size">${escapeHtml(rel.size)}</span>` : ''}
+              ${rel.seeders !== undefined ? `<span class="release-meta-badge">${rel.seeders} Seeds</span>` : ''}
+              ${isDdl ? `<span class="release-meta-badge">Direct Cloud</span>` : ''}
               ${rel.isMultiAudio ? `<span class="release-tag">Multi-Audio</span>` : ''}
               ${rel.isHevc ? `<span class="release-tag">HEVC 10-bit</span>` : ''}
               ${rel.isHdr ? `<span class="release-tag">HDR / DV</span>` : ''}
@@ -3856,16 +3853,19 @@ function renderModalReleasesList() {
         <div class="release-actions">
           ${isDdl ? `
             <button type="button" class="btn btn-primary btn-sm btn-rel-ddl" id="btnModalRelDdl_${rIdx}" onclick="dispatchDdlDownload(${currentModalItemIdx}, ${rIdx}, event)" title="Direct DDL Multi-Thread Download">
-              <span>âš¡ Direct DDL</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Direct DDL</span>
             </button>
           ` : `
             <button type="button" class="btn btn-primary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)">
-              <span>âš¡ Download</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Download</span>
             </button>
           `}
           ${rel.magnet ? `
             <button type="button" class="btn btn-secondary btn-sm btn-rel-copy" onclick="copyMovieReleaseLink('${escapeHtml(rel.magnet)}', this)" title="Copy magnet link">
-              <span>ðŸ§² Magnet</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+              <span>Magnet</span>
             </button>
           ` : ''}
         </div>
@@ -3901,7 +3901,7 @@ window.openMovieReleasesModal = function(idx) {
   if (titleEl) titleEl.textContent = item.title;
   if (badgeEl) {
     if (item.type === 'series') {
-      badgeEl.textContent = item.provider === 'ddl' ? 'TV Series â€¢ Direct DDL' : 'TV Series â€¢ Swarm';
+      badgeEl.textContent = item.provider === 'ddl' ? 'TV Series • Direct DDL' : 'TV Series • Swarm';
     } else {
       badgeEl.textContent = item.provider === 'ddl' ? 'Direct DDL Cloud' : (item.provider === 'yts' ? 'YTS 4K' : 'BitTorrent');
     }
@@ -3924,16 +3924,16 @@ window.openMovieReleasesModal = function(idx) {
   }
   if (ratingEl) {
     if (item.rating) {
-      ratingEl.textContent = `â­ ${item.rating}`;
+      ratingEl.textContent = `★ ${item.rating}`;
       ratingEl.style.display = 'inline-flex';
     } else {
       ratingEl.style.display = 'none';
     }
   }
   if (subEl) {
-    let genreText = (item.genres && item.genres.length > 0) ? item.genres.join(' â€¢ ') : '';
+    let genreText = (item.genres && item.genres.length > 0) ? item.genres.join(' • ') : '';
     if (item.type === 'series') {
-      subEl.textContent = genreText ? `${genreText} â€¢ TV Series` : 'Select season or preferred quality';
+      subEl.textContent = genreText ? `${genreText} • TV Series` : 'Select season or preferred quality';
     } else {
       subEl.textContent = genreText || 'Select preferred quality and download directly';
     }
@@ -4162,7 +4162,7 @@ function renderMusicResults(results) {
         <div class="music-card-cover-wrap">
           <img src="${escapeHtml(coverUrl)}" alt="${escapeHtml(title)}" class="music-card-cover" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='/icon.svg'" />
           <div class="music-card-cover-overlay"></div>
-          ${duration ? `<span class="music-card-duration-badge">â±ï¸ ${escapeHtml(duration)}</span>` : ''}
+          ${duration ? `<span class="music-card-duration-badge">${escapeHtml(duration)}</span>` : ''}
           ${item.previewUrl ? `
             <button type="button" class="music-preview-btn" title="Preview 30s audio sample" onclick="toggleAudioPreview('${escapeHtml(item.previewUrl)}', '${item.id || idx}', this)">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" class="icon-play"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
@@ -4225,9 +4225,9 @@ window.openMusicFormatsModal = function(idx) {
   if (cover) cover.src = coverUrl;
   if (heroBg) heroBg.style.backgroundImage = `url('${coverUrl}')`;
   if (title) title.textContent = item.title;
-  if (subtitle) subtitle.textContent = `${item.artist}${item.album ? ' â€¢ ' + item.album : ''}`;
+  if (subtitle) subtitle.textContent = `${item.artist}${item.album ? ' • ' + item.album : ''}`;
   if (yearEl) yearEl.textContent = item.year || '2024';
-  if (durationEl) durationEl.textContent = `â±ï¸ ${item.durationStr || (item.duration ? formatMusicDuration(item.duration) : '03:45')}`;
+  if (durationEl) durationEl.textContent = item.durationStr || (item.duration ? formatMusicDuration(item.duration) : '03:45');
   if (searchInput) searchInput.value = '';
 
   const formats = [
@@ -4236,11 +4236,11 @@ window.openMusicFormatsModal = function(idx) {
       format: 'flac',
       quality: '24bit',
       name: 'FLAC Studio Master (24-bit Hi-Res)',
-      spec: '24-bit / 96kHz / 48kHz True PCM â€¢ Tidal Hi-Res / Soulseek Master',
+      spec: '24-bit / 96kHz / 48kHz True PCM • Tidal Hi-Res / Soulseek Master',
       badge: '24-BIT HI-RES',
       badgeClass: 'btn-music-dl-hires',
       badgePillClass: 'badge-pill-hires',
-      size: '~45â€“90 MB',
+      size: '~45–90 MB',
       btnText: 'Download FLAC 24-bit'
     },
     {
@@ -4248,11 +4248,11 @@ window.openMusicFormatsModal = function(idx) {
       format: 'flac',
       quality: '16bit',
       name: 'FLAC Lossless CDDA (16-bit / 44.1kHz)',
-      spec: '16-bit / 44.1kHz â€¢ 1411 kbps Bitstream â€¢ Deezer HiFi Studio CD',
+      spec: '16-bit / 44.1kHz • 1411 kbps Bitstream • Deezer HiFi Studio CD',
       badge: '16-BIT CDDA',
       badgeClass: 'btn-music-dl-cdda',
       badgePillClass: 'badge-pill-cdda',
-      size: '~25â€“40 MB',
+      size: '~25–40 MB',
       btnText: 'Download FLAC 16-bit'
     },
     {
@@ -4260,11 +4260,11 @@ window.openMusicFormatsModal = function(idx) {
       format: 'mp3',
       quality: '320k',
       name: 'MP3 Extreme Quality (320 kbps CBR)',
-      spec: 'LAME 320 kbps Extreme CBR â€¢ 48kHz â€¢ Embedded Cover & ID3 Tags',
+      spec: 'LAME 320 kbps Extreme CBR • 48kHz • Embedded Cover & ID3 Tags',
       badge: 'MP3 320K',
       badgeClass: 'btn-music-dl-lossy',
       badgePillClass: 'badge-pill-mp3',
-      size: '~8â€“14 MB',
+      size: '~8–14 MB',
       btnText: 'Download MP3 320k'
     },
     {
@@ -4272,11 +4272,11 @@ window.openMusicFormatsModal = function(idx) {
       format: 'm4a',
       quality: '256k',
       name: 'Apple AAC / M4A (256 kbps VBR)',
-      spec: 'Native iTunes 256 kbps AAC Bitstream â€¢ Crystal-Clear M4A Audio',
+      spec: 'Native iTunes 256 kbps AAC Bitstream • Crystal-Clear M4A Audio',
       badge: 'AAC 256K',
       badgeClass: 'btn-music-dl-lossy',
       badgePillClass: 'badge-pill-aac',
-      size: '~6â€“10 MB',
+      size: '~6–10 MB',
       btnText: 'Download M4A 256k'
     },
     {
@@ -4284,11 +4284,11 @@ window.openMusicFormatsModal = function(idx) {
       format: 'opus',
       quality: '160k',
       name: 'Opus High-Fidelity (160 kbps VBR)',
-      spec: 'Next-Gen Opus Codec â€¢ Superior acoustic fidelity at lower filesize',
+      spec: 'Next-Gen Opus Codec • Superior acoustic fidelity at lower filesize',
       badge: 'OPUS 160K',
       badgeClass: 'btn-music-dl-lossy',
       badgePillClass: 'badge-pill-opus',
-      size: '~4â€“7 MB',
+      size: '~4–7 MB',
       btnText: 'Download Opus'
     },
     {
@@ -4296,11 +4296,11 @@ window.openMusicFormatsModal = function(idx) {
       format: 'wav',
       quality: 'pcm',
       name: 'WAV Studio PCM (Uncompressed Audio)',
-      spec: '16-bit / 44.1kHz Raw PCM â€¢ Zero Compression / Maximum Compatibility',
+      spec: '16-bit / 44.1kHz Raw PCM • Zero Compression / Maximum Compatibility',
       badge: 'RAW WAV',
       badgeClass: 'btn-music-dl-lossy',
       badgePillClass: 'badge-pill-hires',
-      size: '~35â€“50 MB',
+      size: '~35–50 MB',
       btnText: 'Download WAV'
     }
   ];
@@ -4379,7 +4379,7 @@ window.dispatchTrackDownload = async function(idx, format, quality, event = null
   const clickedBtn = event ? event.currentTarget : null;
   if (clickedBtn) {
     clickedBtn.disabled = true;
-    clickedBtn.innerHTML = `<span>â³ Enqueuing...</span>`;
+    clickedBtn.innerHTML = `<span>Enqueuing...</span>`;
   }
 
   const payload = {
@@ -4406,13 +4406,13 @@ window.dispatchTrackDownload = async function(idx, format, quality, event = null
     if (res.ok && data.success) {
       showToast(`Enqueued ${format.toUpperCase()}: ${item.title.substring(0, 28)}...`, 'success');
       if (clickedBtn) {
-        clickedBtn.innerHTML = `<span>âœ“ Enqueued</span>`;
+        clickedBtn.innerHTML = `<span>✓ Enqueued</span>`;
         clickedBtn.classList.add('btn-success');
       }
       const footerEl = document.getElementById('musicModalFooter');
       const footerStatus = document.getElementById('musicModalFooterStatusText');
       if (footerEl && footerStatus) {
-        footerStatus.textContent = `Enqueued ${format.toUpperCase()} (${quality}) â€¢ Task active in Downloader`;
+        footerStatus.textContent = `Enqueued ${format.toUpperCase()} (${quality}) • Task active in Downloader`;
         footerEl.style.display = 'flex';
       }
     } else {
@@ -4441,7 +4441,7 @@ window.dispatchTorrentAlbumDownload = async function(idx, event = null) {
   const clickedBtn = event ? event.currentTarget : null;
   if (clickedBtn) {
     clickedBtn.disabled = true;
-    clickedBtn.innerHTML = `<span>â³ Enqueuing Album...</span>`;
+    clickedBtn.innerHTML = `<span>Enqueuing Album...</span>`;
   }
 
   const payload = {
@@ -4465,7 +4465,7 @@ window.dispatchTorrentAlbumDownload = async function(idx, event = null) {
     if (res.ok && data.success) {
       showToast(`Album Enqueued: ${item.title.substring(0, 30)}...`, 'success');
       if (clickedBtn) {
-        clickedBtn.innerHTML = `<span>âœ“ Enqueued Album</span>`;
+        clickedBtn.innerHTML = `<span>✓ Enqueued Album</span>`;
         clickedBtn.classList.add('btn-success');
       }
     } else {
