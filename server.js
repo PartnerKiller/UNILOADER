@@ -876,7 +876,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: false,
     music: false,
     audiophile_flac: false,
-    flac_checker: false,
+    flac_checker: true,
     adult: false,
     quality_4k: false,
     unlimited_concurrency: false,
@@ -920,6 +920,7 @@ function loadRolePermissions() {
             rolePermissions[role] = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role], data[role]);
           }
         }
+        rolePermissions.guest.flac_checker = true;
       }
     }
   } catch (err) {
@@ -950,6 +951,10 @@ function isFeatureAllowed(userOrRole, featureKey) {
   }
   // Sakura / Admin / Owner has universal unconstrained access to all features
   if (isOwner) {
+    return true;
+  }
+  // Inbuilt FLAC Checker is a core utility accessible across all roles & guests
+  if (featureKey === 'flac_checker') {
     return true;
   }
   const perms = rolePermissions[role] || rolePermissions['guest'] || DEFAULT_ROLE_PERMISSIONS.guest;
@@ -3524,8 +3529,8 @@ app.get('/api/flac-check/recent', identifyUser, (req, res) => {
 // Purge / Clear Recent Downloaded FLAC files from server storage
 app.post('/api/flac-check/clear-recent', identifyUser, (req, res) => {
   try {
-    if (!isFeatureAllowed(req.currentUser, 'flac_checker')) {
-      return res.status(403).json({ error: 'FLAC Checker is restricted for your role.', requireAuth: req.currentUser.role === 'guest' });
+    if (!req.currentUser || req.currentUser.role === 'guest') {
+      return res.status(403).json({ error: 'FLAC files purge is restricted for guests.', requireAuth: true });
     }
     const stats = purgeFlacFiles();
     res.json({ success: true, ...stats });
@@ -3540,14 +3545,15 @@ app.post('/api/flac-check', identifyUser, async (req, res) => {
   let isTempFile = false;
 
   try {
-    if (!isFeatureAllowed(req.currentUser, 'flac_checker')) {
+    const { filePath, fileBase64, fileName, jobId } = req.body || {};
+    const isKnownJob = jobId && jobs.has(jobId);
+
+    if (!isFeatureAllowed(req.currentUser, 'flac_checker') && !isKnownJob) {
       return res.status(403).json({
         error: 'FLAC Checker is restricted for your role. Please contact the administrator.',
         requireAuth: req.currentUser.role === 'guest'
       });
     }
-
-    const { filePath, fileBase64, fileName, jobId } = req.body || {};
 
     if (filePath && fs.existsSync(filePath)) {
       targetPath = filePath;

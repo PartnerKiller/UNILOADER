@@ -119,6 +119,9 @@ function showToast(message, type = 'error') {
   }, 6000);
 }
 
+// Global Jobs Cache Map
+window.allJobsMap = window.allJobsMap || new Map();
+
 // DOM Elements
 const urlInput = document.getElementById('urlInput');
 const fetchBtn = document.getElementById('fetchBtn');
@@ -214,6 +217,9 @@ function getClientId() {
 }
 
 function canAccess(featureKey) {
+  if (featureKey === 'flac_checker') {
+    return true;
+  }
   if (!currentUser) {
     return featureKey === 'downloader';
   }
@@ -1089,7 +1095,7 @@ function initMobileDrawer() {
   }
 }
 
-function switchView(viewName) {
+function switchView(viewName, forceAllow = false) {
   // Close mobile drawer if open
   closeMobileDrawer();
 
@@ -1101,7 +1107,7 @@ function switchView(viewName) {
     'adult-search': 'adult'
   };
 
-  if (viewToFeature[viewName] && !canAccess(viewToFeature[viewName])) {
+  if (!forceAllow && viewToFeature[viewName] && !canAccess(viewToFeature[viewName])) {
     switchView('downloader');
     return;
   }
@@ -1607,6 +1613,7 @@ function renderJobsList(jobs) {
   }
 
   jobs.forEach(job => {
+    if (window.allJobsMap) window.allJobsMap.set(job.id, job);
     let card = document.getElementById(`job-card-${job.id}`);
     if (!card) {
       card = createJobCardElement(job);
@@ -1725,15 +1732,15 @@ function createJobCardElement(job) {
 
 function renderJobControls(job) {
   try {
+    const safeJobId = escapeHtml(job.id);
     if (job.status === 'completed') {
       const isFlac = (job.filename && job.filename.toLowerCase().endsWith('.flac')) || (job.opts && job.opts.audioFormat === 'flac');
-      const directPath = job.filePath ? job.filePath.replace(/\\/g, '\\\\') : '';
       const isElectron = window.electronAPI && window.electronAPI.isElectron;
       const downloadName = escapeHtml(job.filename || 'download');
 
       return `
         ${isElectron ? `
-          <button class="btn btn-primary btn-sm" onclick="openFileInFolder('${directPath}')" title="Open in File Explorer">
+          <button class="btn btn-primary btn-sm" onclick="openFileInFolderByJobId('${safeJobId}')" title="Open in File Explorer">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
             <span>Folder</span>
           </button>
@@ -1743,12 +1750,12 @@ function renderJobControls(job) {
             <span>Save to Device</span>
           </a>
         `}
-        <button class="btn btn-secondary btn-sm" onclick="playMediaById('${job.id}')" title="${(isFlac || job.mode === 'audio' || job.mode === 'audiophile_flac') ? 'Listen Audio' : 'Watch Media'}">
+        <button class="btn btn-secondary btn-sm" onclick="playMediaById('${safeJobId}')" title="${(isFlac || job.mode === 'audio' || job.mode === 'audiophile_flac') ? 'Listen Audio' : 'Watch Media'}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
           <span>${(isFlac || job.mode === 'audio' || job.mode === 'audiophile_flac' || (job.opts && job.opts.isMusicTrack)) ? 'Listen' : 'Watch'}</span>
         </button>
         ${isFlac ? `
-          <button class="btn btn-flac-verify btn-sm" onclick="inspectFlacFile('${job.id}', '${directPath}')" title="Inspect Lossless FLAC Authenticity">
+          <button class="btn btn-flac-verify btn-sm" onclick="inspectFlacFile('${safeJobId}')" title="Inspect Lossless FLAC Authenticity">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
             <span>Check FLAC</span>
           </button>
@@ -1756,23 +1763,23 @@ function renderJobControls(job) {
       `;
     } else if (job.status === 'cancelled' || job.status === 'failed') {
       return `
-        <button class="btn btn-secondary btn-sm" onclick="removeJob('${job.id}')">Dismiss</button>
+        <button class="btn btn-secondary btn-sm" onclick="removeJob('${safeJobId}')">Dismiss</button>
       `;
     } else if (job.status === 'paused') {
       return `
-        <button class="btn btn-success btn-sm" onclick="resumeJob('${job.id}')" title="Resume download">
+        <button class="btn btn-success btn-sm" onclick="resumeJob('${safeJobId}')" title="Resume download">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
           <span>Resume</span>
         </button>
-        <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
+        <button class="btn btn-danger btn-sm" onclick="cancelJob('${safeJobId}')" title="Cancel download">Cancel</button>
       `;
     } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') {
       return `
-        <button class="btn btn-warning btn-sm" onclick="pauseJob('${job.id}')" title="Pause download">
+        <button class="btn btn-warning btn-sm" onclick="pauseJob('${safeJobId}')" title="Pause download">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
           <span>Pause</span>
         </button>
-        <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')" title="Cancel download">Cancel</button>
+        <button class="btn btn-danger btn-sm" onclick="cancelJob('${safeJobId}')" title="Cancel download">Cancel</button>
       `;
     }
   } catch (err) {
@@ -1804,6 +1811,7 @@ function formatEtaDisplay(eta, status) {
 }
 
 function updateJobCard(job) {
+  if (window.allJobsMap) window.allJobsMap.set(job.id, job);
   const card = document.getElementById(`job-card-${job.id}`);
   if (!card) return;
 
@@ -2081,6 +2089,7 @@ window.cancelJob = async function(jobId) {
 
 window.removeJob = async function(jobId) {
   try {
+    if (window.allJobsMap) window.allJobsMap.delete(jobId);
     const card = document.getElementById(`job-card-${jobId}`);
     if (card) {
       card.style.opacity = '0';
@@ -2312,6 +2321,15 @@ async function openFileInFolder(targetPath) {
     }
   } catch (err) {
     showToast(`Cannot open folder: ${err.message}`, 'error');
+  }
+}
+
+function openFileInFolderByJobId(jobId) {
+  const job = window.allJobsMap?.get(jobId);
+  if (job && job.filePath) {
+    openFileInFolder(job.filePath);
+  } else {
+    openFileInFolder();
   }
 }
 
@@ -2559,9 +2577,12 @@ async function loadRecentFlacFiles() {
 }
 
 async function inspectFlacFile(jobId, directPath) {
-  switchView('flac-checker');
-  if (directPath) {
-    runFlacCheck({ filePath: directPath });
+  switchView('flac-checker', true);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const job = window.allJobsMap?.get(jobId);
+  const path = directPath || job?.filePath;
+  if (path) {
+    runFlacCheck({ filePath: path, jobId: jobId });
   } else if (jobId) {
     runFlacCheck({ jobId: jobId });
   }
