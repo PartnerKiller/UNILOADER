@@ -4704,8 +4704,8 @@ body {
 
 /* Movie Releases Modal (Modern Cinema Grade) */
 .movie-releases-dialog {
-  max-width: 680px;
-  width: 94%;
+  max-width: 980px;
+  width: 92%;
   border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -5838,71 +5838,111 @@ body {
 
 /* Music Formats Modal Specific Styling */
 .music-formats-dialog {
-  max-width: 680px !important;
+  max-width: 980px !important;
+  width: 92% !important;
 }
 
 .music-modal-cover {
-  border-radius: 10px !important;
+  width: 76px !important;
+  height: 76px !important;
+  border-radius: 12px !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
+  object-fit: cover !important;
+  flex-shrink: 0 !important;
 }
 
+.modal-filter-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 13px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.modal-filter-pill:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.modal-filter-pill.active {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(168, 85, 247, 0.35));
+  border-color: #ec4899;
+  color: #fdf2f8;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.25);
+}
+
+.music-format-card,
 .music-format-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 13px 16px;
+  padding: 14px 20px;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   margin-bottom: 9px;
-  transition: all 0.18s ease;
-  gap: 12px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 16px;
 }
 
+.music-format-card:hover,
 .music-format-item:hover {
-  background: rgba(236, 72, 153, 0.07);
+  background: rgba(236, 72, 153, 0.06);
   border-color: rgba(236, 72, 153, 0.35);
-  transform: translateX(2px);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
 .music-format-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   flex: 1;
   min-width: 0;
 }
 
-.music-format-badge-large {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 5px 9px;
-  border-radius: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.music-format-badge-wrap {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .music-format-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 
+.music-format-title,
 .music-format-name {
-  font-size: 0.92rem;
-  font-weight: 600;
+  font-size: 0.94rem;
+  font-weight: 700;
   color: var(--text-color, #f8fafc);
-  margin-bottom: 2px;
+  margin: 0;
+  line-height: 1.3;
 }
 
+.music-format-desc,
 .music-format-spec {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--text-muted, #94a3b8);
+  margin: 0;
+  line-height: 1.4;
 }
 
 .music-format-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-shrink: 0;
 }
 
@@ -5911,21 +5951,26 @@ body {
   font-weight: 600;
   color: var(--text-muted, #94a3b8);
   background: rgba(255, 255, 255, 0.05);
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  white-space: nowrap;
 }
 
+.btn-music-download,
 .btn-music-dl {
-  padding: 7px 16px;
+  padding: 8px 18px;
   border-radius: 8px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  display: flex;
+  font-size: 0.84rem;
+  font-weight: 700;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   border: none;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.18s ease;
+  flex-shrink: 0;
 }
 
 .btn-music-dl-hires {
@@ -5965,7 +6010,7 @@ body {
   box-shadow: 0 3px 12px rgba(236, 72, 153, 0.4);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .music-search-form {
     flex-direction: column;
   }
@@ -5978,14 +6023,21 @@ body {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 12px;
   }
+  .music-format-card,
   .music-format-item {
     flex-direction: column;
     align-items: flex-start;
+    gap: 12px;
   }
   .music-format-actions {
     width: 100%;
     justify-content: space-between;
     margin-top: 6px;
+  }
+  .btn-music-download,
+  .btn-music-dl {
+    flex: 1;
+    justify-content: center;
   }
 }
 

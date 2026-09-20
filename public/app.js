@@ -1626,6 +1626,9 @@ function createJobCardElement(job) {
   const card = document.createElement('div');
   card.id = `job-card-${job.id}`;
   card.className = `job-card ${job.status}`;
+  if (job.downloadFolder) {
+    card.dataset.downloadFolder = job.downloadFolder;
+  }
 
   const isAudio = job.mode === 'audio' || 
                   job.mode === 'audiophile_flac' || 
@@ -1868,9 +1871,14 @@ function updateJobCard(job) {
     }
   }
 
+  if (job.downloadFolder !== undefined) {
+    card.dataset.downloadFolder = job.downloadFolder || '';
+  }
+  const effectiveFolder = (job.downloadFolder !== undefined) ? (job.downloadFolder || '') : (card.dataset.downloadFolder || '');
+
   const titleGroup = card.querySelector('.job-title-group');
   let storageTag = card.querySelector('.job-storage-tag');
-  if (job.downloadFolder) {
+  if (effectiveFolder) {
     if (!storageTag && titleGroup) {
       storageTag = document.createElement('div');
       storageTag.className = 'job-storage-tag';
@@ -1878,8 +1886,8 @@ function updateJobCard(job) {
       titleGroup.appendChild(storageTag);
     }
     if (storageTag) {
-      storageTag.title = `Assigned permanent storage folder: ${job.downloadFolder}`;
-      storageTag.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span>`;
+      storageTag.title = `Assigned permanent storage folder: ${effectiveFolder}`;
+      storageTag.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span style="font-family: monospace; word-break: break-all;">${escapeHtml(effectiveFolder)}</span>`;
     }
   } else if (storageTag) {
     storageTag.remove();
@@ -4331,17 +4339,21 @@ window.openMusicFormatsModal = function(idx) {
     listEl.innerHTML = filtered.map(fmt => `
       <div class="music-format-card">
         <div class="music-format-info">
-          <div class="music-format-header">
+          <div class="music-format-badge-wrap">
             <span class="music-badge-pill ${fmt.badgePillClass}">${fmt.badge}</span>
-            <span class="music-format-title">${escapeHtml(fmt.name)}</span>
           </div>
-          <p class="music-format-desc">${escapeHtml(fmt.spec)}</p>
-          <span class="music-format-size">Estimated Size: ${fmt.size}</span>
+          <div class="music-format-text">
+            <div class="music-format-title">${escapeHtml(fmt.name)}</div>
+            <div class="music-format-desc">${escapeHtml(fmt.spec)}</div>
+          </div>
         </div>
-        <button type="button" class="btn btn-sm ${fmt.badgeClass}" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, '${fmt.format}', '${fmt.quality}', event)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          <span>${fmt.btnText}</span>
-        </button>
+        <div class="music-format-actions">
+          <span class="music-format-size">Est. ${fmt.size.replace('Estimated Size:', '').trim()}</span>
+          <button type="button" class="btn btn-sm ${fmt.badgeClass} btn-music-download" onclick="event.stopPropagation(); dispatchTrackDownload(${idx}, '${fmt.format}', '${fmt.quality}', event)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>${fmt.btnText}</span>
+          </button>
+        </div>
       </div>
     `).join('');
   }
@@ -4353,6 +4365,7 @@ window.openMusicFormatsModal = function(idx) {
       <button type="button" class="modal-filter-pill" data-filter="mp3">MP3 320k</button>
       <button type="button" class="modal-filter-pill" data-filter="m4a">AAC / M4A</button>
       <button type="button" class="modal-filter-pill" data-filter="opus">Opus</button>
+      <button type="button" class="modal-filter-pill" data-filter="wav">WAV</button>
     `;
     filtersEl.onclick = (e) => {
       const btn = e.target.closest('.modal-filter-pill');

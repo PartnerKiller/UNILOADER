@@ -542,12 +542,17 @@ function broadcastJobUpdate(jobId) {
       logs: (job.logs || []).slice(-500).map(stripAnsi),
       error: job.error,
       title: job.title,
+      code: job.code || 'MEDIA',
+      poster: job.poster || '',
+      url: job.url || '',
       filename: job.filename,
       filesize: job.filesize || '',
       downloadUrl: `/api/download-file/${job.id}`,
       streamUrl: `/api/stream/${job.id}`,
       filePath: job.filePath || '',
-      ownerId: job.ownerId || 'owner'
+      ownerId: job.ownerId || 'owner',
+      downloadFolder: job.downloadFolder || '',
+      isPermanent: !!job.isPermanent
     });
     for (const res of clients) {
       try {
