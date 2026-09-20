@@ -336,7 +336,7 @@ def inspect_cdrip_directory(release_dir: str):
         score = 30
 
     result = {
-        "success": True,
+        "success": len(flac_files) > 0 and cdda_passed,
         "provenanceLevel": provenance,
         "fidelityScore": score,
         "summary": {

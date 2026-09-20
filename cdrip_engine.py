@@ -300,34 +300,65 @@ def search_and_acquire_cdrip(artist, title_or_catalogue, output_dir, isrc=None, 
         clean_tit = clean_target or title_or_catalogue.strip()
         flac_out_path = os.path.join(output_dir, f"{clean_art} - {clean_tit}.flac".replace('/', '_'))
 
-        # Fallback 1: Deezer HiFi CDN
+        # Fallback 1: Deezer HiFi CDN (1411 kbps Red Book FLAC)
         fallback_ok = False
         try:
             from deezer_hifi_engine import resolve_and_download_flac
             log("Querying Deezer HiFi 1411 kbps FLAC Bitstream...")
-            d_res = resolve_and_download_flac(clean_art, clean_tit, flac_out_path)
+            d_res = resolve_and_download_flac(
+                clean_art, clean_tit,
+                isrc=isrc, output_path=flac_out_path, cover_url=cover_url
+            )
+            if not d_res and '&' in clean_art:
+                primary_art = clean_art.split('&')[0].strip()
+                log(f"Querying Deezer HiFi with primary artist: '{primary_art}'...")
+                d_res = resolve_and_download_flac(
+                    primary_art, clean_tit,
+                    isrc=isrc, output_path=flac_out_path, cover_url=cover_url
+                )
+            if not d_res and clean_tit:
+                log(f"Querying Deezer HiFi with track title: '{clean_tit}'...")
+                d_res = resolve_and_download_flac(
+                    "", clean_tit,
+                    isrc=isrc, output_path=flac_out_path, cover_url=cover_url
+                )
+
             if d_res and os.path.exists(flac_out_path) and os.path.getsize(flac_out_path) > 1024 * 1024:
                 fallback_ok = True
                 log("Successfully acquired Red Book 16-bit / 44.1 kHz FLAC from Deezer HiFi CDN.")
         except Exception as e:
             log(f"Deezer HiFi fallback notice: {e}")
 
-        # Fallback 2: Tidal Hi-Res Lossless
+        # Fallback 2: Audiophile Resolution Pipeline (Tidal Hi-Res / Monochrome / Masters)
         if not fallback_ok:
             try:
-                from audiophile_flac_engine import resolve_audiophile_flac
-                log("Querying Tidal Lossless CDN...")
-                t_res = resolve_audiophile_flac(clean_art, clean_tit, flac_out_path)
-                if t_res and os.path.exists(flac_out_path):
-                    log("Successfully acquired 16-bit Lossless stream from Tidal.")
+                from audiophile_flac_engine import resolve_flac_audio
+                log("Querying Audiophile FLAC resolution pipeline...")
+                t_res = resolve_flac_audio(
+                    clean_art, clean_tit, flac_out_path,
+                    isrc=isrc, cover_url=cover_url, quality='16bit'
+                )
+                if t_res and os.path.exists(flac_out_path) and os.path.getsize(flac_out_path) > 1024 * 1024:
+                    fallback_ok = True
+                    log("Successfully acquired 16-bit Lossless stream from Audiophile pipeline.")
             except Exception as e:
-                log(f"Tidal fallback notice: {e}")
+                log(f"Audiophile pipeline notice: {e}")
+
+        # Fallback 3: Direct Tidal Monochrome Lossless CDN
         if not fallback_ok:
             try:
                 from tidal_monochrome_engine import download_tidal_flac
-                fallback_ok = download_tidal_flac(
+                log("Querying Tidal Monochrome Lossless CDN...")
+                m_res = download_tidal_flac(
                     clean_art, clean_tit, flac_out_path, isrc=isrc, cover_url=cover_url
                 )
+                if not m_res and clean_tit:
+                    m_res = download_tidal_flac(
+                        "", clean_tit, flac_out_path, isrc=isrc, cover_url=cover_url
+                    )
+                if m_res and os.path.exists(flac_out_path) and os.path.getsize(flac_out_path) > 1024 * 1024:
+                    fallback_ok = True
+                    log("Successfully acquired 16-bit Lossless stream from Tidal.")
             except Exception as e:
                 log(f"Tidal fallback notice: {e}")
 
