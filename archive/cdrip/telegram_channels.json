@@ -1,0 +1,31 @@
+{
+  "channels": [
+    {
+      "username": "bengaliflac",
+      "name": "Bengali Hi-Res Audio",
+      "description": "Bengali 1:1 CD-Rips, Modern, Rabindra Sangeet & Film CDDA",
+      "enabled": true
+    },
+    {
+      "username": "vbrlosslesscollection",
+      "name": "VBR Premium Lossless Collection",
+      "description": "High quality Lossless & EAC CD-Rip Archives",
+      "enabled": true
+    },
+    {
+      "username": "flachires",
+      "name": "Hi-Res FLAC/WAV Songs",
+      "description": "Indian Audiophile ACD FLAC with catalogue numbers",
+      "enabled": true
+    },
+    {
+      "username": "lucidahasmusic",
+      "name": "Lucida Music",
+      "description": "Lossless Master Streams & Web FLAC",
+      "enabled": true
+    }
+  ],
+  "search_joined_music_channels": true,
+  "max_download_bytes": 2147483648,
+  "search_limit_per_channel": 15
+}
