@@ -4240,8 +4240,8 @@ async function searchDdlMovies(query, page = 1) {
 
 async function searchYtsMovies(query, page = 1) {
   const mirrors = [
-    'https://yts.gg/api/v2/list_movies.json',
     'https://movies-api.accel.li/api/v2/list_movies.json',
+    'https://yts.gg/api/v2/list_movies.json',
     'https://yts.lt/api/v2/list_movies.json',
     'https://yts.bz/api/v2/list_movies.json'
   ];
@@ -4270,11 +4270,13 @@ async function searchYtsMovies(query, page = 1) {
           const q = t.quality === '2160p' ? '4K UHD' : (t.quality || '1080p');
           const hash = t.hash;
           const magnet = `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(title)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce`;
+          const sizeBytes = t.size_bytes || parseSizeToBytes(t.size);
           return {
             label: `${q} (${(t.type || 'WEB').toUpperCase()}) [${t.size}]`,
             filename: `${title}.${year}.${t.quality}.${t.type || 'WEB'}.mp4`,
             quality: q,
             size: t.size,
+            sizeBytes,
             seeders: t.seeds || 0,
             peers: t.peers || 0,
             hash,
@@ -4303,6 +4305,21 @@ async function searchYtsMovies(query, page = 1) {
     } catch (e) {}
   }
   return [];
+}
+
+// Parse human-readable file size string (e.g., '1.45 GB', '650 MB') to bytes
+function parseSizeToBytes(sizeStr) {
+  if (!sizeStr) return 0;
+  if (typeof sizeStr === 'number') return sizeStr;
+  const s = String(sizeStr).trim();
+  const m = s.match(/^([\d.]+)\s*(GB|MB|KB|B|bytes)?/i);
+  if (!m) return 0;
+  const num = parseFloat(m[1]) || 0;
+  const unit = (m[2] || 'MB').toUpperCase();
+  if (unit === 'GB') return Math.round(num * 1024 * 1024 * 1024);
+  if (unit === 'MB') return Math.round(num * 1024 * 1024);
+  if (unit === 'KB') return Math.round(num * 1024);
+  return Math.round(num);
 }
 
 // Clean raw torrent/release filenames into clean movie titles & years
@@ -4412,7 +4429,7 @@ async function resolveMoviePoster(rawTitle, fallbackQuery = '') {
 
 async function searchApibayMovies(query) {
   try {
-    const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}&cat=200`;
+    const url = `https://apibay.org/q.php?q=${encodeURIComponent(query)}`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
       signal: AbortSignal.timeout(6000)
@@ -4421,9 +4438,22 @@ async function searchApibayMovies(query) {
     const items = await res.json();
     if (!Array.isArray(items) || items.length === 0 || items[0].name === 'No results returned') return [];
 
-    const activeItems = items.filter(it => parseInt(it.seeders, 10) > 0).slice(0, 15);
+    // Filter for video categories (200-299) and files >= 100 MB to reject tiny sample clips, fake torrents & audiobooks
+    const validItems = items.filter(it => {
+      const cat = parseInt(it.category, 10);
+      if (cat && (cat < 200 || cat >= 300)) return false;
+      const sz = parseInt(it.size, 10) || 0;
+      if (sz < 100 * 1024 * 1024) return false;
+      return true;
+    });
+
+    const activeItems = validItems.filter(it => parseInt(it.seeders, 10) > 0);
+    const candidateList = activeItems.length > 0 ? activeItems : validItems;
+    candidateList.sort((a, b) => (parseInt(b.seeders, 10) || 0) - (parseInt(a.seeders, 10) || 0));
+    const itemsToProcess = candidateList.slice(0, 15);
+
     const results = [];
-    for (const it of activeItems) {
+    for (const it of itemsToProcess) {
       const name = it.name;
       const sizeBytes = parseInt(it.size, 10) || 0;
       const sizeStr = sizeBytes > (1024 ** 3)
@@ -4459,6 +4489,7 @@ async function searchApibayMovies(query) {
           filename: name,
           quality,
           size: sizeStr,
+          sizeBytes,
           seeders,
           peers,
           hash,
@@ -4742,6 +4773,12 @@ app.post('/api/movies/download', identifyUser, async (req, res) => {
       }
 
       if (candidates.length > 0) {
+        const minBytes = seasonEpStr ? 100 * 1024 * 1024 : 250 * 1024 * 1024;
+        candidates = candidates.filter(c => {
+          const sz = c.sizeBytes || parseSizeToBytes(c.size);
+          return sz === 0 || sz >= minBytes;
+        });
+
         const qTag = requestedQuality.includes('4k') || requestedQuality.includes('2160') ? '2160p' : (requestedQuality.includes('720') ? '720p' : '1080p');
         let matches = candidates.filter(c => {
           const combined = `${c.quality || ''} ${c.label || ''} ${c.filename || ''}`.toLowerCase();
@@ -5486,7 +5523,7 @@ function startDirectHttpJob(job) {
   job.startTime = Date.now();
   job.progress.eta = 'Connecting to high-speed cloud stream...';
   job.progress.speed = '0 MB/s';
-  job.logs.push('Starting Direct Cloud stream acceleration via aria2c (16 connections)...');
+  job.logs.push('Starting Direct Cloud stream acceleration via aria2c (32 connections)...');
   broadcastJobUpdate(job.id);
 
   const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
@@ -5573,8 +5610,8 @@ async function startDdlMovieResolver(job) {
 
     job.logs.push(`[Direct DDL] Target Title: "${effectiveTitle}" | Quality: ${qTag.toUpperCase()}${seTag ? ` | Tag: ${seTag}` : ''}${effectiveYear ? ` | Year: ${effectiveYear}` : ''}`);
 
-    // 1. If a direct HTTP/HTTPS media stream was already provided
-    if (job.url && job.url.startsWith('http') && !job.url.includes('strem.io') && !job.url.includes('cinemeta')) {
+    // 1. If a direct HTTP/HTTPS media stream was already provided (not a search catalog or open archive)
+    if (job.url && job.url.startsWith('http') && !job.url.includes('strem.io') && !job.url.includes('cinemeta') && !job.url.includes('archive.org')) {
       job.logs.push(`[Direct DDL] Direct stream link detected: ${job.url}`);
       job.mode = 'direct_http';
       startDirectHttpJob(job);
@@ -5588,21 +5625,57 @@ async function startDdlMovieResolver(job) {
     if (!seTag) {
       try {
         const searchTerms = `${effectiveTitle} ${effectiveYear}`.trim();
-        const iaUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(searchTerms)}+AND+mediatype%3Amovies&fl%5B%5D=identifier%2Ctitle&rows=3&page=1&output=json`;
+        const iaUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(searchTerms)}+AND+mediatype%3Amovies&fl%5B%5D=identifier%2Ctitle&rows=5&page=1&output=json`;
         const iaRes = await fetch(iaUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
         if (iaRes.ok) {
           const iaData = await iaRes.json();
           const docs = iaData?.response?.docs || [];
-          if (docs.length > 0) {
-            const docId = docs[0].identifier;
+          for (const doc of docs) {
+            const docId = doc.identifier || '';
+            const docTitle = (doc.title || '').toLowerCase().trim();
+
+            // 1. REJECT YouTube scrapes, teasers, trailers, clips, reviews, podcasts, satire
+            if (docId.toLowerCase().startsWith('youtube-') || docId.toLowerCase().startsWith('yt-')) continue;
+            if (/trailer|teaser|clip|sample|promo|review|reaction|podcast|satire|short|soundtrack|behind the scenes/i.test(docTitle)) continue;
+            if (/trailer|teaser|clip|sample/i.test(docId)) continue;
+
+            // 2. Strict title relevance: check that clean title words are present in docTitle
+            const cleanTargetWords = effectiveTitle.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+            if (cleanTargetWords.length > 0) {
+              const matchesAll = cleanTargetWords.every(w => docTitle.includes(w));
+              if (!matchesAll) continue;
+            }
+
+            // 3. Inspect files in archive item
             const filesRes = await fetch(`https://archive.org/metadata/${docId}/files`, { signal: AbortSignal.timeout(3500) });
             if (filesRes.ok) {
               const filesData = await filesRes.json();
-              const mp4s = (filesData?.result || []).filter(f => f.name && (f.name.endsWith('.mp4') || f.name.endsWith('.mkv')));
+              const mp4s = (filesData?.result || []).filter(f => {
+                if (!f.name || (!f.name.endsWith('.mp4') && !f.name.endsWith('.mkv') && !f.name.endsWith('.avi'))) return false;
+                if (/trailer|sample|preview|clip|teaser/i.test(f.name)) return false;
+
+                const sizeBytes = parseInt(f.size, 10) || 0;
+                // STRICT REQUIREMENT: Real feature movies are 350 MB to 3+ GB.
+                // Any 5MB-50MB video is a trailer, clip, or sample, NOT a movie!
+                const minBytes = (qTag === '720p') ? 500 * 1024 * 1024 : (qTag === '1080p' ? 800 * 1024 * 1024 : 350 * 1024 * 1024);
+                if (sizeBytes < minBytes) return false;
+
+                // If duration (length in seconds) is provided, verify >= 40 minutes (2400s)
+                if (f.length) {
+                  const durSec = parseFloat(f.length) || 0;
+                  if (durSec > 0 && durSec < 2400) return false;
+                }
+
+                return true;
+              });
+
               if (mp4s.length > 0) {
+                mp4s.sort((a, b) => (parseInt(b.size, 10) || 0) - (parseInt(a.size, 10) || 0));
                 const bestFile = mp4s.find(f => f.name.toLowerCase().includes(qTag)) || mp4s[0];
                 directStreamUrl = `https://archive.org/download/${docId}/${encodeURIComponent(bestFile.name)}`;
-                job.logs.push(`[Direct DDL] Found high-speed direct archive mirror: ${bestFile.name}`);
+                const sizeMb = ((parseInt(bestFile.size, 10) || 0) / (1024 * 1024)).toFixed(1);
+                job.logs.push(`[Direct DDL] Found verified direct archive mirror: ${bestFile.name} (${sizeMb} MB)`);
+                break;
               }
             }
           }
@@ -5615,7 +5688,7 @@ async function startDdlMovieResolver(job) {
     if (directStreamUrl) {
       job.url = directStreamUrl;
       job.mode = 'direct_http';
-      job.logs.push(`[Direct DDL] Launching 16-thread multi-connection Turbo download...`);
+      job.logs.push(`[Direct DDL] Launching 32-thread multi-connection Turbo download...`);
       startDirectHttpJob(job);
       return;
     }
@@ -5638,11 +5711,13 @@ async function startDdlMovieResolver(job) {
       queriesToTry.push(`${effectiveTitle} ${seTag}`);
       queriesToTry.push(`${effectiveTitle} ${qTag}`);
     } else {
-      if (effectiveYear) queriesToTry.push(`${effectiveTitle} ${effectiveYear} ${qTag}`);
+      if (effectiveYear) {
+        queriesToTry.push(`${effectiveTitle} ${effectiveYear} ${qTag}`);
+        queriesToTry.push(`${effectiveTitle} ${effectiveYear}`);
+      }
       queriesToTry.push(`${effectiveTitle} ${qTag}`);
-      if (effectiveYear) queriesToTry.push(`${effectiveTitle} ${effectiveYear}`);
+      queriesToTry.push(effectiveTitle);
     }
-    queriesToTry.push(effectiveTitle);
 
     let candidates = [];
     for (const qStr of queriesToTry) {
@@ -5671,6 +5746,13 @@ async function startDdlMovieResolver(job) {
     }
 
     if (candidates.length > 0) {
+      // Filter out any candidates with size under 250 MB (unless it's a TV episode where min is 100 MB)
+      const minReleaseSize = seTag ? 100 * 1024 * 1024 : 250 * 1024 * 1024;
+      candidates = candidates.filter(c => {
+        const sz = c.sizeBytes || parseSizeToBytes(c.size);
+        return sz === 0 || sz >= minReleaseSize;
+      });
+
       let matched = candidates.filter(c => (c.quality || c.label || '').toLowerCase().includes(qTag));
       if (matched.length === 0) matched = candidates;
       matched.sort((a, b) => (b.seeders || 0) - (a.seeders || 0));
