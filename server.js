@@ -4086,6 +4086,40 @@ async function searchDdlMovies(query, page = 1) {
       } catch (e) {}
     }));
 
+    // Enrich top movies with authentic verified releases (exact sizes, seeders, and torrent hashes)
+    const topMoviesToEnrich = combinedMetas.filter(m => m.type === 'movie').slice(0, 6);
+    await Promise.allSettled(topMoviesToEnrich.map(async (m) => {
+      try {
+        const imdbId = m.imdb_id || m.id;
+        const qTerm = imdbId ? imdbId : `${m.name || ''} ${m.releaseInfo || m.year || ''}`.trim();
+        const mirrors = [
+          'https://movies-api.accel.li/api/v2/list_movies.json',
+          'https://yts.gg/api/v2/list_movies.json',
+          'https://yts.lt/api/v2/list_movies.json'
+        ];
+        for (const mirror of mirrors) {
+          try {
+            const url = `${mirror}?query_term=${encodeURIComponent(qTerm)}&limit=5`;
+            const res = await fetch(url, {
+              headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+              signal: AbortSignal.timeout(3500)
+            });
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data?.data?.movies?.length > 0) {
+              const ytsMovie = data.data.movies.find(ym => (imdbId && ym.imdb_code === imdbId)) || data.data.movies[0];
+              if (ytsMovie && Array.isArray(ytsMovie.torrents) && ytsMovie.torrents.length > 0) {
+                m.ytsTorrents = ytsMovie.torrents;
+                if (!m.imdbRating && ytsMovie.rating) m.imdbRating = String(ytsMovie.rating);
+                if ((!m.genres || m.genres.length === 0) && ytsMovie.genres) m.genres = ytsMovie.genres;
+                break;
+              }
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+    }));
+
     const items = [];
     for (const m of combinedMetas) {
       const title = m.name || 'Title';
@@ -4182,36 +4216,60 @@ async function searchDdlMovies(query, page = 1) {
           });
         }
       } else {
-        // Movie releases
-        releases = [
-          {
-            label: '1080p Full HD (Direct DDL Cloud)',
-            filename: `${cleanBaseName}.1080p.WEB-DL.mp4`,
-            size: '~2.4 GB',
-            quality: '1080p',
-            provider: 'ddl',
-            imdbId,
-            type: 'ddl'
-          },
-          {
-            label: '720p HD (Direct DDL Cloud)',
-            filename: `${cleanBaseName}.720p.WEB-DL.mp4`,
-            size: '~1.1 GB',
-            quality: '720p',
-            provider: 'ddl',
-            imdbId,
-            type: 'ddl'
-          },
-          {
-            label: '4K UHD Ultra HD (Direct DDL Cloud)',
-            filename: `${cleanBaseName}.2160p.WEB-DL.mp4`,
-            size: '~5.8 GB',
-            quality: '4K UHD',
-            provider: 'ddl',
-            imdbId,
-            type: 'ddl'
-          }
-        ];
+        // Movie releases: populate with authentic verified swarm releases if indexed
+        if (Array.isArray(m.ytsTorrents) && m.ytsTorrents.length > 0) {
+          releases = m.ytsTorrents.map(t => {
+            const q = t.quality === '2160p' ? '4K UHD' : (t.quality || '1080p');
+            const hash = t.hash;
+            const magnet = `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(cleanBaseName)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Fexplodie.org%3A6969%2Fannounce`;
+            const sizeBytes = t.size_bytes || parseSizeToBytes(t.size);
+            return {
+              label: `${q} (${(t.type || 'BLURAY').toUpperCase()}) [${t.size}]`,
+              filename: `${cleanBaseName}.${t.quality}.${t.type || 'bluray'}.mp4`,
+              quality: q,
+              size: t.size,
+              sizeBytes,
+              seeders: t.seeds || 0,
+              peers: t.peers || 0,
+              hash,
+              magnet,
+              torrentUrl: t.url || `https://yts.gg/torrent/download/${hash}`,
+              provider: 'yts',
+              type: 'torrent'
+            };
+          });
+        } else {
+          // If no pre-indexed swarm releases found, provide clean dynamic resolution options
+          releases = [
+            {
+              label: '1080p Full HD [Cloud Mirror / Swarm Auto-Resolve]',
+              filename: `${cleanBaseName}.1080p.mkv`,
+              size: 'Auto-Detect',
+              quality: '1080p',
+              provider: 'ddl',
+              imdbId,
+              type: 'ddl'
+            },
+            {
+              label: '720p HD [Cloud Mirror / Swarm Auto-Resolve]',
+              filename: `${cleanBaseName}.720p.mkv`,
+              size: 'Auto-Detect',
+              quality: '720p',
+              provider: 'ddl',
+              imdbId,
+              type: 'ddl'
+            },
+            {
+              label: '4K UHD Ultra HD [Cloud Mirror / Swarm Auto-Resolve]',
+              filename: `${cleanBaseName}.2160p.mkv`,
+              size: 'Auto-Detect',
+              quality: '4K UHD',
+              provider: 'ddl',
+              imdbId,
+              type: 'ddl'
+            }
+          ];
+        }
       }
 
       items.push({
@@ -4847,7 +4905,7 @@ app.post('/api/movies/download', identifyUser, async (req, res) => {
 // Dedicated Direct DDL Movie Cloud Stream Resolver Endpoint (Non-Torrent)
 app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
   try {
-    const { link, url, title, pureTitle, year, poster, quality, filename, imdbId } = req.body || {};
+    const { link, url, title, pureTitle, year, poster, quality, filename, imdbId, magnet, torrentUrl, releaseLabel, releaseSize } = req.body || {};
     if (!title && !filename) return res.status(400).json({ success: false, error: 'Title or filename is required' });
 
     // Role-based feature enforcement for Movie & TV Hub DDL streaming
@@ -4859,14 +4917,65 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
       });
     }
 
-
     let rawTitle = (filename || title || 'Movie Media').replace(/[\\/:*?"<>|]/g, '_').trim();
     if (!rawTitle.endsWith('.mkv') && !rawTitle.endsWith('.mp4')) {
       rawTitle += '.mp4';
     }
     const jobId = 'job_ddl_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-
     const ownerFolder = getUserDownloadFolder(req.currentUser.userId);
+
+    // Fast-path: If release already has verified swarm magnet/torrent, start directly without redundant discovery
+    if (magnet || torrentUrl) {
+      const swarmJob = {
+        id: jobId,
+        url: magnet || torrentUrl,
+        opts: {
+          title: rawTitle,
+          pureTitle: pureTitle || title || '',
+          year: year || '',
+          quality: quality || '1080p',
+          imdbId: imdbId || '',
+          magnet,
+          torrentUrl,
+          type: 'torrent'
+        },
+        title: rawTitle,
+        poster: poster || '',
+        filename: rawTitle,
+        code: 'SWARM',
+        mode: 'torrent',
+        ownerId: req.currentUser.userId,
+        isPremium: req.currentUser.isPremium,
+        downloadFolder: ownerFolder || '',
+        isPermanent: !!ownerFolder,
+        status: 'downloading',
+        filesize: releaseSize || '',
+        progress: {
+          percent: 0,
+          speed: 'Connecting',
+          eta: 'Connecting to swarm...',
+          downloadedSize: '0 MB',
+          totalSize: releaseSize || ''
+        },
+        logs: [`[Swarm] Enqueued verified release: ${rawTitle}${releaseSize ? ` [${releaseSize}]` : ''}`],
+        error: null,
+        startTime: Date.now(),
+        completedTime: null,
+        process: null
+      };
+
+      jobs.set(jobId, swarmJob);
+      broadcastGlobalJobSync();
+      broadcastJobUpdate(jobId);
+      startTorrentJob(swarmJob);
+
+      return res.json({
+        success: true,
+        jobId: swarmJob.id,
+        title: swarmJob.title
+      });
+    }
+
     const job = {
       id: jobId,
       url: url || link || '',
@@ -5390,6 +5499,21 @@ function startTorrentJob(job) {
 
         appendJobLog(job, clean);
 
+        // Update real media filename if aria2c outputs file line
+        const fileMatch = clean.match(/^FILE:\s*(?:\[MEMORY\]\[METADATA\])?\s*(.+)$/i);
+        if (fileMatch) {
+          const rawTarget = fileMatch[1].trim();
+          const baseTarget = path.basename(rawTarget);
+          if (baseTarget && !baseTarget.startsWith('.') && !baseTarget.endsWith('.aria2')) {
+            if (/\.(mp4|mkv|avi|ts|mov|m4v|webm)$/i.test(baseTarget)) {
+              job.filename = baseTarget;
+              job.title = baseTarget;
+            } else if (!job.title || job.title.includes('WEB-DL') || job.title.includes('Movie Media')) {
+              job.title = baseTarget;
+            }
+          }
+        }
+
         // Robust match for aria2c output with or without ETA / DL speed
         const m = clean.match(/\[#\w+\s+([\d.]+\s*[a-zA-Z]+)\/([\d.]+\s*[a-zA-Z]+)\((\d+)%\)(?:.*?DL:([\d.]+\s*[a-zA-Z]+))?(?:.*?ETA:([\w\d:]+))?/i);
         if (m) {
@@ -5398,6 +5522,9 @@ function startTorrentJob(job) {
           job.progress.percent = parseInt(m[3], 10);
           job.progress.speed = m[4] ? m[4] + '/s' : '0 B/s';
           job.progress.eta = m[5] || (job.progress.percent === 0 ? 'Connecting...' : 'Calculating...');
+          if (m[2] && (!job.filesize || job.filesize === 'Auto-Detect' || job.filesize.startsWith('~'))) {
+            job.filesize = m[2];
+          }
         } else if (clean.includes('METADATA')) {
           job.progress.eta = 'Resolving metadata...';
         }
@@ -5675,6 +5802,14 @@ async function startDdlMovieResolver(job) {
                 directStreamUrl = `https://archive.org/download/${docId}/${encodeURIComponent(bestFile.name)}`;
                 const sizeMb = ((parseInt(bestFile.size, 10) || 0) / (1024 * 1024)).toFixed(1);
                 job.logs.push(`[Direct DDL] Found verified direct archive mirror: ${bestFile.name} (${sizeMb} MB)`);
+                job.title = bestFile.name;
+                job.filename = bestFile.name;
+                job.filesize = sizeMb > 1024 ? (sizeMb / 1024).toFixed(2) + ' GB' : sizeMb + ' MB';
+                job.progress.totalSize = job.filesize;
+                job.code = 'DDL_DIRECT';
+                job.mode = 'direct_http';
+                broadcastGlobalJobSync();
+                broadcastJobUpdate(job.id);
                 break;
               }
             }
@@ -5758,12 +5893,25 @@ async function startDdlMovieResolver(job) {
       matched.sort((a, b) => (b.seeders || 0) - (a.seeders || 0));
       const best = matched[0];
 
-      job.logs.push(`[Direct DDL] Stream locked: ${best.label || best.quality} (${best.seeders || 0} active seeders)`);
+      const lockedName = best.filename || (best.sourceTitle ? `${best.sourceTitle} [${best.quality || '1080p'}]` : null);
+      if (lockedName) {
+        job.title = lockedName;
+        job.filename = lockedName;
+      }
+      if (best.size) {
+        job.filesize = best.size;
+        job.progress.totalSize = best.size;
+      }
+      job.code = 'SWARM';
+      job.mode = 'torrent';
+      job.logs.push(`[Direct DDL] Stream locked: ${best.label || best.quality} (${best.seeders || 0} active seeders)${best.size ? ` [${best.size}]` : ''}`);
       job.opts = job.opts || {};
       job.opts.magnet = best.magnet;
       job.opts.torrentUrl = best.torrentUrl;
       job.opts.type = 'torrent';
       job.url = best.magnet || best.torrentUrl;
+      broadcastGlobalJobSync();
+      broadcastJobUpdate(job.id);
       startTorrentJob(job);
       return;
     }

@@ -1626,8 +1626,8 @@ function createJobCardElement(job) {
     <div class="job-header">
       <div class="job-header-top">
         <div class="job-badges-row">
-          <span class="job-mode-tag ${isAudio ? 'audio' : 'video'}">${isAudio ? 'AUDIO' : 'VIDEO'}</span>
-          <span class="job-code">${job.code || 'MEDIA'}</span>
+          <span class="job-mode-tag ${isAudio ? 'audio' : 'video'}" id="job-mode-tag-${job.id}">${isAudio ? 'AUDIO' : 'VIDEO'}</span>
+          <span class="job-code" id="job-code-${job.id}">${job.code || 'MEDIA'}</span>
         </div>
         <div class="job-header-right">
           <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase())}</span>
@@ -1636,7 +1636,7 @@ function createJobCardElement(job) {
       </div>
       <div class="job-title-group">
         <h4 class="job-title" id="job-title-${job.id}">${job.title}</h4>
-        <div class="job-meta">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
+        <div class="job-meta" id="job-meta-${job.id}">${job.filename} ${job.filesize ? `&bull; ${job.filesize}` : ''}</div>
         ${job.downloadFolder ? `<div class="job-storage-tag" style="font-size: 0.72rem; color: #34d399; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;" title="Assigned permanent storage folder: ${escapeHtml(job.downloadFolder)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span style="font-family: monospace; word-break: break-all;">${escapeHtml(job.downloadFolder)}</span></div>` : ''}
       </div>
     </div>
@@ -1800,6 +1800,23 @@ function updateJobCard(job) {
   if (badge) {
     badge.className = `job-status-badge status-${job.status}`;
     badge.textContent = job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase());
+  }
+
+  const titleEl = document.getElementById(`job-title-${job.id}`);
+  if (titleEl && job.title && titleEl.textContent !== job.title) {
+    titleEl.textContent = job.title;
+    titleEl.title = job.title;
+  }
+
+  const metaEl = document.getElementById(`job-meta-${job.id}`);
+  if (metaEl) {
+    const metaText = `${job.filename || ''} ${job.filesize ? `• ${job.filesize}` : ''}`.trim();
+    if (metaEl.textContent !== metaText) metaEl.textContent = metaText;
+  }
+
+  const codeEl = document.getElementById(`job-code-${job.id}`);
+  if (codeEl && codeEl.textContent !== (job.code || 'MEDIA')) {
+    codeEl.textContent = job.code || 'MEDIA';
   }
 
   const fill = document.getElementById(`job-prog-fill-${job.id}`);
@@ -3620,15 +3637,17 @@ function renderMovieResults(items) {
             ${bestRelease && bestRelease.seeders !== undefined ? `
               <span class="movie-meta-item meta-seeds">${bestRelease.seeders} Seeds</span>
             ` : ''}
-            ${isDdl ? `
+            ${bestRelease && (bestRelease.magnet || bestRelease.torrentUrl) ? `
+              <span class="movie-meta-item meta-cloud" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">Verified Swarm</span>
+            ` : (isDdl ? `
               <span class="movie-meta-item meta-cloud">Direct Cloud</span>
-            ` : ''}
+            ` : '')}
           </div>
 
           <div class="movie-card-actions">
-            <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="${isDdl ? `dispatchDdlDownload(${idx}, 0, event)` : `dispatchMovieDownload(${idx}, 0, event)`}">
+            <button type="button" class="btn btn-primary btn-sm movie-dl-btn" id="btnMovieDl_${idx}" onclick="${(bestRelease && (bestRelease.magnet || bestRelease.torrentUrl)) ? `dispatchMovieDownload(${idx}, 0, event)` : (isDdl ? `dispatchDdlDownload(${idx}, 0, event)` : `dispatchMovieDownload(${idx}, 0, event)`)}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              <span>${isDdl ? 'Direct DDL' : 'Download'}</span>
+              <span>${(bestRelease && (bestRelease.magnet || bestRelease.torrentUrl)) ? 'Download' : (isDdl ? 'Direct DDL' : 'Download')}</span>
             </button>
 
             ${releaseCount > 0 ? `
@@ -3788,7 +3807,11 @@ window.dispatchDdlDownload = async function(idx, rIdx = 0, event = null) {
     quality: release.quality || '1080p',
     filename: release.filename || '',
     imdbId: item.imdbId || '',
-    url: release.url || ''
+    url: release.url || '',
+    magnet: release.magnet || '',
+    torrentUrl: release.torrentUrl || '',
+    releaseLabel: release.label || '',
+    releaseSize: release.size || ''
   };
 
   try {
@@ -3927,7 +3950,7 @@ function renderModalReleasesList() {
             <div class="release-secondary-row">
               ${rel.size ? `<span class="release-meta-badge meta-size">${escapeHtml(rel.size)}</span>` : ''}
               ${rel.seeders !== undefined ? `<span class="release-meta-badge">${rel.seeders} Seeds</span>` : ''}
-              ${isDdl ? `<span class="release-meta-badge">Direct Cloud</span>` : ''}
+              ${(rel.magnet || rel.torrentUrl) ? `<span class="release-meta-badge" style="color: #60a5fa; border-color: rgba(96, 165, 250, 0.3);">High-Speed Swarm</span>` : (isDdl ? `<span class="release-meta-badge">Direct Cloud</span>` : '')}
               ${rel.isMultiAudio ? `<span class="release-tag">Multi-Audio</span>` : ''}
               ${rel.isHevc ? `<span class="release-tag">HEVC 10-bit</span>` : ''}
               ${rel.isHdr ? `<span class="release-tag">HDR / DV</span>` : ''}
@@ -3935,7 +3958,12 @@ function renderModalReleasesList() {
           </div>
         </div>
         <div class="release-actions">
-          ${isDdl ? `
+          ${(rel.magnet || rel.torrentUrl) ? `
+            <button type="button" class="btn btn-primary btn-sm btn-rel-dl" id="btnModalRelDl_${rIdx}" onclick="dispatchMovieDownload(${currentModalItemIdx}, ${rIdx}, event)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Download</span>
+            </button>
+          ` : (isDdl ? `
             <button type="button" class="btn btn-primary btn-sm btn-rel-ddl" id="btnModalRelDdl_${rIdx}" onclick="dispatchDdlDownload(${currentModalItemIdx}, ${rIdx}, event)" title="Direct DDL Multi-Thread Download">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               <span>Direct DDL</span>
@@ -3945,7 +3973,7 @@ function renderModalReleasesList() {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               <span>Download</span>
             </button>
-          `}
+          `)}
           ${rel.magnet ? `
             <button type="button" class="btn btn-secondary btn-sm btn-rel-copy" onclick="copyMovieReleaseLink('${escapeHtml(rel.magnet)}', this)" title="Copy magnet link">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
