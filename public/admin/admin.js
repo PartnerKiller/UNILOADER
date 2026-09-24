@@ -140,45 +140,180 @@ if (logoutBtn) {
   });
 }
 
-// Navigation Tabs
+// Theme Metadata Presets Map
+const THEME_PRESETS = {
+  sakura: {
+    title: 'Sakura Dark (Default)',
+    desc: 'Production glassmorphism with deep navy hues and neon-rose/cyan highlights.',
+    previewClass: 'preview-sakura',
+    badgeClass: 'p-badge pink',
+    badgeText: 'READY',
+    btnClass: 'p-btn primary',
+    btnText: 'Download',
+    bg: '#090d16',
+    accent: '#38bdf8',
+    badge: '#f43f5e'
+  },
+  cyberpunk: {
+    title: 'Cyberpunk Synthwave',
+    desc: 'High-contrast neon styling with radioactive cyan, hot pink glow, and dark grid vibes.',
+    previewClass: 'preview-cyberpunk',
+    badgeClass: 'p-badge pink',
+    badgeText: 'SYNTH',
+    btnClass: 'p-btn cyan',
+    btnText: 'Download',
+    bg: '#090814',
+    accent: '#00f0ff',
+    badge: '#ff007f'
+  },
+  obsidian: {
+    title: 'Midnight Obsidian',
+    desc: 'Ultra-dark OLED stealth matte black UI with emerald green status accents.',
+    previewClass: 'preview-obsidian',
+    badgeClass: 'p-badge green',
+    badgeText: 'ACTIVE',
+    btnClass: 'p-btn green',
+    btnText: 'Download',
+    bg: '#050507',
+    accent: '#10b981',
+    badge: '#10b981'
+  },
+  frost: {
+    title: 'Frost Glassmorphism',
+    desc: 'Nordic frosted translucent acrylic cards with sky-blue accents and soft backdrop blur.',
+    previewClass: 'preview-frost',
+    badgeClass: 'p-badge ice',
+    badgeText: 'ICE',
+    btnClass: 'p-btn ice',
+    btnText: 'Download',
+    bg: '#0b1320',
+    accent: '#7dd3fc',
+    badge: '#38bdf8'
+  },
+  matrix: {
+    title: 'Retro Matrix Terminal',
+    desc: 'Hacker CRT phosphor-green palette with monospace typography and scanline aesthetics.',
+    previewClass: 'preview-matrix',
+    badgeClass: 'p-badge green',
+    badgeText: 'TERM',
+    btnClass: 'p-btn green',
+    btnText: 'Download',
+    bg: '#020703',
+    accent: '#00ff41',
+    badge: '#00ff41'
+  },
+  'minimal-slate': {
+    title: 'Minimalist Slate',
+    desc: 'Clean modern UI with high-contrast slate surfaces and indigo action buttons.',
+    previewClass: 'preview-slate',
+    badgeClass: 'p-badge indigo',
+    badgeText: 'SLATE',
+    btnClass: 'p-btn indigo',
+    btnText: 'Download',
+    bg: '#0f172a',
+    accent: '#6366f1',
+    badge: '#818cf8'
+  }
+};
+
+function updateCompactThemeBanner(themeName) {
+  const preset = THEME_PRESETS[themeName] || THEME_PRESETS.sakura;
+  const bannerBox = document.getElementById('bannerPreviewBox');
+  const bannerBadge = document.getElementById('bannerBadge');
+  const bannerBtn = document.getElementById('bannerBtn');
+  const bannerTitle = document.getElementById('bannerThemeTitle');
+  const bannerDesc = document.getElementById('bannerThemeDesc');
+  const swatchBg = document.getElementById('swatchBg');
+  const swatchAccent = document.getElementById('swatchAccent');
+  const swatchBadge = document.getElementById('swatchBadge');
+  const activeSwatch = document.getElementById('themeActiveSwatch');
+
+  if (bannerBox) {
+    bannerBox.className = `banner-preview-box ${preset.previewClass}`;
+  }
+  if (bannerBadge) {
+    bannerBadge.className = preset.badgeClass;
+    bannerBadge.textContent = preset.badgeText;
+  }
+  if (bannerBtn) {
+    bannerBtn.className = preset.btnClass;
+    bannerBtn.textContent = preset.btnText;
+  }
+  if (bannerTitle) {
+    bannerTitle.textContent = preset.title;
+  }
+  if (bannerDesc) {
+    bannerDesc.textContent = preset.desc;
+  }
+  if (swatchBg) swatchBg.style.background = preset.bg;
+  if (swatchAccent) swatchAccent.style.background = preset.accent;
+  if (swatchBadge) swatchBadge.style.background = preset.badge;
+  if (activeSwatch) {
+    activeSwatch.style.backgroundColor = preset.accent;
+    activeSwatch.style.boxShadow = `0 0 8px ${preset.accent}`;
+  }
+}
+
+// Navigation Tabs with Dropdown Jump Sync
 function setupNavigation() {
   const tabs = document.querySelectorAll('.admin-tabs .tab-btn');
-  tabs.forEach(btn => {
-    btn.addEventListener('click', () => {
-      tabs.forEach(t => t.classList.remove('active'));
-      btn.classList.add('active');
+  const tabDropdown = document.getElementById('adminTabDropdown');
 
-      const targetId = `tab-${btn.getAttribute('data-tab')}`;
-      document.querySelectorAll('.tab-panel').forEach(p => {
-        p.classList.remove('active');
-        if (p.id === targetId) p.classList.add('active');
-      });
-
-      const tabName = btn.getAttribute('data-tab');
-      if (tabName === 'service') {
-        loadServiceStatus();
-        loadServiceLogs();
-      } else if (tabName === 'engine') {
-        loadEngineConfig();
-      } else if (tabName === 'storage') {
-        loadStorageFiles();
-      } else if (tabName === 'network') {
-        loadNetworkHealth();
-      } else if (tabName === 'terminal') {
-        focusTerminalInput();
-      } else if (tabName === 'queue') {
-        loadQueueData();
-      } else if (tabName === 'tools') {
-        loadSystemMetrics();
-      } else if (tabName === 'creds') {
-        loadCredsData();
-      } else if (tabName === 'users') {
-        loadAdminUsers();
-        loadAccessRequests();
-        loadRolePermissions();
+  function activateTab(tabName) {
+    tabs.forEach(t => {
+      if (t.getAttribute('data-tab') === tabName) {
+        t.classList.add('active');
+      } else {
+        t.classList.remove('active');
       }
     });
+
+    const targetId = `tab-${tabName}`;
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.remove('active');
+      if (p.id === targetId) p.classList.add('active');
+    });
+
+    if (tabDropdown && tabDropdown.value !== tabName) {
+      tabDropdown.value = tabName;
+    }
+
+    if (tabName === 'service') {
+      loadServiceStatus();
+      loadServiceLogs();
+    } else if (tabName === 'engine') {
+      loadEngineConfig();
+    } else if (tabName === 'storage') {
+      loadStorageFiles();
+    } else if (tabName === 'network') {
+      loadNetworkHealth();
+    } else if (tabName === 'terminal') {
+      focusTerminalInput();
+    } else if (tabName === 'queue') {
+      loadQueueData();
+    } else if (tabName === 'tools') {
+      loadSystemMetrics();
+    } else if (tabName === 'creds') {
+      loadCredsData();
+    } else if (tabName === 'users') {
+      loadAdminUsers();
+      loadAccessRequests();
+      loadRolePermissions();
+    }
+  }
+
+  tabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.getAttribute('data-tab');
+      activateTab(tabName);
+    });
   });
+
+  if (tabDropdown) {
+    tabDropdown.addEventListener('change', () => {
+      activateTab(tabDropdown.value);
+    });
+  }
 }
 
 function loadAllAdminData() {
@@ -192,23 +327,63 @@ function loadAllAdminData() {
   updateSandboxIframe();
 }
 
-// 1. UI/UX LAB LOGIC
+// 1. UI/UX LAB LOGIC (Compact Dropdown + Full Accordion Suite)
 function setupUiLab() {
-  // Apply Local buttons
-  document.querySelectorAll('.apply-theme-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const theme = btn.getAttribute('data-theme');
+  const themeDropdown = document.getElementById('themeSelectDropdown');
+  const densityDropdown = document.getElementById('densitySelectDropdown');
+  const viewModeDropdown = document.getElementById('themeViewModeDropdown');
+  const galleryWrap = document.getElementById('themeGalleryWrap');
+  const btnApply = document.getElementById('btnApplySelectedTheme');
+  const btnSetGlobal = document.getElementById('btnSetGlobalSelectedTheme');
+
+  // Theme Dropdown Change
+  if (themeDropdown) {
+    themeDropdown.value = currentActiveTheme;
+    themeDropdown.addEventListener('change', () => {
+      const theme = themeDropdown.value;
+      currentActiveTheme = theme;
+      localStorage.setItem('preview_theme', theme);
+      updateSandboxIframe();
+      showToast(`Selected theme: ${theme}`);
+    });
+  }
+
+  // Density Dropdown Change
+  if (densityDropdown) {
+    densityDropdown.value = currentActiveDensity;
+    densityDropdown.addEventListener('change', () => {
+      const density = densityDropdown.value;
+      currentActiveDensity = density;
+      localStorage.setItem('preview_density', density);
+      updateSandboxIframe();
+      showToast(`Density set to: ${density}`);
+    });
+  }
+
+  // Cards View Mode Dropdown
+  if (viewModeDropdown) {
+    viewModeDropdown.addEventListener('change', () => {
+      if (galleryWrap) {
+        galleryWrap.style.display = viewModeDropdown.value === 'gallery' ? 'block' : 'none';
+      }
+    });
+  }
+
+  // Quick Action: Apply Local
+  if (btnApply) {
+    btnApply.addEventListener('click', () => {
+      const theme = themeDropdown ? themeDropdown.value : currentActiveTheme;
       currentActiveTheme = theme;
       localStorage.setItem('preview_theme', theme);
       updateSandboxIframe();
       showToast(`Applied local preview theme: ${theme}`);
     });
-  });
+  }
 
-  // Set Global buttons
-  document.querySelectorAll('.set-global-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const theme = btn.getAttribute('data-theme');
+  // Quick Action: Set Global
+  if (btnSetGlobal) {
+    btnSetGlobal.addEventListener('click', async () => {
+      const theme = themeDropdown ? themeDropdown.value : currentActiveTheme;
       try {
         const res = await fetch('/api/admin/ui-settings', {
           method: 'POST',
@@ -230,9 +405,49 @@ function setupUiLab() {
         showToast('Error updating theme: ' + err.message, 'error');
       }
     });
+  }
+
+  // Apply Local buttons (in 6-card gallery)
+  document.querySelectorAll('.apply-theme-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const theme = btn.getAttribute('data-theme');
+      currentActiveTheme = theme;
+      localStorage.setItem('preview_theme', theme);
+      if (themeDropdown) themeDropdown.value = theme;
+      updateSandboxIframe();
+      showToast(`Applied local preview theme: ${theme}`);
+    });
   });
 
-  // Density Toggles
+  // Set Global buttons (in 6-card gallery)
+  document.querySelectorAll('.set-global-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const theme = btn.getAttribute('data-theme');
+      try {
+        const res = await fetch('/api/admin/ui-settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({ theme, density: currentActiveDensity })
+        });
+        if (res.ok) {
+          currentActiveTheme = theme;
+          localStorage.setItem('preview_theme', theme);
+          if (themeDropdown) themeDropdown.value = theme;
+          updateSandboxIframe();
+          showToast(`Global theme updated to: ${theme}`);
+        } else {
+          showToast('Failed to set global theme', 'error');
+        }
+      } catch (err) {
+        showToast('Error updating theme: ' + err.message, 'error');
+      }
+    });
+  });
+
+  // Density Buttons (in collapsible accordion)
   document.querySelectorAll('.density-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.density-btn').forEach(b => b.classList.remove('active'));
@@ -240,6 +455,7 @@ function setupUiLab() {
       const density = btn.getAttribute('data-density');
       currentActiveDensity = density;
       localStorage.setItem('preview_density', density);
+      if (densityDropdown) densityDropdown.value = density;
       updateSandboxIframe();
       showToast(`Density set to: ${density}`);
     });
@@ -253,6 +469,8 @@ function setupUiLab() {
       localStorage.removeItem('preview_density');
       currentActiveTheme = 'sakura';
       currentActiveDensity = 'standard';
+      if (themeDropdown) themeDropdown.value = 'sakura';
+      if (densityDropdown) densityDropdown.value = 'standard';
       updateSandboxIframe();
       showToast('Reset to production default theme.');
     });
@@ -271,9 +489,25 @@ function updateSandboxIframe() {
   if (previewIframe) {
     previewIframe.src = `/?preview_theme=${currentActiveTheme}&preview_density=${currentActiveDensity}`;
   }
+  const formattedDensity = currentActiveDensity.charAt(0).toUpperCase() + currentActiveDensity.slice(1);
   if (sandboxActiveTheme) {
-    sandboxActiveTheme.textContent = `Active Theme: ${currentActiveTheme.toUpperCase()} • Density: ${currentActiveDensity}`;
+    sandboxActiveTheme.textContent = `Active Theme: ${currentActiveTheme.toUpperCase()} • Density: ${formattedDensity}`;
   }
+  const densityBadge = document.getElementById('activeDensityBadge');
+  if (densityBadge) {
+    densityBadge.textContent = `Current: ${formattedDensity}`;
+  }
+  const themeDropdown = document.getElementById('themeSelectDropdown');
+  if (themeDropdown && themeDropdown.value !== currentActiveTheme) {
+    themeDropdown.value = currentActiveTheme;
+  }
+  const densityDropdown = document.getElementById('densitySelectDropdown');
+  if (densityDropdown && densityDropdown.value !== currentActiveDensity) {
+    densityDropdown.value = currentActiveDensity;
+  }
+
+  updateCompactThemeBanner(currentActiveTheme);
+
   document.querySelectorAll('.theme-card').forEach(card => {
     if (card.getAttribute('data-theme-name') === currentActiveTheme) {
       card.classList.add('active-theme');
@@ -1090,6 +1324,30 @@ function setupEngineSettings() {
       } finally {
         saveBtn.disabled = false;
         saveBtn.innerHTML = '<span>💾 Save &amp; Apply Configuration</span>';
+      }
+    });
+  }
+
+  // Category Filter Dropdown
+  const engineCategoryDropdown = document.getElementById('engineCategoryDropdown');
+  if (engineCategoryDropdown) {
+    engineCategoryDropdown.addEventListener('change', () => {
+      const selected = engineCategoryDropdown.value;
+      const cardMap = {
+        concurrency: document.getElementById('engineCardConcurrency'),
+        ddl: document.getElementById('engineCardDdl'),
+        switches: document.getElementById('engineCardSwitches'),
+        providers: document.getElementById('engineCardProviders')
+      };
+
+      if (selected === 'all') {
+        Object.values(cardMap).forEach(card => {
+          if (card) card.style.display = '';
+        });
+      } else {
+        Object.entries(cardMap).forEach(([key, card]) => {
+          if (card) card.style.display = key === selected ? '' : 'none';
+        });
       }
     });
   }

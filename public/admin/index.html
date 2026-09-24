@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/admin.css?v=4.3.6">
+  <link rel="stylesheet" href="/admin/admin.css?v=4.16.1">
 </head>
 <body>
   <!-- Login Modal / Screen -->
@@ -63,7 +63,7 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.6.1</span>
+          <span class="badge-tag">Sakura Suite v4.16.1</span>
         </div>
       </div>
 
@@ -82,39 +82,56 @@
       </div>
     </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="admin-tabs">
-      <button class="tab-btn active" data-tab="ui-lab">
-        <span>🎨 UI/UX Lab</span>
-      </button>
-      <button class="tab-btn" data-tab="service">
-        <span>🚀 Service &amp; Logs</span>
-      </button>
-      <button class="tab-btn" data-tab="engine">
-        <span>⚙️ Engine Settings</span>
-      </button>
-      <button class="tab-btn" data-tab="storage">
-        <span>📁 Storage Explorer</span>
-      </button>
-      <button class="tab-btn" data-tab="network">
-        <span>🌐 Network Health</span>
-      </button>
-      <button class="tab-btn" data-tab="terminal">
-        <span>💻 Terminal &amp; Dev</span>
-      </button>
-      <button class="tab-btn" data-tab="tools">
-        <span>🛠️ System Diagnostics</span>
-      </button>
-      <button class="tab-btn" data-tab="creds">
-        <span>🔑 Credentials</span>
-      </button>
-      <button class="tab-btn" data-tab="queue">
-        <span>📋 Queue Inspector</span>
-      </button>
-      <button class="tab-btn" data-tab="users">
-        <span>👥 User Accounts</span>
-      </button>
-    </nav>
+    <!-- Navigation Tabs & Quick Selector -->
+    <div class="admin-nav-bar">
+      <nav class="admin-tabs" id="adminTabsNav">
+        <button class="tab-btn active" data-tab="ui-lab">
+          <span>🎨 UI/UX Lab</span>
+        </button>
+        <button class="tab-btn" data-tab="service">
+          <span>🚀 Service &amp; Logs</span>
+        </button>
+        <button class="tab-btn" data-tab="engine">
+          <span>⚙️ Engine Settings</span>
+        </button>
+        <button class="tab-btn" data-tab="storage">
+          <span>📁 Storage Explorer</span>
+        </button>
+        <button class="tab-btn" data-tab="network">
+          <span>🌐 Network Health</span>
+        </button>
+        <button class="tab-btn" data-tab="terminal">
+          <span>💻 Terminal &amp; Dev</span>
+        </button>
+        <button class="tab-btn" data-tab="tools">
+          <span>🛠️ System Diagnostics</span>
+        </button>
+        <button class="tab-btn" data-tab="creds">
+          <span>🔑 Credentials</span>
+        </button>
+        <button class="tab-btn" data-tab="queue">
+          <span>📋 Queue Inspector</span>
+        </button>
+        <button class="tab-btn" data-tab="users">
+          <span>👥 User Accounts</span>
+        </button>
+      </nav>
+      <div class="admin-tab-dropdown-wrap">
+        <label for="adminTabDropdown" class="tab-dropdown-label">Jump:</label>
+        <select id="adminTabDropdown" class="admin-tab-dropdown" aria-label="Jump to Admin Section">
+          <option value="ui-lab">🎨 UI/UX Lab</option>
+          <option value="service">🚀 Service &amp; Logs</option>
+          <option value="engine">⚙️ Engine Settings</option>
+          <option value="storage">📁 Storage Explorer</option>
+          <option value="network">🌐 Network Health</option>
+          <option value="terminal">💻 Terminal &amp; Dev</option>
+          <option value="tools">🛠️ System Diagnostics</option>
+          <option value="creds">🔑 Credentials</option>
+          <option value="queue">📋 Queue Inspector</option>
+          <option value="users">👥 User Accounts</option>
+        </select>
+      </div>
+    </div>
 
     <!-- Main Content Panels -->
     <main class="admin-content">
@@ -122,160 +139,258 @@
       <section class="tab-panel active" id="tab-ui-lab">
         <div class="panel-header">
           <div>
-            <h2>UI/UX Design Studio & Theme Switcher</h2>
-            <p>Test multiple interface variations, density profiles, and color schemes safely without altering production defaults.</p>
+            <h2>UI/UX Design Studio &amp; Theme Switcher</h2>
+            <p>Compact theme selector and live tuning console with zero-scroll efficiency.</p>
           </div>
           <div class="panel-actions">
-            <button class="btn btn-outline btn-sm" id="resetThemeBtn">Reset to Production Default</button>
+            <button class="btn btn-outline btn-sm" id="resetThemeBtn">Reset Defaults</button>
             <button class="btn btn-primary btn-sm" id="openPreviewTabBtn">Open Live Test Tab ↗</button>
           </div>
         </div>
 
-        <div class="theme-grid">
-          <!-- Theme Card 1 -->
-          <div class="theme-card" data-theme-name="sakura">
-            <div class="theme-preview-box preview-sakura">
-              <div class="preview-bar"></div>
-              <div class="preview-elements">
-                <span class="p-badge pink">READY</span>
-                <span class="p-btn primary">Download</span>
+        <!-- Compact Control Console with Dropdown Options -->
+        <div class="compact-studio-card">
+          <div class="compact-controls-grid">
+            <!-- Theme Dropdown Option -->
+            <div class="studio-field">
+              <label for="themeSelectDropdown" class="studio-label">
+                <span>🎨 Select Theme Palette:</span>
+              </label>
+              <div class="studio-select-wrap">
+                <span class="theme-indicator-swatch" id="themeActiveSwatch"></span>
+                <select id="themeSelectDropdown" class="admin-select studio-select" aria-label="Select Theme">
+                  <option value="sakura">🌸 Sakura Dark (Default Production)</option>
+                  <option value="cyberpunk">⚡ Cyberpunk Synthwave (Neon Glow)</option>
+                  <option value="obsidian">🖤 Midnight Obsidian (Stealth Matte)</option>
+                  <option value="frost">❄️ Frost Glassmorphism (Nordic Acrylic)</option>
+                  <option value="matrix">📟 Retro Matrix Terminal (CRT Monospace)</option>
+                  <option value="minimal-slate">🪨 Minimalist Slate (Modern Clean)</option>
+                </select>
               </div>
             </div>
-            <div class="theme-info">
-              <h3>Sakura Dark (Default)</h3>
-              <p>Production glassmorphism with deep navy hues and neon-rose/cyan highlights.</p>
-              <div class="theme-actions">
-                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="sakura">Apply Local</button>
-                <button class="btn btn-sm btn-primary set-global-btn" data-theme="sakura">Set Global</button>
+
+            <!-- Density Dropdown Option -->
+            <div class="studio-field">
+              <label for="densitySelectDropdown" class="studio-label">
+                <span>📐 Layout Density:</span>
+              </label>
+              <select id="densitySelectDropdown" class="admin-select studio-select" aria-label="Layout Density">
+                <option value="standard">📱 Standard Density (Spacious Comfort)</option>
+                <option value="compact">⚡ Compact Mode (High Info Density)</option>
+                <option value="grid">🖥️ Multi-Column Card Grid (Desktop)</option>
+              </select>
+            </div>
+
+            <!-- Display View Mode Option -->
+            <div class="studio-field">
+              <label for="themeViewModeDropdown" class="studio-label">
+                <span>🎴 Cards View Mode:</span>
+              </label>
+              <select id="themeViewModeDropdown" class="admin-select studio-select" aria-label="Cards View Mode">
+                <option value="compact">Compact Dropdown View (No Scroll)</option>
+                <option value="gallery">Expanded 6-Card Gallery Grid</option>
+              </select>
+            </div>
+
+            <!-- Apply & Save Actions -->
+            <div class="studio-field studio-actions-field">
+              <label class="studio-label"><span>⚡ Actions:</span></label>
+              <div class="studio-btn-group">
+                <button type="button" class="btn btn-outline btn-sm" id="btnApplySelectedTheme" title="Apply to this browser session">
+                  Apply Local
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnSetGlobalSelectedTheme" title="Set as default for all visitors">
+                  Set Global
+                </button>
               </div>
             </div>
           </div>
 
-          <!-- Theme Card 2 -->
-          <div class="theme-card" data-theme-name="cyberpunk">
-            <div class="theme-preview-box preview-cyberpunk">
-              <div class="preview-bar"></div>
+          <!-- Dynamic Active Theme Mini-Preview Widget -->
+          <div class="compact-theme-banner" id="compactThemeBanner">
+            <div class="banner-preview-box preview-sakura" id="bannerPreviewBox">
+              <div class="preview-bar" id="bannerPreviewBar"></div>
               <div class="preview-elements">
-                <span class="p-badge neon-cyan">NEON</span>
-                <span class="p-btn neon-pink">Download</span>
+                <span class="p-badge pink" id="bannerBadge">READY</span>
+                <span class="p-btn primary" id="bannerBtn">Download</span>
               </div>
             </div>
-            <div class="theme-info">
-              <h3>Cyberpunk Synthwave</h3>
-              <p>Futuristic high-contrast dark with hot magenta accents, cyan borders, and ambient glow.</p>
-              <div class="theme-actions">
-                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="cyberpunk">Apply Local</button>
-                <button class="btn btn-sm btn-primary set-global-btn" data-theme="cyberpunk">Set Global</button>
+            <div class="banner-details">
+              <div class="banner-title-row">
+                <h3 id="bannerThemeTitle">Sakura Dark (Default)</h3>
+                <span class="theme-status-tag" id="bannerThemeStatus">Active Local Preview</span>
               </div>
+              <p id="bannerThemeDesc">Production glassmorphism with deep navy hues and neon-rose/cyan highlights.</p>
+            </div>
+            <div class="banner-swatches" id="bannerSwatches" title="Theme Palette Swatches">
+              <span class="swatch-circle" id="swatchBg" title="Background" style="background: #090d16;"></span>
+              <span class="swatch-circle" id="swatchAccent" title="Primary Accent" style="background: #38bdf8;"></span>
+              <span class="swatch-circle" id="swatchBadge" title="Badge Highlight" style="background: #f43f5e;"></span>
             </div>
           </div>
+        </div>
 
-          <!-- Theme Card 3 -->
-          <div class="theme-card" data-theme-name="obsidian">
-            <div class="theme-preview-box preview-obsidian">
-              <div class="preview-bar"></div>
-              <div class="preview-elements">
-                <span class="p-badge emerald">READY</span>
-                <span class="p-btn emerald">Download</span>
+        <!-- 6-Card Gallery Grid (Hidden in Compact Dropdown Mode, Expandable) -->
+        <div class="theme-grid-collapsible" id="themeGalleryWrap" style="display: none;">
+          <div class="theme-grid">
+            <!-- Theme Card 1 -->
+            <div class="theme-card" data-theme-name="sakura">
+              <div class="theme-preview-box preview-sakura">
+                <div class="preview-bar"></div>
+                <div class="preview-elements">
+                  <span class="p-badge pink">READY</span>
+                  <span class="p-btn primary">Download</span>
+                </div>
+              </div>
+              <div class="theme-info">
+                <h3>Sakura Dark (Default)</h3>
+                <p>Production glassmorphism with deep navy hues and neon-rose/cyan highlights.</p>
+                <div class="theme-actions">
+                  <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="sakura">Apply Local</button>
+                  <button class="btn btn-sm btn-primary set-global-btn" data-theme="sakura">Set Global</button>
+                </div>
               </div>
             </div>
-            <div class="theme-info">
-              <h3>Midnight Obsidian</h3>
-              <p>Pure stealth matte-black (#050507) with emerald accents and crisp hairline dividers.</p>
-              <div class="theme-actions">
-                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="obsidian">Apply Local</button>
-                <button class="btn btn-sm btn-primary set-global-btn" data-theme="obsidian">Set Global</button>
-              </div>
-            </div>
-          </div>
 
-          <!-- Theme Card 4 -->
-          <div class="theme-card" data-theme-name="frost">
-            <div class="theme-preview-box preview-frost">
-              <div class="preview-bar"></div>
-              <div class="preview-elements">
-                <span class="p-badge ice">ICE</span>
-                <span class="p-btn ice">Download</span>
+            <!-- Theme Card 2 -->
+            <div class="theme-card" data-theme-name="cyberpunk">
+              <div class="theme-preview-box preview-cyberpunk">
+                <div class="preview-bar"></div>
+                <div class="preview-elements">
+                  <span class="p-badge neon-cyan">NEON</span>
+                  <span class="p-btn neon-pink">Download</span>
+                </div>
+              </div>
+              <div class="theme-info">
+                <h3>Cyberpunk Synthwave</h3>
+                <p>Futuristic high-contrast dark with hot magenta accents, cyan borders, and ambient glow.</p>
+                <div class="theme-actions">
+                  <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="cyberpunk">Apply Local</button>
+                  <button class="btn btn-sm btn-primary set-global-btn" data-theme="cyberpunk">Set Global</button>
+                </div>
               </div>
             </div>
-            <div class="theme-info">
-              <h3>Frost Glassmorphism</h3>
-              <p>Nordic frosted translucent acrylic cards with sky-blue accents and soft backdrop blur.</p>
-              <div class="theme-actions">
-                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="frost">Apply Local</button>
-                <button class="btn btn-sm btn-primary set-global-btn" data-theme="frost">Set Global</button>
-              </div>
-            </div>
-          </div>
 
-          <!-- Theme Card 5 -->
-          <div class="theme-card" data-theme-name="matrix">
-            <div class="theme-preview-box preview-matrix">
-              <div class="preview-bar"></div>
-              <div class="preview-elements">
-                <span class="p-badge green">TERM</span>
-                <span class="p-btn green">Download</span>
+            <!-- Theme Card 3 -->
+            <div class="theme-card" data-theme-name="obsidian">
+              <div class="theme-preview-box preview-obsidian">
+                <div class="preview-bar"></div>
+                <div class="preview-elements">
+                  <span class="p-badge emerald">READY</span>
+                  <span class="p-btn emerald">Download</span>
+                </div>
+              </div>
+              <div class="theme-info">
+                <h3>Midnight Obsidian</h3>
+                <p>Pure stealth matte-black (#050507) with emerald accents and crisp hairline dividers.</p>
+                <div class="theme-actions">
+                  <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="obsidian">Apply Local</button>
+                  <button class="btn btn-sm btn-primary set-global-btn" data-theme="obsidian">Set Global</button>
+                </div>
               </div>
             </div>
-            <div class="theme-info">
-              <h3>Retro Matrix Terminal</h3>
-              <p>Hacker CRT phosphor-green palette with monospace typography and scanline aesthetics.</p>
-              <div class="theme-actions">
-                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="matrix">Apply Local</button>
-                <button class="btn btn-sm btn-primary set-global-btn" data-theme="matrix">Set Global</button>
-              </div>
-            </div>
-          </div>
 
-          <!-- Theme Card 6 -->
-          <div class="theme-card" data-theme-name="minimal-slate">
-            <div class="theme-preview-box preview-slate">
-              <div class="preview-bar"></div>
-              <div class="preview-elements">
-                <span class="p-badge indigo">SLATE</span>
-                <span class="p-btn indigo">Download</span>
+            <!-- Theme Card 4 -->
+            <div class="theme-card" data-theme-name="frost">
+              <div class="theme-preview-box preview-frost">
+                <div class="preview-bar"></div>
+                <div class="preview-elements">
+                  <span class="p-badge ice">ICE</span>
+                  <span class="p-btn ice">Download</span>
+                </div>
+              </div>
+              <div class="theme-info">
+                <h3>Frost Glassmorphism</h3>
+                <p>Nordic frosted translucent acrylic cards with sky-blue accents and soft backdrop blur.</p>
+                <div class="theme-actions">
+                  <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="frost">Apply Local</button>
+                  <button class="btn btn-sm btn-primary set-global-btn" data-theme="frost">Set Global</button>
+                </div>
               </div>
             </div>
-            <div class="theme-info">
-              <h3>Minimalist Slate</h3>
-              <p>Clean modern UI with high-contrast slate surfaces and indigo action buttons.</p>
-              <div class="theme-actions">
-                <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="minimal-slate">Apply Local</button>
-                <button class="btn btn-sm btn-primary set-global-btn" data-theme="minimal-slate">Set Global</button>
+
+            <!-- Theme Card 5 -->
+            <div class="theme-card" data-theme-name="matrix">
+              <div class="theme-preview-box preview-matrix">
+                <div class="preview-bar"></div>
+                <div class="preview-elements">
+                  <span class="p-badge green">TERM</span>
+                  <span class="p-btn green">Download</span>
+                </div>
+              </div>
+              <div class="theme-info">
+                <h3>Retro Matrix Terminal</h3>
+                <p>Hacker CRT phosphor-green palette with monospace typography and scanline aesthetics.</p>
+                <div class="theme-actions">
+                  <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="matrix">Apply Local</button>
+                  <button class="btn btn-sm btn-primary set-global-btn" data-theme="matrix">Set Global</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Theme Card 6 -->
+            <div class="theme-card" data-theme-name="minimal-slate">
+              <div class="theme-preview-box preview-slate">
+                <div class="preview-bar"></div>
+                <div class="preview-elements">
+                  <span class="p-badge indigo">SLATE</span>
+                  <span class="p-btn indigo">Download</span>
+                </div>
+              </div>
+              <div class="theme-info">
+                <h3>Minimalist Slate</h3>
+                <p>Clean modern UI with high-contrast slate surfaces and indigo action buttons.</p>
+                <div class="theme-actions">
+                  <button class="btn btn-sm btn-outline apply-theme-btn" data-theme="minimal-slate">Apply Local</button>
+                  <button class="btn btn-sm btn-primary set-global-btn" data-theme="minimal-slate">Set Global</button>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Density and Layout Controls -->
-        <div class="sub-section">
-          <h3>Layout Density & Card Presentation</h3>
-          <div class="density-toggles">
-            <button class="density-btn active" data-density="standard">
-              <strong>Standard Density</strong>
-              <span>Spacious padding, maximum touch target comfort</span>
-            </button>
-            <button class="density-btn" data-density="compact">
-              <strong>Compact Mode</strong>
-              <span>High information density, condensed padding for power-users</span>
-            </button>
-            <button class="density-btn" data-density="grid">
-              <strong>Multi-Column Card Grid</strong>
-              <span>Side-by-side card grid layout for widescreen desktop displays</span>
-            </button>
+        <!-- Density and Layout Controls (Collapsible Accordion) -->
+        <details class="sub-section-collapsible" id="densityDetails">
+          <summary class="sub-section-summary">
+            <div class="sub-section-summary-left">
+              <span class="sub-section-arrow">▶</span>
+              <strong>Layout Density &amp; Presentation Presets</strong>
+              <span class="active-density-badge" id="activeDensityBadge">Current: Standard</span>
+            </div>
+            <span class="sub-section-hint">Click to toggle density card options ▾</span>
+          </summary>
+          <div class="density-toggles-wrap">
+            <div class="density-toggles">
+              <button class="density-btn active" data-density="standard">
+                <strong>Standard Density</strong>
+                <span>Spacious padding, maximum touch target comfort</span>
+              </button>
+              <button class="density-btn" data-density="compact">
+                <strong>Compact Mode</strong>
+                <span>High information density, condensed padding for power-users</span>
+              </button>
+              <button class="density-btn" data-density="grid">
+                <strong>Multi-Column Card Grid</strong>
+                <span>Side-by-side card grid layout for widescreen desktop displays</span>
+              </button>
+            </div>
           </div>
-        </div>
+        </details>
 
-        <!-- Live Sandbox / Embedded Iframe Preview -->
-        <div class="sub-section">
-          <div class="sandbox-header">
-            <h3>Live In-Browser Sandbox Preview</h3>
-            <span id="sandboxActiveTheme">Active: Sakura Dark</span>
-          </div>
+        <!-- Live Sandbox / Embedded Iframe Preview (Collapsible Accordion) -->
+        <details class="sub-section-collapsible" id="sandboxCollapsible">
+          <summary class="sub-section-summary">
+            <div class="sub-section-summary-left">
+              <span class="sub-section-arrow">▶</span>
+              <strong>Live In-Browser Sandbox Preview</strong>
+              <span class="active-density-badge" id="sandboxActiveTheme">Active: Sakura Dark &bull; Standard</span>
+            </div>
+            <span class="sub-section-hint">Click to toggle embedded live app preview ▾</span>
+          </summary>
           <div class="sandbox-frame-wrapper">
             <iframe id="previewIframe" src="/" title="Live Theme Sandbox"></iframe>
           </div>
-        </div>
+        </details>
       </section>
 
       <!-- 2. SERVICE & LIVE LOGS TAB -->
@@ -354,9 +469,23 @@
           </button>
         </div>
 
+        <!-- Engine Settings Category Filter -->
+        <div class="engine-filter-bar">
+          <label for="engineCategoryDropdown" class="engine-filter-label">
+            <span>Filter Category:</span>
+          </label>
+          <select id="engineCategoryDropdown" class="admin-select engine-category-select" aria-label="Filter Engine Settings Category">
+            <option value="all">⚡ All Engine Settings (4 Modules)</option>
+            <option value="concurrency">⚡ Concurrency &amp; Throughput Acceleration</option>
+            <option value="ddl">☁️ Native Direct DDL Movie Engine</option>
+            <option value="switches">🛡️ Master Feature Switches &amp; Pipelines</option>
+            <option value="providers">🎬 Movie Search Providers &amp; Scrapers</option>
+          </select>
+        </div>
+
         <div class="engine-settings-grid">
           <!-- Concurrency & Network Performance -->
-          <div class="engine-config-card">
+          <div class="engine-config-card" id="engineCardConcurrency">
             <div class="card-head">
               <h3>⚡ Concurrency &amp; Throughput Acceleration</h3>
               <p>Aria2c multi-thread connections and memory buffer allocations.</p>
@@ -414,7 +543,7 @@
           </div>
 
           <!-- Native Direct DDL Movie Engine -->
-          <div class="engine-config-card">
+          <div class="engine-config-card" id="engineCardDdl">
             <div class="card-head">
               <h3>☁️ Native Direct DDL Movie Engine (Non-Torrent)</h3>
               <p>Ultra-fast Cinemeta open catalog metadata with multi-threaded segmented cloud downloading.</p>
@@ -428,7 +557,7 @@
           </div>
 
           <!-- Feature Killswitches & Pipelines -->
-          <div class="engine-config-card">
+          <div class="engine-config-card" id="engineCardSwitches">
             <div class="card-head">
               <h3>🛡️ Master Feature Switches &amp; Pipelines</h3>
               <p>Enable or disable specific subsystems and enforce strict quality guarantees.</p>
@@ -494,7 +623,7 @@
           </div>
 
           <!-- Movie Search Providers & Scrapers -->
-          <div class="engine-config-card">
+          <div class="engine-config-card" id="engineCardProviders">
             <div class="card-head">
               <h3>🎬 Movie Search Providers &amp; Scrapers</h3>
               <p>Enable or disable specific movie catalog providers and torrent scrapers shown in the Movie &amp; TV Hub.</p>
@@ -1098,6 +1227,6 @@
     </div>
   </div>
 
-  <script src="/admin/admin.js?v=4.14.1"></script>
+  <script src="/admin/admin.js?v=4.16.1"></script>
 </body>
 </html>
