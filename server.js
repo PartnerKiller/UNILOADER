@@ -1380,19 +1380,24 @@ function getJobCategory(jobOrOpts) {
 
   // 2. Audio & Music checks
   const mode = String(jobOrOpts.mode || (jobOrOpts.opts && jobOrOpts.opts.mode) || '').toLowerCase();
-  const audioFmt = String((jobOrOpts.opts && jobOrOpts.opts.audioFormat) || jobOrOpts.audioFormat || '').toLowerCase();
   const isAudioMode = ['audio', 'audiophile_flac', 'cdrip'].includes(mode);
-  const isAudioCode = ['CD_RIP_1TO1', 'FLAC_MASTER', 'FLAC'].includes(codeUpper);
-  const isCdRip = !!((jobOrOpts.opts && jobOrOpts.opts.isCdRip) || jobOrOpts.isCdRip || isAudioCode || mode === 'cdrip' || audioFmt === 'cdrip');
+  const isAudioCode = ['CD_RIP_1TO1', 'FLAC_MASTER', 'FLAC', 'AUDIO_TRACK'].includes(codeUpper);
+  const isCdRip = !!((jobOrOpts.opts && jobOrOpts.opts.isCdRip) || jobOrOpts.isCdRip || isAudioCode || mode === 'cdrip');
 
   const ext = path.extname(jobOrOpts.filePath || jobOrOpts.filename || '').toLowerCase().replace('.', '');
   const audioExts = ['flac', 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'alac', 'aiff', 'wma'];
-  const isAudioExt = audioExts.includes(ext) || audioExts.includes(audioFmt);
+  const isAudioFile = audioExts.includes(ext);
 
   const musicDomains = ['spotify.com', 'deezer.com', 'tidal.com', 'jiosaavn.com', 'music.apple.com', 'music.youtube.com', 'soundcloud.com', 'bandcamp.com'];
   const isMusicDomain = musicDomains.some(d => urlStr.includes(d));
+  const isMusicTrackOpt = !!(jobOrOpts.opts && (jobOrOpts.opts.isMusicTrack || jobOrOpts.opts.trackTitle || jobOrOpts.opts.album));
 
-  if (isAudioMode || isAudioCode || isCdRip || isAudioExt || isMusicDomain) {
+  // If the job is explicitly video or tube, never classify as music unless output extension is purely audio
+  if (['video', 'tube', 'ddl_direct'].includes(mode) && !isAudioFile) {
+    return 'movies';
+  }
+
+  if (isAudioMode || isAudioCode || isCdRip || isMusicDomain || isMusicTrackOpt || (isAudioFile && mode !== 'video')) {
     return 'music';
   }
 
@@ -6254,17 +6259,33 @@ function startJobProcess(job) {
     // Subtitles (only for video)
     if (embedSubtitles && mode !== 'audio') {
       args.push('--embed-subs');
-      let requestedLangs = (subLangs && subLangs.trim()) ? subLangs.trim() : 'en.*,hi.*,ja.*';
-      // When auto-subs is enabled, querying all 140+ language tracks triggers YouTube's HTTP 429 rate limit.
-      // Scope to common languages if broad wildcard was provided.
+      let requestedLangs = (subLangs && subLangs.trim()) ? subLangs.trim() : 'en,hi,ja';
+
       if (autoSubs) {
-        if (requestedLangs === 'all' || requestedLangs === 'all,-live_chat') {
-          requestedLangs = 'en.*,hi.*,ja.*,zh.*,es.*';
-        }
         args.push('--write-auto-subs');
-        args.push('--sleep-subtitles', '1');
       }
-      args.push('--sub-langs', requestedLangs);
+
+      // Sanitize requested languages to prevent YouTube HTTP 429 rate limit errors:
+      // YouTube generates ~150 auto-translated language combinations (e.g. en-ar, en-zh, hi-ar, ja-ar).
+      // If broad wildcards like 'en.*' are passed, yt-dlp queries 50+ VTT tracks sequentially,
+      // triggering HTTP 429 Too Many Requests, multiple warnings, and stalling the download.
+      let cleanLangs = requestedLangs
+        .replace(/\ben\.\*/gi, 'en,en-US,en-GB')
+        .replace(/\bhi\.\*/gi, 'hi,hi-IN')
+        .replace(/\bja\.\*/gi, 'ja,ja-JP')
+        .replace(/\bzh\.\*/gi, 'zh,zh-TW,zh-CN,zh-Hans,zh-Hant')
+        .replace(/\bes\.\*/gi, 'es,es-ES,es-419')
+        .replace(/\bfr\.\*/gi, 'fr,fr-FR')
+        .replace(/\bde\.\*/gi, 'de,de-DE')
+        .replace(/\bko\.\*/gi, 'ko,ko-KR');
+
+      if (cleanLangs === 'all' || cleanLangs === 'all,-live_chat') {
+        cleanLangs = 'en,hi,ja,zh,es,fr,de,ko';
+      }
+
+      // Deduplicate tokens and trim
+      const langTokens = [...new Set(cleanLangs.split(',').map(s => s.trim()).filter(Boolean))];
+      args.push('--sub-langs', langTokens.join(','));
     }
 
     // Metadata & Thumbnails
