@@ -1325,7 +1325,7 @@ function renderPreviewCard(data) {
 
   previewCard.style.display = 'block';
   updateStorageTargetUI();
-  previewCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  previewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // 2. Start Single Download Job
@@ -1875,10 +1875,14 @@ function updateJobCard(job) {
     }
   }
 
-  if (job.downloadFolder !== undefined) {
-    card.dataset.downloadFolder = job.downloadFolder || '';
+  // Retain download folder permanently so it never flickers or disappears during active downloading
+  const incomingFolder = (job.downloadFolder && typeof job.downloadFolder === 'string' && job.downloadFolder.trim() !== '*')
+    ? job.downloadFolder.trim()
+    : '';
+  if (incomingFolder) {
+    card.dataset.downloadFolder = incomingFolder;
   }
-  const effectiveFolder = (job.downloadFolder !== undefined) ? (job.downloadFolder || '') : (card.dataset.downloadFolder || '');
+  const effectiveFolder = card.dataset.downloadFolder || incomingFolder;
 
   const titleGroup = card.querySelector('.job-title-group');
   let storageTag = card.querySelector('.job-storage-tag');
@@ -1893,7 +1897,7 @@ function updateJobCard(job) {
       storageTag.title = `Assigned permanent storage folder: ${effectiveFolder}`;
       storageTag.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> <span style="font-family: monospace; word-break: break-all;">${escapeHtml(effectiveFolder)}</span>`;
     }
-  } else if (storageTag) {
+  } else if (storageTag && job.downloadFolder === null) {
     storageTag.remove();
   }
 }
