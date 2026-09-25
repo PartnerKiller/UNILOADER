@@ -1420,7 +1420,12 @@ def extract_all(url):
     # 9. Universal Fallback (yt-dlp JSON dump with Chrome Impersonation)
     # -------------------------------------------------------------
     import subprocess
-    cmd = ["yt-dlp", "--dump-single-json", "--skip-download", "--no-warnings", "--no-playlist", "--impersonate", "chrome", url]
+    import shutil
+    node_bin = shutil.which("node") or ("/usr/bin/node" if os.path.exists("/usr/bin/node") else None)
+    cmd = ["yt-dlp", "--dump-single-json", "--skip-download", "--no-warnings", "--no-playlist"]
+    if node_bin:
+        cmd.extend(["--js-runtimes", f"node:{node_bin}"])
+    cmd.extend(["--impersonate", "chrome", url])
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode == 0 and res.stdout.strip():
         info = json.loads(res.stdout)
@@ -1432,6 +1437,31 @@ def extract_all(url):
         duration = info.get('duration_string') or ''
         hls_url = info.get('url') or url
 
+        formats = info.get('formats') or []
+        max_height = info.get('height') or 0
+        max_fps = info.get('fps') or 0
+        for f in formats:
+            h = f.get('height') or 0
+            fps = f.get('fps') or 0
+            if h > max_height:
+                max_height = h
+            if fps > max_fps:
+                max_fps = fps
+
+        quality_label = '1080p HD'
+        if max_height >= 4320:
+            quality_label = '8K UHD'
+        elif max_height >= 2160:
+            quality_label = '4K 60fps' if max_fps >= 50 else '4K UHD'
+        elif max_height >= 1440:
+            quality_label = '2K 60fps' if max_fps >= 50 else '1440p QHD'
+        elif max_height >= 1080:
+            quality_label = '1080p60' if max_fps >= 50 else '1080p HD'
+        elif max_height >= 720:
+            quality_label = '720p HD'
+        elif max_height > 0:
+            quality_label = f'{max_height}p'
+
         return {
             'title': title.strip(),
             'code': code,
@@ -1442,7 +1472,10 @@ def extract_all(url):
             'model': model,
             'duration': duration,
             'extractor': info.get('extractor') or 'Universal',
-            'sourceUrl': url
+            'sourceUrl': url,
+            'maxHeight': max_height,
+            'maxFps': max_fps,
+            'qualityLabel': quality_label
         }
 
     raise Exception("Could not extract video metadata from URL")

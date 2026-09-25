@@ -1835,7 +1835,7 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
       usedDailyDownloads: guestCount,
       maxBatchUrls: u.isPremium ? 50 : 2,
       maxConcurrent: u.isPremium ? getMaxConcurrentDownloads() : 1,
-      allowedResolutions: u.isPremium ? ['best', '2160', '1440', '1080', '720', '480', '360'] : ['720', '480', '360'],
+      allowedResolutions: u.isPremium ? ['best', '4320', '2160', '1440', '1080', '720', '480', '360'] : ['720', '480', '360'],
       allowedAudioFormats: u.isPremium ? ['mp3', 'flac', 'm4a', 'opus', 'wav'] : ['mp3', 'm4a', 'opus']
     }
   });
@@ -6464,7 +6464,7 @@ function startJobProcess(job) {
       '--hls-use-mpegts',
       '--newline',
       '--ignore-errors',
-      '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node',
+      '--js-runtimes', process.platform === 'win32' ? 'node' : (fs.existsSync('/usr/bin/node') ? 'node:/usr/bin/node' : 'node'),
       '-o', outputTemplate
     ];
 
@@ -6538,23 +6538,15 @@ function startJobProcess(job) {
       args.push('--audio-quality', aBit === 'best' ? '0' : aBit);
     } else {
       const targetFmt = (videoFormat && videoFormat !== 'auto') ? videoFormat : 'mp4';
-      if (targetFmt === 'mp4') {
-        if (videoQuality && videoQuality !== 'best') {
-          const maxHeight = parseInt(videoQuality, 10);
-          args.push('-f', `bestvideo[height<=${maxHeight}][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
-        } else {
-          args.push('-f', 'bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best');
-        }
-        args.push('--merge-output-format', 'mp4');
-        args.push('--postprocessor-args', 'Merger:-movflags +faststart');
+      if (videoQuality && videoQuality !== 'best') {
+        const maxHeight = parseInt(videoQuality, 10);
+        args.push('-f', `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
       } else {
-        if (videoQuality && videoQuality !== 'best') {
-          const maxHeight = parseInt(videoQuality, 10);
-          args.push('-f', `bestvideo[height<=${maxHeight}]+bestaudio/best[height<=${maxHeight}]/best`);
-        } else {
-          args.push('-f', 'bestvideo+bestaudio/best');
-        }
-        args.push('--merge-output-format', targetFmt);
+        args.push('-f', 'bestvideo+bestaudio/best');
+      }
+      args.push('--merge-output-format', targetFmt);
+      if (targetFmt === 'mp4') {
+        args.push('--postprocessor-args', 'Merger:-movflags +faststart');
       }
     }
 
@@ -7040,9 +7032,9 @@ app.post('/api/download', identifyUser, async (req, res) => {
 
     // 2. Video quality check: 4K & 8K vs 1080p / 720p
     const vidQ = String(payload.videoQuality || '').toLowerCase();
-    if (['2160', '1440', 'best'].includes(vidQ) && !isFeatureAllowed(req.currentUser, 'quality_4k')) {
+    if (['4320', '2160', '1440', 'best'].includes(vidQ) && !isFeatureAllowed(req.currentUser, 'quality_4k')) {
       payload.videoQuality = req.currentUser.role === 'guest' ? '720' : '1080';
-      payload.qualityNotice = `Resolution capped at ${payload.videoQuality}p for your role. 4K Ultra HD is restricted.`;
+      payload.qualityNotice = `Resolution capped at ${payload.videoQuality}p for your role. 4K/8K Ultra HD is restricted.`;
     } else if (req.currentUser.role === 'guest' && ['1080', 'best'].includes(vidQ)) {
       payload.videoQuality = '720';
       payload.qualityNotice = 'Resolution capped at 720p HD for Guest. Sign in to download in Full HD & 4K Ultra HD.';
@@ -7156,7 +7148,7 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
       });
     }
 
-    if (['2160', '1440', 'best'].includes(String(opts.videoQuality || '').toLowerCase()) && !isFeatureAllowed(req.currentUser, 'quality_4k')) {
+    if (['4320', '2160', '1440', 'best'].includes(String(opts.videoQuality || '').toLowerCase()) && !isFeatureAllowed(req.currentUser, 'quality_4k')) {
       opts.videoQuality = req.currentUser.role === 'guest' ? '720' : '1080';
     } else if (req.currentUser.role === 'guest' && ['1080', 'best'].includes(String(opts.videoQuality || '').toLowerCase())) {
       opts.videoQuality = '720';

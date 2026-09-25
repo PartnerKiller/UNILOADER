@@ -922,8 +922,8 @@ function setupAuthModalEvents() {
   if (videoQualitySelect) {
     videoQualitySelect.addEventListener('change', (e) => {
       const val = String(e.target.value).toLowerCase();
-      if (['2160', '1440', '1080'].includes(val) && !canAccess('quality_4k')) {
-        showToast('4K & Full HD resolutions are restricted for your role. Please sign in or upgrade.', 'info');
+      if (['4320', '2160', '1440', '1080'].includes(val) && !canAccess('quality_4k')) {
+        showToast('4K, 8K & Full HD resolutions are restricted for your role. Please sign in or upgrade.', 'info');
       }
     });
   }
@@ -1280,6 +1280,20 @@ function renderPreviewCard(data) {
   previewPoster.src = data.poster || '/icon.svg';
   previewCode.textContent = data.code || (data.extractor ? data.extractor.toUpperCase() : 'MEDIA');
   previewTitle.textContent = data.title;
+
+  const qualityBadge = document.getElementById('previewQualityBadge');
+  if (qualityBadge) {
+    if (data.qualityLabel) {
+      qualityBadge.textContent = data.qualityLabel;
+      qualityBadge.style.display = 'block';
+    } else if (data.mode === 'audio' || data.extractor === 'Spotify') {
+      qualityBadge.textContent = 'Hi-Fi Audio';
+      qualityBadge.style.display = 'block';
+    } else {
+      qualityBadge.textContent = 'HD Video';
+      qualityBadge.style.display = 'block';
+    }
+  }
 
   if (data.model) {
     previewModel.textContent = data.model;

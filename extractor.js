@@ -114,7 +114,7 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
       '--skip-download',
       '--no-warnings',
       '--no-playlist',
-      '--js-runtimes', process.platform === 'win32' ? 'node' : 'node:/usr/bin/node'
+      '--js-runtimes', process.platform === 'win32' ? 'node' : (fs.existsSync('/usr/bin/node') ? 'node:/usr/bin/node' : 'node')
     ];
 
     if (process.platform === 'win32') {
@@ -161,6 +161,23 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
           if (hlsFmt) hlsUrl = hlsFmt.url;
         }
 
+        let maxHeight = info.height || 0;
+        let maxFps = info.fps || 0;
+        if (Array.isArray(info.formats)) {
+          for (const f of info.formats) {
+            if (f.height && f.height > maxHeight) maxHeight = f.height;
+            if (f.fps && f.fps > maxFps) maxFps = f.fps;
+          }
+        }
+
+        let qualityLabel = '1080p HD';
+        if (maxHeight >= 4320) qualityLabel = '8K UHD';
+        else if (maxHeight >= 2160) qualityLabel = maxFps >= 50 ? '4K 60fps' : '4K UHD';
+        else if (maxHeight >= 1440) qualityLabel = maxFps >= 50 ? '2K 60fps' : '1440p QHD';
+        else if (maxHeight >= 1080) qualityLabel = maxFps >= 50 ? '1080p60' : '1080p HD';
+        else if (maxHeight >= 720) qualityLabel = '720p HD';
+        else if (maxHeight > 0) qualityLabel = `${maxHeight}p`;
+
         resolve({
           title: title.trim(),
           code: String(codeId).toUpperCase(),
@@ -171,7 +188,10 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
           model,
           duration,
           extractor: info.extractor || 'Universal',
-          sourceUrl: url
+          sourceUrl: url,
+          maxHeight,
+          maxFps,
+          qualityLabel
         });
       } catch (err) {
         reject(new Error(`Failed to parse metadata: ${err.message}`));
