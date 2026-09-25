@@ -3720,7 +3720,7 @@ body {
    ========================================================================== */
 
 .adult-search-bar-wrap {
-  margin-top: 20px;
+  margin: 20px 0 24px 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -4286,7 +4286,7 @@ body {
    ========================================================================== */
 
 .movie-search-bar-wrap {
-  margin-top: 20px;
+  margin: 20px 0 24px 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -4372,7 +4372,7 @@ body {
 .movie-controls-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 12px;
 }
@@ -4426,6 +4426,13 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-full);
   padding: 3px 6px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.movie-quality-filters::-webkit-scrollbar {
+  display: none;
 }
 
 .quality-label {
@@ -4498,6 +4505,7 @@ body {
   justify-content: center;
   padding: 36px 16px;
   text-align: center;
+  margin-top: 8px;
 }
 
 .movie-empty-state .empty-icon svg {
