@@ -962,15 +962,35 @@ function isFeatureAllowed(userOrRole, featureKey) {
   if (!userOrRole) return false;
   let role = 'guest';
   let isOwner = false;
+  let customPermissions = null;
+
   if (typeof userOrRole === 'string') {
     role = userOrRole.toLowerCase();
     if (role === 'owner' || role === 'admin' || role === 'sakura') isOwner = true;
+    const u = users.get(role) || Array.from(users.values()).find(x => x.id === userOrRole);
+    if (u) {
+      role = (u.role || 'user').toLowerCase();
+      if (u.role === 'owner' || u.username?.toLowerCase() === 'sakura') isOwner = true;
+      if (u.customPermissions && typeof u.customPermissions === 'object') {
+        customPermissions = u.customPermissions;
+      }
+    }
   } else if (typeof userOrRole === 'object') {
     role = (userOrRole.role || 'guest').toLowerCase();
     if (userOrRole.isOwner || userOrRole.username?.toLowerCase() === 'sakura' || role === 'owner' || role === 'admin') {
       isOwner = true;
     }
+    if (userOrRole.customPermissions && typeof userOrRole.customPermissions === 'object') {
+      customPermissions = userOrRole.customPermissions;
+    } else {
+      const u = users.get(userOrRole.username?.toLowerCase() || '') ||
+                Array.from(users.values()).find(x => x.id === userOrRole.id || x.id === userOrRole.userId);
+      if (u && u.customPermissions && typeof u.customPermissions === 'object') {
+        customPermissions = u.customPermissions;
+      }
+    }
   }
+
   // Sakura / Admin / Owner has universal unconstrained access to all features
   if (isOwner) {
     return true;
@@ -979,28 +999,65 @@ function isFeatureAllowed(userOrRole, featureKey) {
   if (featureKey === 'flac_checker') {
     return true;
   }
+  // If user has an explicit individual custom permission override for this feature:
+  if (customPermissions && typeof customPermissions[featureKey] === 'boolean') {
+    return customPermissions[featureKey];
+  }
+  // Fall back to role permissions
   const perms = rolePermissions[role] || rolePermissions['guest'] || DEFAULT_ROLE_PERMISSIONS.guest;
   return perms[featureKey] === true;
 }
 
-function getRolePermissions(userOrRole) {
+function getUserPermissions(userOrRole) {
   let role = 'guest';
   let isOwner = false;
+  let customPermissions = null;
+
   if (typeof userOrRole === 'string') {
     role = userOrRole.toLowerCase();
     if (role === 'owner' || role === 'admin' || role === 'sakura') isOwner = true;
+    const u = users.get(role) || Array.from(users.values()).find(x => x.id === userOrRole);
+    if (u) {
+      role = (u.role || 'user').toLowerCase();
+      if (u.role === 'owner' || u.username?.toLowerCase() === 'sakura') isOwner = true;
+      if (u.customPermissions && typeof u.customPermissions === 'object') {
+        customPermissions = u.customPermissions;
+      }
+    }
   } else if (userOrRole && typeof userOrRole === 'object') {
     role = (userOrRole.role || 'guest').toLowerCase();
     if (userOrRole.isOwner || userOrRole.username?.toLowerCase() === 'sakura' || role === 'owner' || role === 'admin') {
       isOwner = true;
     }
+    if (userOrRole.customPermissions && typeof userOrRole.customPermissions === 'object') {
+      customPermissions = userOrRole.customPermissions;
+    } else {
+      const u = users.get(userOrRole.username?.toLowerCase() || '') ||
+                Array.from(users.values()).find(x => x.id === userOrRole.id || x.id === userOrRole.userId);
+      if (u && u.customPermissions && typeof u.customPermissions === 'object') {
+        customPermissions = u.customPermissions;
+      }
+    }
   }
 
   const result = {};
   for (const item of FEATURE_METADATA) {
-    result[item.key] = isOwner ? true : isFeatureAllowed(role, item.key);
+    if (isOwner) {
+      result[item.key] = true;
+    } else if (item.key === 'flac_checker') {
+      result[item.key] = true;
+    } else if (customPermissions && typeof customPermissions[item.key] === 'boolean') {
+      result[item.key] = customPermissions[item.key];
+    } else {
+      const perms = rolePermissions[role] || rolePermissions['guest'] || DEFAULT_ROLE_PERMISSIONS.guest;
+      result[item.key] = perms[item.key] === true;
+    }
   }
   return result;
+}
+
+function getRolePermissions(userOrRole) {
+  return getUserPermissions(userOrRole);
 }
 
 function hashPassword(password, salt) {
@@ -1568,7 +1625,8 @@ function resolveUserSession(req) {
     isPremium: isPrem,
     isOwner: isOwner,
     downloadFolder: resolvedFolder || '',
-    allowedFolders: allowedFolders
+    allowedFolders: allowedFolders,
+    customPermissions: uRec?.customPermissions || null
   };
 }
 
@@ -1820,6 +1878,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
   const list = Array.from(users.values()).map(u => {
     const isOwner = u.role === 'owner' || u.id === 'owner_sakura' || (u.username && u.username.toLowerCase() === 'sakura');
     const userPass = u.password || (isOwner ? (process.env.ADMIN_PASS || 'Sakura@002') : '');
+    const effectivePerms = getUserPermissions(u);
     return {
       id: u.id,
       username: u.username,
@@ -1828,10 +1887,115 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
       hasPassword: !!userPass,
       downloadFolder: u.downloadFolder || (Array.isArray(u.allowedFolders) && u.allowedFolders.length > 0 ? u.allowedFolders[0] : ''),
       allowedFolders: u.allowedFolders || [],
+      customPermissions: u.customPermissions || null,
+      hasCustomPermissions: !!(u.customPermissions && Object.keys(u.customPermissions).length > 0),
+      effectivePermissions: effectivePerms,
       createdAt: u.createdAt
     };
   });
   res.json({ success: true, users: list });
+});
+
+// Get Single User Individual Feature Permissions (Owner & Admin)
+app.get('/api/admin/users/:id/permissions', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  let targetUser = null;
+  for (const u of users.values()) {
+    if (u.id === id || (u.username && u.username.toLowerCase() === id.toLowerCase())) {
+      targetUser = u;
+      break;
+    }
+  }
+
+  if (!targetUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const isOwner = targetUser.role === 'owner' || targetUser.id === 'owner_sakura' || (targetUser.username && targetUser.username.toLowerCase() === 'sakura');
+  const role = (targetUser.role || 'user').toLowerCase();
+  const rolePerms = rolePermissions[role] || rolePermissions['guest'] || DEFAULT_ROLE_PERMISSIONS.guest;
+  const effectivePerms = getUserPermissions(targetUser);
+
+  res.json({
+    success: true,
+    user: {
+      id: targetUser.id,
+      username: targetUser.username,
+      role: targetUser.role || 'user',
+      isOwner,
+      hasCustomPermissions: !!(targetUser.customPermissions && Object.keys(targetUser.customPermissions).length > 0),
+      customPermissions: targetUser.customPermissions || null,
+      rolePermissions: rolePerms,
+      effectivePermissions: effectivePerms
+    },
+    features: FEATURE_METADATA
+  });
+});
+
+// Update or Reset Single User Individual Feature Permissions (Owner & Admin)
+app.post('/api/admin/users/permissions', requireAdmin, (req, res) => {
+  const { id, permissions, resetToRole } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'User ID or username is required' });
+
+  let targetUser = null;
+  for (const u of users.values()) {
+    if (u.id === id || (u.username && u.username.toLowerCase() === id.toLowerCase())) {
+      targetUser = u;
+      break;
+    }
+  }
+
+  if (!targetUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const isOwner = targetUser.role === 'owner' || targetUser.id === 'owner_sakura' || (targetUser.username && targetUser.username.toLowerCase() === 'sakura');
+  if (isOwner) {
+    return res.status(400).json({ error: 'The Owner account has universal root permissions and cannot be constrained.' });
+  }
+
+  if (resetToRole) {
+    delete targetUser.customPermissions;
+    saveUsers();
+    return res.json({
+      success: true,
+      message: `Permissions for "${targetUser.username}" reset to ${targetUser.role.toUpperCase()} role defaults.`,
+      user: {
+        id: targetUser.id,
+        username: targetUser.username,
+        hasCustomPermissions: false,
+        customPermissions: null,
+        effectivePermissions: getUserPermissions(targetUser)
+      }
+    });
+  }
+
+  if (!permissions || typeof permissions !== 'object') {
+    return res.status(400).json({ error: 'Valid permissions object is required' });
+  }
+
+  const validKeys = FEATURE_METADATA.map(f => f.key);
+  const cleanPermissions = {};
+  for (const k of validKeys) {
+    if (typeof permissions[k] === 'boolean') {
+      cleanPermissions[k] = permissions[k];
+    }
+  }
+
+  targetUser.customPermissions = cleanPermissions;
+  saveUsers();
+
+  res.json({
+    success: true,
+    message: `Individual permissions for "${targetUser.username}" successfully updated!`,
+    user: {
+      id: targetUser.id,
+      username: targetUser.username,
+      hasCustomPermissions: true,
+      customPermissions: cleanPermissions,
+      effectivePermissions: getUserPermissions(targetUser)
+    }
+  });
 });
 
 // Get User Current Password (Owner & Admin)

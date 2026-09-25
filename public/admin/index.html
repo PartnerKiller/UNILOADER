@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/admin.css?v=4.16.4">
+  <link rel="stylesheet" href="/admin/admin.css?v=4.16.5">
 </head>
 <body>
   <!-- Login Modal / Screen -->
@@ -63,7 +63,7 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.16.4</span>
+          <span class="badge-tag">Sakura Suite v4.16.5</span>
         </div>
       </div>
 
@@ -1280,6 +1280,58 @@
     </div>
   </div>
 
-  <script src="/admin/admin.js?v=4.16.4"></script>
+  <!-- User Feature Permissions Modal (Owner Only) -->
+  <div class="login-backdrop" id="userPermissionsModal" style="display: none; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; backdrop-filter: blur(8px);">
+    <div class="login-card" style="max-width: 650px; width: 94%; margin: auto; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; padding: 22px;">
+      
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.35rem;">🛡️</span>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Individual User Permissions</h3>
+        </div>
+        <button type="button" id="btnCloseUserPermsModal" style="background: none; border: none; font-size: 1.5rem; color: var(--text-muted); cursor: pointer; padding: 0 4px;">&times;</button>
+      </div>
+
+      <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span>User: <strong id="userPermTargetUsername" style="color: #60a5fa;"></strong></span>
+        <span id="userPermTargetRoleBadge" class="badge-tag" style="font-size: 0.72rem;"></span>
+        <span id="userPermCustomBadge" class="badge-tag" style="background: rgba(139, 92, 246, 0.2); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.4); font-size: 0.72rem; display: none;">Custom Overrides Active</span>
+      </div>
+
+      <!-- Quick Actions Toolbar -->
+      <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--admin-border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">
+        <div id="userPermStatusBanner" style="font-size: 0.78rem; color: var(--text-muted);">
+          Loading permissions...
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-outline btn-xs" id="btnUserPermSelectAll">✓ Allow All</button>
+          <button type="button" class="btn btn-outline btn-xs" id="btnUserPermDeselectAll">✕ Deny All</button>
+          <button type="button" class="btn btn-outline btn-xs" id="btnUserPermRevertRole" style="border-color: #8b5cf6; color: #c4b5fd;">↺ Role Defaults</button>
+        </div>
+      </div>
+
+      <!-- Scrollable Feature List -->
+      <div style="flex: 1; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 8px;" id="userPermFeatureList">
+        <div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 0.84rem;">Loading feature list...</div>
+      </div>
+
+      <div id="userPermError" style="color: #f87171; font-size: 0.82rem; margin-top: 10px; display: none;"></div>
+
+      <!-- Footer Buttons -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--admin-border);">
+        <button type="button" class="btn btn-danger-outline btn-sm" id="btnUserPermResetToRole" title="Clear all custom overrides and inherit role permissions">
+          ↺ Reset to Role Defaults
+        </button>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn btn-outline" id="btnCancelUserPermsModal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="btnSaveUserPermsModal">💾 Save Permissions</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/admin/admin.js?v=4.16.5"></script>
 </body>
 </html>

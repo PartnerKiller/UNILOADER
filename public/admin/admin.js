@@ -1846,6 +1846,7 @@ function setupUsersTab() {
 
   initFolderAllocationModal();
   initChangePasswordModal();
+  initUserPermissionsModal();
 
   const btnSavePerms = document.getElementById('btnSavePermissions');
   if (btnSavePerms) {
@@ -2133,7 +2134,14 @@ async function loadAdminUsers() {
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); ${isOwner ? 'background: rgba(245,158,11,0.04);' : ''}">
           <td style="padding: 12px 14px;">
             <div><strong>${escapeHtml(u.username)}</strong></div>
-            ${isOwner ? '<div style="font-size: 0.72rem; color: #fbbf24; margin-top: 2px;">⚡ Full System Access</div>' : `<div style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">📁 ${folderCount} folder${folderCount === 1 ? '' : 's'} granted</div>`}
+            ${isOwner 
+              ? '<div style="font-size: 0.72rem; color: #fbbf24; margin-top: 2px;">⚡ Full System Access</div>' 
+              : `<div style="display: flex; align-items: center; gap: 6px; margin-top: 2px; flex-wrap: wrap;">
+                   <span style="font-size: 0.72rem; color: #94a3b8;">📁 ${folderCount} folder${folderCount === 1 ? '' : 's'}</span>
+                   ${u.hasCustomPermissions 
+                     ? '<span style="font-size: 0.68rem; color: #c4b5fd; background: rgba(139,92,246,0.18); border: 1px solid rgba(139,92,246,0.4); padding: 1px 6px; border-radius: 4px; font-weight: 600;" title="Individual permissions customized by owner">⚡ Custom Perms</span>' 
+                     : '<span style="font-size: 0.68rem; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px;">Role Default</span>'}
+                 </div>`}
           </td>
           <td style="padding: 12px 14px;"><code style="font-size: 0.8rem; color: #93c5fd;">${escapeHtml(u.id)}</code></td>
           <td style="padding: 12px 14px;">
@@ -2160,6 +2168,9 @@ async function loadAdminUsers() {
                   👑 Owner
                 </span>
               ` : `
+                <button type="button" class="btn btn-outline btn-xs" onclick="openUserPermissionsModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" style="border-color: #8b5cf6; color: #c4b5fd; font-size: 0.75rem; padding: 3px 8px;" title="Configure individual feature permissions for this user">
+                  🛡️ Perms${u.hasCustomPermissions ? ' ⚡' : ''}
+                </button>
                 <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', '${escapeHtml(u.role || 'user')}')" style="border-color: #eab308; color: #fde047; font-size: 0.75rem; padding: 3px 8px;" title="View or change user password">
                   🔑 Password
                 </button>
@@ -2598,6 +2609,255 @@ function initChangePasswordModal() {
         }
       } finally {
         if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+}
+
+// ==========================================================================
+// Individual User Permissions Management (Owner Only)
+// ==========================================================================
+let currentUserPermsData = null;
+
+window.openUserPermissionsModal = async function(userId, username, role) {
+  const modal = document.getElementById('userPermissionsModal');
+  if (!modal) return;
+
+  const userEl = document.getElementById('userPermTargetUsername');
+  const roleEl = document.getElementById('userPermTargetRoleBadge');
+  const customBadge = document.getElementById('userPermCustomBadge');
+  const banner = document.getElementById('userPermStatusBanner');
+  const listEl = document.getElementById('userPermFeatureList');
+  const errEl = document.getElementById('userPermError');
+
+  if (userEl) userEl.textContent = username;
+  if (roleEl) {
+    roleEl.textContent = (role || 'user').toUpperCase();
+    roleEl.style.background = role === 'premium' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.08)';
+    roleEl.style.color = role === 'premium' ? '#fbbf24' : '#94a3b8';
+  }
+  if (errEl) errEl.style.display = 'none';
+  if (customBadge) customBadge.style.display = 'none';
+  if (banner) banner.textContent = 'Fetching individual user permissions...';
+  if (listEl) {
+    listEl.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 0.84rem;">Loading permissions...</div>';
+  }
+
+  modal.style.display = 'flex';
+
+  try {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/permissions`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      if (listEl) {
+        listEl.innerHTML = `<div style="text-align: center; color: #f87171; padding: 20px;">Failed to load user permissions: ${escapeHtml(data.error || 'Server error')}</div>`;
+      }
+      return;
+    }
+
+    currentUserPermsData = data;
+    renderUserPermsModalBody();
+  } catch (err) {
+    if (listEl) {
+      listEl.innerHTML = `<div style="text-align: center; color: #f87171; padding: 20px;">Network error loading user permissions</div>`;
+    }
+  }
+};
+
+function renderUserPermsModalBody() {
+  if (!currentUserPermsData) return;
+  const { user, features } = currentUserPermsData;
+  const listEl = document.getElementById('userPermFeatureList');
+  const customBadge = document.getElementById('userPermCustomBadge');
+  const banner = document.getElementById('userPermStatusBanner');
+
+  const hasCustom = !!user.hasCustomPermissions;
+  if (customBadge) customBadge.style.display = hasCustom ? 'inline-block' : 'none';
+
+  if (banner) {
+    banner.innerHTML = hasCustom
+      ? `<span style="color: #c4b5fd; font-weight: 600;">⚡ Custom Overrides Active</span> &bull; Overriding <strong>${escapeHtml(user.role.toUpperCase())}</strong> defaults.`
+      : `<span style="color: #94a3b8;">Currently inheriting <strong>${escapeHtml(user.role.toUpperCase())}</strong> role defaults.</span>`;
+  }
+
+  if (!listEl) return;
+  const rolePerms = user.rolePermissions || {};
+  const currentPerms = user.customPermissions || user.effectivePermissions || rolePerms;
+
+  listEl.innerHTML = features.map(f => {
+    const isChecked = currentPerms[f.key] === true;
+    const roleDefault = rolePerms[f.key] === true;
+    const isFlacChecker = f.key === 'flac_checker';
+
+    return `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 8px; padding: 10px 14px; transition: background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='rgba(0,0,0,0.3)'">
+        <div style="flex: 1;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <strong style="font-size: 0.88rem; color: #f1f5f9;">${escapeHtml(f.label)}</strong>
+            <span style="font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; ${roleDefault ? 'color: #34d399; background: rgba(16,185,129,0.12);' : 'color: #94a3b8; background: rgba(255,255,255,0.06);'}">
+              Role default: ${roleDefault ? 'Allowed' : 'Disabled'}
+            </span>
+          </div>
+          <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 3px;">${escapeHtml(f.description)}</div>
+        </div>
+        <div style="padding-left: 8px;">
+          <label style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px; user-select: none;">
+            <input type="checkbox" 
+                   data-feature="${escapeHtml(f.key)}" 
+                   class="user-individual-perm-checkbox"
+                   ${isChecked ? 'checked' : ''}
+                   ${isFlacChecker ? 'disabled title="Core system utility"' : ''}
+                   style="width: 19px; height: 19px; accent-color: #8b5cf6; cursor: pointer;">
+          </label>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.closeUserPermissionsModal = function() {
+  const modal = document.getElementById('userPermissionsModal');
+  if (modal) modal.style.display = 'none';
+  currentUserPermsData = null;
+};
+
+function initUserPermissionsModal() {
+  const modal = document.getElementById('userPermissionsModal');
+  const btnClose = document.getElementById('btnCloseUserPermsModal');
+  const btnCancel = document.getElementById('btnCancelUserPermsModal');
+  const btnSelectAll = document.getElementById('btnUserPermSelectAll');
+  const btnDeselectAll = document.getElementById('btnUserPermDeselectAll');
+  const btnRevertRole = document.getElementById('btnUserPermRevertRole');
+  const btnResetToRole = document.getElementById('btnUserPermResetToRole');
+  const btnSave = document.getElementById('btnSaveUserPermsModal');
+
+  if (btnClose) btnClose.addEventListener('click', closeUserPermissionsModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeUserPermissionsModal);
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeUserPermissionsModal();
+    });
+  }
+
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener('click', () => {
+      document.querySelectorAll('.user-individual-perm-checkbox').forEach(cb => {
+        if (!cb.disabled) cb.checked = true;
+      });
+    });
+  }
+
+  if (btnDeselectAll) {
+    btnDeselectAll.addEventListener('click', () => {
+      document.querySelectorAll('.user-individual-perm-checkbox').forEach(cb => {
+        if (!cb.disabled) cb.checked = false;
+      });
+    });
+  }
+
+  if (btnRevertRole) {
+    btnRevertRole.addEventListener('click', () => {
+      if (!currentUserPermsData?.user?.rolePermissions) return;
+      const rolePerms = currentUserPermsData.user.rolePermissions;
+      document.querySelectorAll('.user-individual-perm-checkbox').forEach(cb => {
+        const feat = cb.getAttribute('data-feature');
+        if (!cb.disabled && feat) {
+          cb.checked = rolePerms[feat] === true;
+        }
+      });
+      showToast('Checkboxes reset to role defaults', 'info');
+    });
+  }
+
+  // Reset to Role Defaults via API (clears customPermissions from user in .users.json)
+  if (btnResetToRole) {
+    btnResetToRole.addEventListener('click', async () => {
+      if (!currentUserPermsData?.user?.id) return;
+      if (!confirm(`Revert permissions for "${currentUserPermsData.user.username}" back to ${currentUserPermsData.user.role.toUpperCase()} role defaults?`)) return;
+
+      btnResetToRole.disabled = true;
+      btnResetToRole.textContent = 'Resetting...';
+      try {
+        const res = await fetch('/api/admin/users/permissions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({
+            id: currentUserPermsData.user.id,
+            resetToRole: true
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || 'Permissions reset to role defaults!', 'success');
+          closeUserPermissionsModal();
+          loadAdminUsers();
+        } else {
+          showToast(data.error || 'Failed to reset permissions', 'error');
+        }
+      } catch (err) {
+        showToast('Network error resetting permissions', 'error');
+      } finally {
+        btnResetToRole.disabled = false;
+        btnResetToRole.textContent = '↺ Reset to Role Defaults';
+      }
+    });
+  }
+
+  // Save Custom Permissions via API
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      if (!currentUserPermsData?.user?.id) return;
+      const errEl = document.getElementById('userPermError');
+      if (errEl) errEl.style.display = 'none';
+
+      btnSave.disabled = true;
+      btnSave.textContent = 'Saving...';
+
+      const perms = {};
+      document.querySelectorAll('.user-individual-perm-checkbox').forEach(cb => {
+        const feat = cb.getAttribute('data-feature');
+        if (feat) {
+          perms[feat] = cb.checked;
+        }
+      });
+
+      try {
+        const res = await fetch('/api/admin/users/permissions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({
+            id: currentUserPermsData.user.id,
+            permissions: perms
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || 'Individual permissions saved successfully!', 'success');
+          closeUserPermissionsModal();
+          loadAdminUsers();
+        } else {
+          if (errEl) {
+            errEl.textContent = data.error || 'Failed to save permissions.';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Network error saving user permissions.';
+          errEl.style.display = 'block';
+        }
+      } finally {
+        btnSave.disabled = false;
+        btnSave.textContent = '💾 Save Permissions';
       }
     });
   }
