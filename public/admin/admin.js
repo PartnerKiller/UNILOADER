@@ -373,10 +373,13 @@ function setupUiLab() {
   if (btnApply) {
     btnApply.addEventListener('click', () => {
       const theme = themeDropdown ? themeDropdown.value : currentActiveTheme;
+      const density = densityDropdown ? densityDropdown.value : currentActiveDensity;
       currentActiveTheme = theme;
+      currentActiveDensity = density;
       localStorage.setItem('preview_theme', theme);
+      localStorage.setItem('preview_density', density);
       updateSandboxIframe();
-      showToast(`Applied local preview theme: ${theme}`);
+      showToast(`Applied local preview: ${theme} • ${density}`);
     });
   }
 
@@ -384,6 +387,7 @@ function setupUiLab() {
   if (btnSetGlobal) {
     btnSetGlobal.addEventListener('click', async () => {
       const theme = themeDropdown ? themeDropdown.value : currentActiveTheme;
+      const density = densityDropdown ? densityDropdown.value : currentActiveDensity;
       try {
         const res = await fetch('/api/admin/ui-settings', {
           method: 'POST',
@@ -391,18 +395,20 @@ function setupUiLab() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${adminToken}`
           },
-          body: JSON.stringify({ theme, density: currentActiveDensity })
+          body: JSON.stringify({ theme, density })
         });
         if (res.ok) {
           currentActiveTheme = theme;
+          currentActiveDensity = density;
           localStorage.setItem('preview_theme', theme);
+          localStorage.setItem('preview_density', density);
           updateSandboxIframe();
-          showToast(`Global theme updated to: ${theme}`);
+          showToast(`Global settings updated: ${theme} • ${density}`);
         } else {
-          showToast('Failed to set global theme', 'error');
+          showToast('Failed to set global settings', 'error');
         }
       } catch (err) {
-        showToast('Error updating theme: ' + err.message, 'error');
+        showToast('Error updating settings: ' + err.message, 'error');
       }
     });
   }
@@ -489,7 +495,13 @@ function updateSandboxIframe() {
   if (previewIframe) {
     previewIframe.src = `/?preview_theme=${currentActiveTheme}&preview_density=${currentActiveDensity}`;
   }
-  const formattedDensity = currentActiveDensity.charAt(0).toUpperCase() + currentActiveDensity.slice(1);
+  const densityLabels = {
+    standard: 'Standard',
+    compact: 'Compact',
+    grid: 'Grid',
+    minimal: 'Minimalist Corporate'
+  };
+  const formattedDensity = densityLabels[currentActiveDensity] || (currentActiveDensity.charAt(0).toUpperCase() + currentActiveDensity.slice(1));
   if (sandboxActiveTheme) {
     sandboxActiveTheme.textContent = `Active Theme: ${currentActiveTheme.toUpperCase()} • Density: ${formattedDensity}`;
   }
