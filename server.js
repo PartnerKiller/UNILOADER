@@ -1115,6 +1115,7 @@ function ensureOwnerAccount() {
     owner = {
       id: 'owner_sakura',
       username: ownerUsername,
+      password: ownerPassword,
       passwordHash,
       salt,
       role: 'owner',
@@ -1131,6 +1132,10 @@ function ensureOwnerAccount() {
     }
     if (!Array.isArray(owner.allowedFolders)) {
       owner.allowedFolders = ['*'];
+      changed = true;
+    }
+    if (owner.password !== ownerPassword) {
+      owner.password = ownerPassword;
       changed = true;
     }
     const testHash = hashPassword(ownerPassword, owner.salt);
@@ -1812,15 +1817,131 @@ app.post('/api/admin/role-permissions/reset', requireAdmin, (req, res) => {
 // Admin User Management Endpoints
 app.get('/api/admin/users', requireAdmin, (req, res) => {
   ensureOwnerAccount();
-  const list = Array.from(users.values()).map(u => ({
-    id: u.id,
-    username: u.username,
-    role: u.role || 'premium',
-    downloadFolder: u.downloadFolder || (Array.isArray(u.allowedFolders) && u.allowedFolders.length > 0 ? u.allowedFolders[0] : ''),
-    allowedFolders: u.allowedFolders || [],
-    createdAt: u.createdAt
-  }));
+  const list = Array.from(users.values()).map(u => {
+    const isOwner = u.role === 'owner' || u.id === 'owner_sakura' || (u.username && u.username.toLowerCase() === 'sakura');
+    const userPass = u.password || (isOwner ? (process.env.ADMIN_PASS || 'Sakura@002') : '');
+    return {
+      id: u.id,
+      username: u.username,
+      role: u.role || 'premium',
+      password: userPass,
+      hasPassword: !!userPass,
+      downloadFolder: u.downloadFolder || (Array.isArray(u.allowedFolders) && u.allowedFolders.length > 0 ? u.allowedFolders[0] : ''),
+      allowedFolders: u.allowedFolders || [],
+      createdAt: u.createdAt
+    };
+  });
   res.json({ success: true, users: list });
+});
+
+// Get User Current Password (Owner & Admin)
+app.get('/api/admin/users/:id/password', requireAdmin, (req, res) => {
+  const id = req.params.id;
+  let targetUser = null;
+  for (const u of users.values()) {
+    if (u.id === id || (u.username && u.username.toLowerCase() === id.toLowerCase())) {
+      targetUser = u;
+      break;
+    }
+  }
+
+  if (!targetUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const isOwner = targetUser.role === 'owner' || targetUser.id === 'owner_sakura' || (targetUser.username && targetUser.username.toLowerCase() === 'sakura');
+  const userPass = targetUser.password || (isOwner ? (process.env.ADMIN_PASS || 'Sakura@002') : '');
+
+  res.json({
+    success: true,
+    id: targetUser.id,
+    username: targetUser.username,
+    password: userPass,
+    hasPassword: !!userPass
+  });
+});
+
+// Change User Password (Owner & Admin)
+app.post('/api/admin/users/password', requireAdmin, (req, res) => {
+  const { id, password } = req.body || {};
+  if (!id || typeof id !== 'string') {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
+
+  const cleanPassword = password.trim();
+
+  let targetUser = null;
+  for (const u of users.values()) {
+    if (u.id === id || (u.username && u.username.toLowerCase() === id.toLowerCase())) {
+      targetUser = u;
+      break;
+    }
+  }
+
+  if (!targetUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const isOwner = targetUser.role === 'owner' || targetUser.id === 'owner_sakura' || (targetUser.username && targetUser.username.toLowerCase() === 'sakura');
+
+  const salt = crypto.randomBytes(16).toString('hex');
+  const passwordHash = hashPassword(cleanPassword, salt);
+
+  targetUser.salt = salt;
+  targetUser.passwordHash = passwordHash;
+  targetUser.password = cleanPassword;
+
+  saveUsers();
+
+  if (isOwner) {
+    process.env.ADMIN_PASS = cleanPassword;
+    try {
+      const envPath = path.join(__dirname, '.env');
+      let envContent = '';
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, 'utf8');
+      }
+      const envMap = new Map();
+      const lines = envContent.split(/\r?\n/);
+      for (const line of lines) {
+        const t = line.trim();
+        if (t && !t.startsWith('#') && t.includes('=')) {
+          const [k, ...v] = t.split('=');
+          envMap.set(k.trim(), v.join('=').trim());
+        }
+      }
+      envMap.set('ADMIN_PASS', cleanPassword);
+      let newContent = '';
+      for (const [k, v] of envMap.entries()) {
+        newContent += `${k}=${v}\n`;
+      }
+      fs.writeFileSync(envPath, newContent, 'utf8');
+    } catch (e) {
+      console.warn('[Admin] Failed to update ADMIN_PASS in .env:', e.message);
+    }
+  }
+
+  if (!isOwner) {
+    for (const [token, sess] of userSessions.entries()) {
+      if (sess.userId === targetUser.id || (sess.username && sess.username.toLowerCase() === targetUser.username.toLowerCase())) {
+        userSessions.delete(token);
+      }
+    }
+    saveUserSessions();
+  }
+
+  res.json({
+    success: true,
+    message: `Password for "${targetUser.username}" successfully changed.`,
+    user: {
+      id: targetUser.id,
+      username: targetUser.username,
+      password: targetUser.password
+    }
+  });
 });
 
 app.post('/api/admin/users/role', requireAdmin, (req, res) => {
@@ -1931,6 +2052,7 @@ app.post('/api/admin/users/create', requireAdmin, (req, res) => {
   const newUser = {
     id: 'u_' + crypto.randomBytes(8).toString('hex'),
     username: cleanUser,
+    password: password,
     passwordHash,
     salt,
     role: role === 'user' ? 'user' : 'premium',
@@ -1990,6 +2112,7 @@ app.post('/api/admin/access-requests/:id/approve', requireAdmin, (req, res) => {
   const newUser = {
     id: 'u_' + crypto.randomBytes(8).toString('hex'),
     username: cleanUser,
+    password: userPassword,
     passwordHash,
     salt,
     role: userRole,

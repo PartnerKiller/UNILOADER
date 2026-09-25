@@ -1845,6 +1845,7 @@ function setupUsersTab() {
   }
 
   initFolderAllocationModal();
+  initChangePasswordModal();
 
   const btnSavePerms = document.getElementById('btnSavePermissions');
   if (btnSavePerms) {
@@ -2068,7 +2069,7 @@ async function loadAdminUsers() {
     if (!tbody) return;
 
     if (users.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No registered members yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">No registered members yet.</td></tr>`;
       return;
     }
 
@@ -2081,6 +2082,25 @@ async function loadAdminUsers() {
         : (u.downloadFolder ? [u.downloadFolder] : []);
       const folderCount = folders.length;
       const ownerDownloadFolder = u.downloadFolder || (folders.length > 0 ? folders[0] : '');
+
+      let passwordCellHtml = '';
+      if (u.password) {
+        passwordCellHtml = `
+          <div style="display: inline-flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.35); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--admin-border);">
+            <code id="user-pw-${escapeHtml(u.id)}" data-pw="${escapeHtml(u.password)}" data-masked="true" style="font-family: monospace; font-size: 0.82rem; color: #a5f3fc; letter-spacing: 2px;">••••••••</code>
+            <button type="button" class="btn btn-outline btn-xs" onclick="toggleInlinePassword('${escapeHtml(u.id)}')" title="Reveal / Hide password" style="border: none; background: transparent; padding: 2px 4px; font-size: 0.8rem; cursor: pointer; color: #94a3b8;">👁️</button>
+            <button type="button" class="btn btn-outline btn-xs" onclick="copyInlinePassword('${escapeHtml(u.id)}')" title="Copy password" style="border: none; background: transparent; padding: 2px 4px; font-size: 0.8rem; cursor: pointer; color: #94a3b8;">📋</button>
+          </div>
+        `;
+      } else {
+        passwordCellHtml = `
+          <div style="display: inline-flex; align-items: center; gap: 6px;">
+            <span style="font-size: 0.72rem; color: var(--text-muted); font-style: italic; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">Legacy Hashed</span>
+            <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '', '${escapeHtml(u.role || 'user')}')" style="font-size: 0.72rem; padding: 2px 6px; border-color: #f59e0b; color: #fbbf24;" title="Set known password">Set 🔑</button>
+          </div>
+        `;
+      }
+
       const folderDisplay = isOwner
         ? (ownerDownloadFolder
           ? `<div style="display: flex; flex-direction: column; gap: 3px;">
@@ -2121,11 +2141,15 @@ async function loadAdminUsers() {
               ${isOwner ? '👑 OWNER' : escapeHtml(u.role ? u.role.toUpperCase() : 'USER')}
             </span>
           </td>
+          <td style="padding: 12px 14px;">${passwordCellHtml}</td>
           <td style="padding: 12px 14px;">${folderDisplay}</td>
           <td style="padding: 12px 14px; color: var(--text-muted);">${dateStr}</td>
           <td style="padding: 12px 14px; text-align: right;">
             <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
               ${isOwner ? `
+                <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', 'owner')" style="border-color: #eab308; color: #fde047; font-size: 0.75rem; padding: 3px 8px;" title="View or change owner password">
+                  🔑 Password
+                </button>
                 <button type="button" class="btn btn-primary btn-xs" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', 'owner')" style="font-size: 0.75rem; padding: 3px 8px;" title="Browse drives and assign permanent folder">
                   📁 Assign Folder
                 </button>
@@ -2136,6 +2160,9 @@ async function loadAdminUsers() {
                   👑 Owner
                 </span>
               ` : `
+                <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', '${escapeHtml(u.role || 'user')}')" style="border-color: #eab308; color: #fde047; font-size: 0.75rem; padding: 3px 8px;" title="View or change user password">
+                  🔑 Password
+                </button>
                 <button type="button" class="btn btn-outline btn-xs" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" style="border-color: #3b82f6; color: #60a5fa;" title="Configure folder allocations">
                   📁 Folders (${folderCount})
                 </button>
@@ -2360,6 +2387,221 @@ window.deleteUserAccount = async function(id, username) {
     showToast('Failed to delete user', 'error');
   }
 };
+
+// ==========================================================================
+// User Password Management (Owner Only)
+// ==========================================================================
+window.toggleInlinePassword = function(userId) {
+  const codeEl = document.getElementById(`user-pw-${userId}`);
+  if (!codeEl) return;
+  const isMasked = codeEl.dataset.masked === 'true';
+  if (isMasked) {
+    codeEl.textContent = codeEl.dataset.pw;
+    codeEl.dataset.masked = 'false';
+    codeEl.style.letterSpacing = 'normal';
+  } else {
+    codeEl.textContent = '••••••••';
+    codeEl.dataset.masked = 'true';
+    codeEl.style.letterSpacing = '2px';
+  }
+};
+
+window.copyInlinePassword = async function(userId) {
+  const codeEl = document.getElementById(`user-pw-${userId}`);
+  if (!codeEl || !codeEl.dataset.pw) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(codeEl.dataset.pw);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = codeEl.dataset.pw;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    showToast('Password copied to clipboard!', 'info');
+  } catch (e) {
+    showToast('Failed to copy password', 'error');
+  }
+};
+
+window.openChangePasswordModal = function(userId, username, currentPw, role) {
+  const modal = document.getElementById('changeUserPasswordModal');
+  if (!modal) return;
+
+  const idInp = document.getElementById('changePasswordUserId');
+  const userEl = document.getElementById('changePasswordTargetUsername');
+  const badgeEl = document.getElementById('changePasswordTargetBadge');
+  const curText = document.getElementById('changePasswordCurrentText');
+  const btnToggle = document.getElementById('btnToggleCurrentPwModal');
+  const btnCopy = document.getElementById('btnCopyCurrentPwModal');
+  const subtext = document.getElementById('changePasswordCurrentSubtext');
+  const newInp = document.getElementById('changePasswordNewInput');
+  const errEl = document.getElementById('changePasswordError');
+
+  if (idInp) idInp.value = userId;
+  if (userEl) userEl.textContent = username;
+  if (badgeEl) badgeEl.textContent = (role || 'user').toUpperCase();
+
+  if (currentPw) {
+    if (curText) {
+      curText.dataset.pw = currentPw;
+      curText.dataset.masked = 'true';
+      curText.textContent = '••••••••';
+      curText.style.letterSpacing = '2px';
+    }
+    if (btnToggle) {
+      btnToggle.style.display = 'inline-block';
+      btnToggle.textContent = '👁️ Show';
+    }
+    if (btnCopy) btnCopy.style.display = 'inline-block';
+    if (subtext) subtext.style.display = 'none';
+  } else {
+    if (curText) {
+      curText.dataset.pw = '';
+      curText.dataset.masked = 'false';
+      curText.textContent = 'Legacy Hashed (PBKDF2)';
+      curText.style.letterSpacing = 'normal';
+    }
+    if (btnToggle) btnToggle.style.display = 'none';
+    if (btnCopy) btnCopy.style.display = 'none';
+    if (subtext) {
+      subtext.textContent = 'Initial password was created prior to plain-text storage. Enter a new password below to update and reveal.';
+      subtext.style.display = 'block';
+    }
+  }
+
+  if (newInp) {
+    newInp.value = 'User_' + Math.random().toString(36).substring(2, 8) + (Math.floor(Math.random() * 90) + 10);
+  }
+  if (errEl) errEl.style.display = 'none';
+
+  modal.style.display = 'flex';
+};
+
+window.closeChangePasswordModal = function() {
+  const modal = document.getElementById('changeUserPasswordModal');
+  if (modal) modal.style.display = 'none';
+};
+
+function initChangePasswordModal() {
+  const modal = document.getElementById('changeUserPasswordModal');
+  const btnClose = document.getElementById('btnCloseChangePasswordModal');
+  const btnCancel = document.getElementById('btnCancelChangePasswordModal');
+  const btnToggle = document.getElementById('btnToggleCurrentPwModal');
+  const btnCopy = document.getElementById('btnCopyCurrentPwModal');
+  const btnGen = document.getElementById('btnGenNewPassword');
+  const form = document.getElementById('changePasswordForm');
+
+  if (btnClose) btnClose.addEventListener('click', closeChangePasswordModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeChangePasswordModal);
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeChangePasswordModal();
+    });
+  }
+
+  if (btnToggle) {
+    btnToggle.addEventListener('click', () => {
+      const curText = document.getElementById('changePasswordCurrentText');
+      if (!curText || !curText.dataset.pw) return;
+      const isMasked = curText.dataset.masked === 'true';
+      if (isMasked) {
+        curText.textContent = curText.dataset.pw;
+        curText.dataset.masked = 'false';
+        curText.style.letterSpacing = 'normal';
+        btnToggle.textContent = '🙈 Hide';
+      } else {
+        curText.textContent = '••••••••';
+        curText.dataset.masked = 'true';
+        curText.style.letterSpacing = '2px';
+        btnToggle.textContent = '👁️ Show';
+      }
+    });
+  }
+
+  if (btnCopy) {
+    btnCopy.addEventListener('click', async () => {
+      const curText = document.getElementById('changePasswordCurrentText');
+      if (!curText || !curText.dataset.pw) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(curText.dataset.pw);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = curText.dataset.pw;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        showToast('Current password copied to clipboard!', 'info');
+      } catch (e) {
+        showToast('Failed to copy password', 'error');
+      }
+    });
+  }
+
+  if (btnGen) {
+    btnGen.addEventListener('click', () => {
+      const newInp = document.getElementById('changePasswordNewInput');
+      if (newInp) {
+        newInp.value = 'User_' + Math.random().toString(36).substring(2, 8) + (Math.floor(Math.random() * 90) + 10);
+      }
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const userId = document.getElementById('changePasswordUserId')?.value;
+      const newInp = document.getElementById('changePasswordNewInput');
+      const errEl = document.getElementById('changePasswordError');
+      const submitBtn = document.getElementById('btnSubmitChangePassword');
+      const newPassword = newInp ? newInp.value.trim() : '';
+
+      if (!newPassword || newPassword.length < 6) {
+        if (errEl) {
+          errEl.textContent = 'Password must be at least 6 characters.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/users/password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({ id: userId, password: newPassword })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(data.message || 'Password updated successfully!', 'success');
+          closeChangePasswordModal();
+          loadAdminUsers();
+        } else {
+          if (errEl) {
+            errEl.textContent = data.error || 'Failed to update password.';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Network error while updating password.';
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+}
 
 // ==========================================================================
 // Folder Allocation Modal (Owner Only)

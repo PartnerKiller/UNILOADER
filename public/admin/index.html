@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/admin/admin.css?v=4.16.2">
+  <link rel="stylesheet" href="/admin/admin.css?v=4.16.4">
 </head>
 <body>
   <!-- Login Modal / Screen -->
@@ -63,7 +63,7 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.16.2</span>
+          <span class="badge-tag">Sakura Suite v4.16.4</span>
         </div>
       </div>
 
@@ -1076,6 +1076,7 @@
                   <th style="padding: 10px 14px;">Username</th>
                   <th style="padding: 10px 14px;">User ID</th>
                   <th style="padding: 10px 14px;">Membership Tier</th>
+                  <th style="padding: 10px 14px;">Password</th>
                   <th style="padding: 10px 14px;">Assigned Storage (Permanent)</th>
                   <th style="padding: 10px 14px;">Joined</th>
                   <th style="padding: 10px 14px; text-align: right;">Actions</th>
@@ -1083,7 +1084,7 @@
               </thead>
               <tbody id="usersTableBody">
                 <tr>
-                  <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading user accounts...</td>
+                  <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading user accounts...</td>
                 </tr>
               </tbody>
             </table>
@@ -1227,6 +1228,58 @@
     </div>
   </div>
 
-  <script src="/admin/admin.js?v=4.16.2"></script>
+  <!-- Change User Password Modal (Owner Only) -->
+  <div class="login-backdrop" id="changeUserPasswordModal" style="display: none; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); z-index: 9999; backdrop-filter: blur(8px);">
+    <div class="login-card" style="max-width: 440px; width: 92%; margin: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">🔑</span>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Manage User Password</h3>
+        </div>
+        <button type="button" id="btnCloseChangePasswordModal" style="background: none; border: none; font-size: 1.4rem; color: var(--text-muted); cursor: pointer;">&times;</button>
+      </div>
+
+      <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px;">
+        Account: <strong id="changePasswordTargetUsername" style="color: #60a5fa;"></strong>
+        <span id="changePasswordTargetBadge" class="badge-tag" style="margin-left: 6px;"></span>
+      </div>
+
+      <!-- Current Password Display Box -->
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">
+          Current Password
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <code id="changePasswordCurrentText" style="font-family: monospace; font-size: 0.95rem; color: #a5f3fc; letter-spacing: 2px;">••••••••</code>
+          <div style="display: inline-flex; gap: 6px;">
+            <button type="button" class="btn btn-outline btn-xs" id="btnToggleCurrentPwModal" title="Reveal / Hide" style="padding: 4px 8px; font-size: 0.78rem;">👁️ Show</button>
+            <button type="button" class="btn btn-outline btn-xs" id="btnCopyCurrentPwModal" title="Copy to clipboard" style="padding: 4px 8px; font-size: 0.78rem;">📋 Copy</button>
+          </div>
+        </div>
+        <div id="changePasswordCurrentSubtext" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 6px; display: none;"></div>
+      </div>
+
+      <form id="changePasswordForm" onsubmit="return false;">
+        <input type="hidden" id="changePasswordUserId">
+        <div class="form-group" style="margin-bottom: 14px;">
+          <label for="changePasswordNewInput" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px;">New Password</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="changePasswordNewInput" placeholder="Minimum 6 characters" class="form-control" style="flex: 1; padding: 9px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 6px; color: #fff; font-family: monospace;" required minlength="6">
+            <button type="button" class="btn btn-outline btn-sm" id="btnGenNewPassword">🎲 Generate</button>
+          </div>
+          <small style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; display: block;">Changes take effect immediately. Previous user sessions will be invalidated.</small>
+        </div>
+
+        <div id="changePasswordError" style="color: #f87171; font-size: 0.82rem; margin-bottom: 12px; display: none;"></div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px;">
+          <button type="button" class="btn btn-outline" id="btnCancelChangePasswordModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitChangePassword">💾 Update Password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/admin/admin.js?v=4.16.4"></script>
 </body>
 </html>
