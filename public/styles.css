@@ -3059,11 +3059,90 @@ body {
     margin-left: 0 !important;
   }
 
-  .movie-release-item {
+  .movie-release-item,
+  .music-format-card,
+  .music-format-item {
     flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 12px 14px !important;
+    gap: 10px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    border-radius: 10px !important;
+  }
+
+  .music-format-info {
+    display: flex !important;
     align-items: flex-start !important;
-    padding: 10px 12px !important;
+    gap: 10px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .music-format-badge-wrap {
+    flex-shrink: 0 !important;
+    margin-top: 1px !important;
+  }
+
+  .music-format-badge-wrap .music-badge-pill {
+    font-size: 0.68rem !important;
+    padding: 3px 7px !important;
+  }
+
+  .music-format-text {
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+
+  .music-format-title {
+    font-size: 0.92rem !important;
+    line-height: 1.25 !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .music-format-desc {
+    font-size: 0.75rem !important;
+    line-height: 1.35 !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .music-format-actions {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
     gap: 8px !important;
+    margin-top: 2px !important;
+  }
+
+  .music-format-size {
+    display: inline-flex !important;
+    align-self: flex-start !important;
+    font-size: 0.72rem !important;
+    padding: 2px 8px !important;
+    border-radius: 6px !important;
+    white-space: nowrap !important;
+  }
+
+  .btn-music-download,
+  .btn-music-dl {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 10px 14px !important;
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+    flex: none !important;
+    flex-shrink: 1 !important;
+    gap: 8px !important;
+    touch-action: manipulation;
   }
 
   .release-actions {
@@ -6378,8 +6457,8 @@ body {
 
 /* Music Formats Modal Specific Styling */
 .music-formats-dialog {
-  max-width: 980px !important;
-  width: 92% !important;
+  max-width: 980px;
+  width: 92%;
 }
 
 .music-modal-cover {
@@ -6565,19 +6644,47 @@ body {
   }
   .music-format-card,
   .music-format-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 12px 14px !important;
+    gap: 10px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    border-radius: 10px !important;
   }
   .music-format-actions {
-    width: 100%;
-    justify-content: space-between;
-    margin-top: 6px;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    gap: 8px !important;
+    margin-top: 2px !important;
+  }
+  .music-format-size {
+    display: inline-flex !important;
+    align-self: flex-start !important;
+    font-size: 0.72rem !important;
+    padding: 2px 8px !important;
+    border-radius: 6px !important;
+    white-space: nowrap !important;
   }
   .btn-music-download,
   .btn-music-dl {
-    flex: 1;
-    justify-content: center;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 10px 14px !important;
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+    flex: none !important;
+    flex-shrink: 1 !important;
+    gap: 8px !important;
+    touch-action: manipulation;
   }
 }
 
