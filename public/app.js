@@ -678,7 +678,7 @@ function setupAuthModalEvents() {
     changeFolderBtn.addEventListener('click', async () => {
       const current = (currentUser && currentUser.downloadFolder) || (currentUser && (currentUser.role === 'owner' || currentUser.isOwner) ? '/media/storage/sakura' : '');
       const entered = prompt(
-        'Enter permanent download folder path on server:\n(Subfolders "Movies and Shows", "Music", and "Adult" will be automatically created inside)',
+        'Enter permanent download folder path on server:\n(Subfolders "Movies and Shows", "Music", "Adult", and "Links" will be automatically created inside)',
         current
       );
       if (entered === null) return;

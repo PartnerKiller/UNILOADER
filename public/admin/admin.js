@@ -2198,7 +2198,7 @@ async function loadAdminUsers() {
 window.openQuickFolderPrompt = async function(userId, username, currentPath) {
   const defaultVal = currentPath || (username.toLowerCase() === 'sakura' ? '/media/storage/sakura' : `/media/storage/${username}`);
   const entered = prompt(
-    `Assign permanent download folder for "${username}":\n(Subfolders "Movies and Shows", "Music", and "Adult" will be automatically created inside)`,
+    `Assign permanent download folder for "${username}":\n(Subfolders "Movies and Shows", "Music", "Adult", and "Links" will be automatically created inside)`,
     defaultVal
   );
   if (entered === null) return;

@@ -252,6 +252,22 @@ def is_matching_transfer(tf, best):
             return True
     return False
 
+def cancel_slskd_transfer(username, file_id=None):
+    """Cancels and cleans up a transfer in SLSKD."""
+    try:
+        if file_id:
+            session.delete(f"{SLSKD_API_BASE}/transfers/downloads/{username}/{file_id}", timeout=4)
+        else:
+            r = session.get(f"{SLSKD_API_BASE}/transfers/downloads/{username}", timeout=4)
+            if r.status_code == 200:
+                for d in r.json().get('directories', []):
+                    for f in d.get('files', []):
+                        fid = f.get('id')
+                        if fid:
+                            session.delete(f"{SLSKD_API_BASE}/transfers/downloads/{username}/{fid}", timeout=4)
+    except Exception:
+        pass
+
 def verify_flac_integrity(file_path):
     """Verifies that the file is an authentic uncorrupted lossless FLAC stream."""
     if not os.path.exists(file_path) or os.path.getsize(file_path) < 100000:
@@ -341,45 +357,63 @@ def calc_fidelity_score(bit_depth, sample_rate, size_bytes, filename, speed=0, f
     if eff_bits >= 32:
         score += 100_000_000
     elif eff_bits >= 24:
-        score += 50_000_000
+        score += 60_000_000
     else:
         score += 10_000_000
 
     # Rule #1: Sample rate tier (192kHz > 96kHz > 88.2kHz > 48kHz > 44.1kHz)
     if eff_sr >= 192000:
-        score += 40_000_000
+        score += 35_000_000
     elif eff_sr >= 96000:
-        score += 30_000_000
-    elif eff_sr >= 88200:
         score += 25_000_000
+    elif eff_sr >= 88200:
+        score += 20_000_000
     elif eff_sr >= 48000:
-        score += 15_000_000
+        score += 12_000_000
     else:
-        score += 5_000_000
+        score += 4_000_000
 
-    # 3. Size & dynamic range tier (uncompressed dynamic range & biggest size FLAC)
-    # Heavy weight ensures largest genuine audio stream always wins within resolution tier
-    score += int(size_mb * 100_000)
-
-    # 4. Audiophile studio master & vinyl release keywords
+    # 3. Audiophile studio master & vinyl release keywords
     if any(k in inspect_target for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz', 'dsd', 'hdtracks', 'analog', 'analogue']):
         score += 50_000
 
-    # 5. Network availability & speed tie-breakers (only breaks ties between identical files/sizes)
-    peer_kbps = speed / 1024.0
-    if peer_kbps >= 2000:
-        score += 5_000
-    elif peer_kbps >= 1000:
-        score += 2_500
-    elif peer_kbps < 300:
-        score -= 5_000
-
-    if free_slot:
-        score += 2_500
+    # 4. Physical size sanity check:
+    # FLAC sizes within the same tier (e.g. 154MB - 157MB) decode to identical audio samples.
+    # Award normalized points for valid audio stream without letting minor tag/compression differences dominate speed.
+    if eff_bits >= 24 and size_mb < 35:
+        score -= 2_000_000
     else:
-        score -= 2_500
+        score += min(int(size_mb * 50), 20_000)
 
-    score -= min(queue_len, 10) * 100
+    # 5. Peer Availability & Bandwidth - The decisive factors within a resolution tier
+    # Free upload slot is paramount: without a free slot, transfers wait in remote queue.
+    if free_slot:
+        score += 2_000_000
+        if queue_len == 0:
+            score += 200_000
+    else:
+        score -= 2_000_000
+        score -= min(queue_len, 200) * 20_000
+
+    # Peer upload speed rating:
+    peer_kbps = speed / 1024.0
+    if peer_kbps >= 10000:
+        score += 3_000_000
+    elif peer_kbps >= 5000:
+        score += 2_000_000
+    elif peer_kbps >= 2500:
+        score += 1_200_000
+    elif peer_kbps >= 1500:
+        score += 700_000
+    elif peer_kbps >= 800:
+        score += 200_000
+    elif peer_kbps < 600:
+        score -= 800_000
+    elif peer_kbps < 300:
+        score -= 1_500_000
+
+    score += int(min(peer_kbps, 25000) * 100)
+
     return score
 
 def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=None, duration=None, max_wait_sec=40):
@@ -516,9 +550,9 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             r_post = session.post(f"{SLSKD_API_BASE}/searches", json={"searchText": term}, timeout=8)
             if r_post.status_code in [200, 201]:
                 search_id = r_post.json().get('id')
-                # Wait 3-4 seconds for high-speed responses from distributed Soulseek peers
+                # Wait 4-5 seconds for high-speed responses from distributed Soulseek peers
                 last_peer_count = 0
-                for sec in range(4):
+                for sec in range(5):
                     time.sleep(1)
                     try:
                         r_chk = session.get(f"{SLSKD_API_BASE}/searches/{search_id}", timeout=3)
@@ -528,7 +562,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                             curr_files = chk_data.get('fileCount', 0)
                             if chk_data.get('isComplete') and curr_files > 0:
                                 break
-                            if sec >= 2 and curr_peers >= 12 and curr_peers == last_peer_count:
+                            if sec >= 4 and curr_peers >= 35 and curr_peers == last_peer_count:
                                 break
                             last_peer_count = curr_peers
                     except Exception:
@@ -678,9 +712,13 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             print(f"[Soulseek HiFi] ⬆️ Network swarm offers superior studio master ({best_bits} / {best_sr}, {best_mb:.1f} MB) exceeding local archive ({best_local.get('bps')}bit / {best_local.get('sr')/1000:.1f}kHz, {best_local['size_mb']:.1f}MB). Downloading superior master!", flush=True)
 
     viable_candidates = unique_peer_candidates[:4]
+    tried_users = set()
 
-    # Try top distinct peer candidates sequentially until one completes
+    # Try top distinct peer candidates with Swarm Turbo Acceleration until one completes
     for idx, best in enumerate(viable_candidates):
+        if best['username'] in tried_users:
+            continue
+
         cand_base = os.path.basename(best['filename'].replace('\\', '/'))
         total_mb = best['size'] / (1024 * 1024)
         peer_spd_str = f"{best['speed']/1024:.0f}KB/s" if best['speed'] > 0 else "unknown"
@@ -690,7 +728,7 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         if idx == 0:
             print(f"[Soulseek HiFi] 🚀 Downloading Selected Best Master (#1): '{cand_base}' ({cand_bits_str} / {cand_sr_str}, {total_mb:.1f}MB from '{best['username']}' • rated {peer_spd_str})", flush=True)
         else:
-            print(f"[Soulseek HiFi] 🔄 Prior candidate was unreachable. Failing over to Runner-Up Master (#{idx+1}): '{cand_base}' ({cand_bits_str} / {cand_sr_str}, {total_mb:.1f}MB from '{best['username']}')", flush=True)
+            print(f"[Soulseek HiFi] 🔄 Failing over to High-Speed Master (#{idx+1}): '{cand_base}' ({cand_bits_str} / {cand_sr_str}, {total_mb:.1f}MB from '{best['username']}')", flush=True)
         
         # Check if this exact file was already completed in SLSKD directory
         cached_candidate = None
@@ -730,7 +768,19 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             print(f"[Soulseek HiFi] 🎉 Authentic {qual_info} Lossless FLAC saved: {output_path} ({os.path.getsize(output_path)/(1024*1024):.1f}MB)", flush=True)
             return True
 
-        # Enqueue download
+        # Check if Swarm Turbo Racing can be activated with a runner-up peer in the same top tier
+        racing_partner = None
+        if idx == 0 and len(viable_candidates) > 1:
+            for c2 in viable_candidates[1:]:
+                if (c2.get('username') != best.get('username') and
+                    c2.get('free_slot') and c2.get('queue_len', 999) == 0 and
+                    c2.get('bit_depth') == best.get('bit_depth') and
+                    c2.get('sample_rate') == best.get('sample_rate') and
+                    c2.get('speed', 0) >= 1500 * 1024):
+                    racing_partner = c2
+                    break
+
+        # Enqueue download for best candidate
         dl_payload = [{'filename': best['filename'], 'size': best['size']}]
         try:
             r_queue = session.post(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", json=dl_payload, timeout=8)
@@ -740,143 +790,195 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         except Exception as e:
             print(f"[Soulseek HiFi] Failed to contact peer '{best['username']}': {e}. Trying next peer...", flush=True)
             continue
+
+        active_peers = [best]
+        tried_users.add(best['username'])
+
+        if racing_partner:
+            try:
+                r_q2 = session.post(f"{SLSKD_API_BASE}/transfers/downloads/{racing_partner['username']}", json=[{'filename': racing_partner['filename'], 'size': racing_partner['size']}], timeout=8)
+                if r_q2.status_code in [200, 201]:
+                    active_peers.append(racing_partner)
+                    tried_users.add(racing_partner['username'])
+                    p2_spd = f"{racing_partner['speed']/1024:.0f}KB/s" if racing_partner['speed'] > 0 else "unknown"
+                    print(f"[Soulseek HiFi] ⚡ Swarm Turbo Racing Engaged: Concurrently racing '{best['username']}' and '{racing_partner['username']}' ({p2_spd}) for maximum bandwidth...", flush=True)
+            except Exception:
+                pass
             
         # Monitor transfer with speed watchdog and queue grace period
         start_time = time.time()
         transfer_start_time = time.time()
         completed = False
-        aborted = False
+        winner = None
         stall_count = 0
         slow_speed_count = 0
         last_bytes_tx = -1
-        # Scale wait time with candidate file size so 100MB+ Hi-Res Studio Masters have full time to complete
         effective_max_wait = max(max_wait_sec, int(total_mb / 0.20) + 45)
-        MIN_SPEED_MB = 0.35    # Speed watchdog floor: 0.35 MiB/s (~3 Mbps)
-        SPEED_GRACE_SEC = 8.0  # Grace period for peer connection ramp-up
-        MAX_HANDSHAKE_SEC = 10 # Allow up to 10s for peer handshake before failing over to free-slot peer
+        SPEED_GRACE_SEC = 7.0
+        MAX_HANDSHAKE_SEC = 10
 
         print(f"[download] 0.0% of {total_mb:.1f}MiB at 0.00MiB/s ETA --:-- (Soulseek HiFi)", flush=True)
         
-        while time.time() - start_time < effective_max_wait:
+        while time.time() - start_time < effective_max_wait and active_peers:
             time.sleep(1.0)
-            try:
-                r_stat = session.get(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", timeout=6)
-            except Exception:
-                continue
+            peer_stats = []
 
-            if r_stat.status_code != 200:
-                continue
+            for p in list(active_peers):
+                try:
+                    r_stat = session.get(f"{SLSKD_API_BASE}/transfers/downloads/{p['username']}", timeout=5)
+                except Exception:
+                    continue
 
-            d_info = r_stat.json()
-            matching_files = []
-            for d in d_info.get('directories', []):
-                for tf in d.get('files', []):
-                    if is_matching_transfer(tf, best):
-                        matching_files.append(tf)
+                if r_stat.status_code != 200:
+                    continue
 
-            if not matching_files:
+                d_info = r_stat.json()
+                matching_files = []
+                for d in d_info.get('directories', []):
+                    for tf in d.get('files', []):
+                        if is_matching_transfer(tf, p):
+                            matching_files.append(tf)
+
+                if not matching_files:
+                    continue
+
+                # Prioritize active or completed record over stale rejected ones
+                best_tf = None
+                for tf in matching_files:
+                    st = tf.get('state', '')
+                    if 'Succeeded' in st:
+                        best_tf = tf
+                        break
+                    elif 'InProgress' in st or tf.get('bytesTransferred', 0) > 0:
+                        best_tf = tf
+
+                if not best_tf:
+                    best_tf = matching_files[-1]
+
+                state = best_tf.get('state', '')
+                bytes_tx = best_tf.get('bytesTransferred', 0)
+                tot_bytes = p.get('size', 0) or best_tf.get('size', 0)
+                pct = (bytes_tx / tot_bytes) * 100 if tot_bytes > 0 else 0
+                spd_bytes = best_tf.get('averageSpeed', 0)
+                spd_mb = spd_bytes / (1024 * 1024)
+
+                is_aborted = any(err in state for err in ['Rejected', 'Cancelled', 'Errored', 'TimedOut', 'Aborted'])
+                is_succeeded = not is_aborted and (
+                    'Succeeded' in state or
+                    (state.startswith('Completed') and (bytes_tx >= tot_bytes or (tot_bytes > 0 and bytes_tx > 0.99 * tot_bytes)))
+                )
+
+                if is_succeeded:
+                    winner = p
+                    completed = True
+                    break
+
+                if is_aborted:
+                    reason = best_tf.get('exception') or state
+                    cancel_slskd_transfer(p['username'])
+                    if p in active_peers:
+                        active_peers.remove(p)
+                    print(f"[Soulseek HiFi] Peer '{p['username']}' transfer aborted ({reason}).", flush=True)
+                    continue
+
+                peer_stats.append({
+                    'peer': p,
+                    'state': state,
+                    'bytes_tx': bytes_tx,
+                    'tot_bytes': tot_bytes,
+                    'pct': pct,
+                    'spd_mb': spd_mb,
+                    'spd_bytes': spd_bytes
+                })
+
+            if completed:
+                break
+
+            if not peer_stats:
                 stall_count += 1
-                if stall_count >= 18:
-                    print(f"[Soulseek HiFi] Peer '{best['username']}' transfer not initiated after 18s. Failing over to next candidate...", flush=True)
-                    aborted = True
+                if stall_count >= 16:
+                    print(f"[Soulseek HiFi] Active peer transfers not initiated after 16s. Failing over...", flush=True)
+                    for p in active_peers:
+                        cancel_slskd_transfer(p['username'])
                     break
                 continue
 
-            # Prioritize active or completed record over stale rejected ones
-            best_tf = None
-            for tf in matching_files:
-                st = tf.get('state', '')
-                if 'Succeeded' in st:
-                    best_tf = tf
-                    break
-                elif 'InProgress' in st or tf.get('bytesTransferred', 0) > 0:
-                    best_tf = tf
+            # Identify current leader
+            peer_stats.sort(key=lambda x: (x['bytes_tx'], x['spd_mb']), reverse=True)
+            leader = peer_stats[0]
 
-            if not best_tf:
-                best_tf = matching_files[-1]
+            # If leader is blazing fast (>= 3.5 MB/s and transferred > 10MB), dismiss slower racing peers to preserve bandwidth
+            if len(active_peers) > 1 and leader['spd_mb'] >= 3.5 and leader['bytes_tx'] >= 10 * 1024 * 1024:
+                for ps in peer_stats[1:]:
+                    slower_p = ps['peer']
+                    cancel_slskd_transfer(slower_p['username'])
+                    if slower_p in active_peers:
+                        active_peers.remove(slower_p)
+                    print(f"[Soulseek HiFi] 🚀 Peer '{leader['peer']['username']}' locked blazing bitstream ({leader['spd_mb']:.2f} MiB/s). Slower peer dismissed.", flush=True)
 
-            state = best_tf.get('state', '')
-            bytes_tx = best_tf.get('bytesTransferred', 0)
-            total_bytes = best.get('size', 0) or best_tf.get('size', 0)
-            pct = (bytes_tx / total_bytes) * 100 if total_bytes > 0 else 0
-            speed_bytes = best_tf.get('averageSpeed', 0)
-            speed_mb = speed_bytes / (1024 * 1024)
-
-            rem_bytes = max(0, total_bytes - bytes_tx)
-            if speed_bytes > 0:
-                eta_sec = int(rem_bytes / speed_bytes)
-                eta_m = eta_sec // 60
-                eta_s = eta_sec % 60
-                eta_str = f"{eta_m:02d}:{eta_s:02d}"
+            lead_mb = leader['tot_bytes'] / (1024 * 1024)
+            rem_bytes = max(0, leader['tot_bytes'] - leader['bytes_tx'])
+            if leader['spd_bytes'] > 0:
+                eta_s = int(rem_bytes / leader['spd_bytes'])
+                eta_str = f"{eta_s // 60:02d}:{eta_s % 60:02d}"
             else:
                 eta_str = "--:--"
 
-            is_aborted = any(err in state for err in ['Rejected', 'Cancelled', 'Errored', 'TimedOut', 'Aborted'])
-            is_succeeded = not is_aborted and (
-                'Succeeded' in state or
-                (state.startswith('Completed') and (bytes_tx >= total_bytes or (total_bytes > 0 and bytes_tx > 0.99 * total_bytes)))
-            )
+            print(f"[download] {leader['pct']:.1f}% of {lead_mb:.1f}MiB at {leader['spd_mb']:.2f}MiB/s ETA {eta_str} (Soulseek HiFi)", flush=True)
 
-            if is_succeeded:
-                print(f"[download] 100.0% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA 00:00 (Soulseek HiFi)", flush=True)
-                completed = True
-                break
-
-            if is_aborted:
-                reason = best_tf.get('exception') or state
-                print(f"[Soulseek HiFi] Peer '{best['username']}' transfer aborted ({reason}). Fast-failing to next candidate...", flush=True)
-                aborted = True
-                break
-
-            # Emit download progress for UI parsing
-            print(f"[download] {pct:.1f}% of {total_mb:.1f}MiB at {speed_mb:.2f}MiB/s ETA {eta_str} (Soulseek HiFi)", flush=True)
-
-            # SPEED WATCHDOG: After grace period, failover if peer is completely stalled (< 0.15 MiB/s for 8s)
+            # Adaptive speed watchdog (when single peer is downloading)
             elapsed = time.time() - transfer_start_time
-            if bytes_tx > 0 and elapsed >= SPEED_GRACE_SEC:
-                if speed_mb < MIN_SPEED_MB:
+            if len(active_peers) == 1 and leader['bytes_tx'] > 0 and elapsed >= SPEED_GRACE_SEC:
+                has_faster_runner = any(
+                    c.get('username') not in tried_users and c.get('free_slot') and c.get('speed', 0) > max(3 * 1024 * 1024, leader['peer'].get('speed', 0) * 0.9)
+                    for c in viable_candidates[idx+1:]
+                )
+                min_speed_floor = 1.8 if has_faster_runner else 0.35
+                if leader['spd_mb'] < min_speed_floor:
                     slow_speed_count += 1
-                    if slow_speed_count >= 8:
-                        print(f"[Soulseek HiFi] ⚠️ Peer '{best['username']}' speed critically slow ({speed_mb:.2f} MiB/s < {MIN_SPEED_MB} MiB/s). Failing over to faster master candidate...", flush=True)
-                        aborted = True
+                    if slow_speed_count >= 6:
+                        print(f"[Soulseek HiFi] ⚠️ Peer '{leader['peer']['username']}' speed is {leader['spd_mb']:.2f} MiB/s (< {min_speed_floor} MiB/s floor). Accelerating via faster runner-up...", flush=True)
+                        cancel_slskd_transfer(leader['peer']['username'])
                         break
                 else:
                     slow_speed_count = 0
 
-            # Stall / queue watchdog
-            if bytes_tx == last_bytes_tx:
+            # Handshake / stall watchdog
+            if leader['bytes_tx'] == last_bytes_tx:
                 stall_count += 1
-                if bytes_tx == 0:
-                    if stall_count >= MAX_HANDSHAKE_SEC:
-                        print(f"[Soulseek HiFi] Peer '{best['username']}' handshake/queue wait exceeded ({MAX_HANDSHAKE_SEC}s, state: {state}). Failing over to next candidate...", flush=True)
-                        aborted = True
-                        break
-                else:
-                    if stall_count >= 20:
-                        print(f"[Soulseek HiFi] Peer '{best['username']}' stalled mid-transfer at {pct:.1f}%. Failing over to next candidate...", flush=True)
-                        aborted = True
-                        break
+                if leader['bytes_tx'] == 0 and stall_count >= MAX_HANDSHAKE_SEC:
+                    print(f"[Soulseek HiFi] Peer handshake timed out ({MAX_HANDSHAKE_SEC}s). Failing over...", flush=True)
+                    for p in active_peers:
+                        cancel_slskd_transfer(p['username'])
+                    break
+                elif stall_count >= 20:
+                    print(f"[Soulseek HiFi] Transfer stalled mid-stream. Failing over...", flush=True)
+                    for p in active_peers:
+                        cancel_slskd_transfer(p['username'])
+                    break
             else:
                 stall_count = 0
-                if bytes_tx > 0 and last_bytes_tx == 0:
+                if leader['bytes_tx'] > 0 and last_bytes_tx == 0:
                     transfer_start_time = time.time()
-                if speed_mb >= MIN_SPEED_MB:
+                if leader['spd_mb'] >= 0.35:
                     start_time = time.time()
 
-            last_bytes_tx = bytes_tx
+            last_bytes_tx = leader['bytes_tx']
 
-        if not completed:
-            try:
-                session.delete(f"{SLSKD_API_BASE}/transfers/downloads/{best['username']}", timeout=3)
-            except Exception:
-                pass
-            print(f"[Soulseek HiFi] Transfer from '{best['username']}' did not complete, trying next peer...", flush=True)
+        if not completed or not winner:
+            for p in active_peers:
+                cancel_slskd_transfer(p['username'])
+            print(f"[Soulseek HiFi] Transfer did not complete, trying next peer...", flush=True)
             continue
 
-        # Find downloaded file in SLSKD downloads folder
-        # Allow SLSKD time to finalize and move file from incomplete/ to destination
+        # Cancel any other remaining racing peer now that winner succeeded
+        for p in active_peers:
+            if p.get('username') != winner.get('username'):
+                cancel_slskd_transfer(p['username'])
+
+        # Find downloaded file from winner in SLSKD downloads folder
         time.sleep(1.0)
-        target_basename = os.path.basename(best['filename'].replace('\\', '/'))
+        target_basename = os.path.basename(winner['filename'].replace('\\', '/'))
         base_stem, _ = os.path.splitext(target_basename)
         found_path = None
         
@@ -891,10 +993,10 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
                         except (OSError, FileNotFoundError):
                             continue
                         if f == target_basename or f.startswith(base_stem) or (base_stem and base_stem in f):
-                            if abs(f_sz - best['size']) <= 2048 or f_sz > 5000000:
+                            if abs(f_sz - winner['size']) <= 2048 or f_sz > 5000000:
                                 found_path = chk_f
                                 break
-                        elif f_sz == best['size']:
+                        elif f_sz == winner['size']:
                             found_path = chk_f
                             break
                 if found_path:

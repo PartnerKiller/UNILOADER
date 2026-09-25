@@ -1067,7 +1067,8 @@ function hashPassword(password, salt) {
 const CATEGORY_SUBFOLDERS = {
   movies: 'Movies and Shows',
   music: 'Music',
-  adult: 'Adult'
+  adult: 'Adult',
+  links: 'Links'
 };
 
 function ensureCategorySubfolders(baseFolder) {
@@ -1111,6 +1112,13 @@ function loadUsers() {
             }
             if (u.downloadFolder && typeof u.downloadFolder === 'string' && u.downloadFolder.trim() && u.downloadFolder.trim() !== '*') {
               try { ensureCategorySubfolders(u.downloadFolder); } catch (e) {}
+            }
+            if (Array.isArray(u.allowedFolders)) {
+              for (const af of u.allowedFolders) {
+                if (typeof af === 'string' && af.trim() && af.trim() !== '*') {
+                  try { ensureCategorySubfolders(af); } catch (e) {}
+                }
+              }
             }
             users.set(u.username.toLowerCase(), u);
           }
@@ -1405,7 +1413,7 @@ function isPermanentUserDirectory(dirPath) {
 
   // Protect standard category subfolder names
   const baseName = path.basename(resolved);
-  if (['Movies and Shows', 'Music', 'Adult', 'Uni-Downloads'].includes(baseName)) {
+  if ([...Object.values(CATEGORY_SUBFOLDERS), 'Uni-Downloads'].includes(baseName)) {
     return true;
   }
 
@@ -1413,7 +1421,7 @@ function isPermanentUserDirectory(dirPath) {
 }
 
 function getJobCategory(jobOrOpts) {
-  if (!jobOrOpts) return 'movies';
+  if (!jobOrOpts) return 'links';
 
   const adultDomains = [
     'xvideos.com', 'pornhub.com', 'eporner.com', 'redtube.com', 'hqporner.com',
@@ -1443,7 +1451,7 @@ function getJobCategory(jobOrOpts) {
   // 2. Audio & Music checks
   const mode = String(jobOrOpts.mode || (jobOrOpts.opts && jobOrOpts.opts.mode) || '').toLowerCase();
   const isAudioMode = ['audio', 'audiophile_flac', 'cdrip'].includes(mode);
-  const isAudioCode = ['CD_RIP_1TO1', 'FLAC_MASTER', 'FLAC', 'AUDIO_TRACK'].includes(codeUpper);
+  const isAudioCode = ['CD_RIP_1TO1', 'FLAC_MASTER', 'FLAC', 'AUDIO_TRACK', 'MUSIC_ALBUM'].includes(codeUpper);
   const isCdRip = !!((jobOrOpts.opts && jobOrOpts.opts.isCdRip) || jobOrOpts.isCdRip || isAudioCode || mode === 'cdrip');
 
   const ext = path.extname(jobOrOpts.filePath || jobOrOpts.filename || '').toLowerCase().replace('.', '');
@@ -1454,17 +1462,24 @@ function getJobCategory(jobOrOpts) {
   const isMusicDomain = musicDomains.some(d => urlStr.includes(d));
   const isMusicTrackOpt = !!(jobOrOpts.opts && (jobOrOpts.opts.isMusicTrack || jobOrOpts.opts.trackTitle || jobOrOpts.opts.album));
 
-  // If the job is explicitly video or tube, never classify as music unless output extension is purely audio
-  if (['video', 'tube', 'ddl_direct'].includes(mode) && !isAudioFile) {
-    return 'movies';
-  }
-
-  if (isAudioMode || isAudioCode || isCdRip || isMusicDomain || isMusicTrackOpt || (isAudioFile && mode !== 'video')) {
+  if (isAudioMode || isAudioCode || isCdRip || isMusicDomain || isMusicTrackOpt || (isAudioFile && mode !== 'video' && mode !== 'ddl_direct')) {
     return 'music';
   }
 
-  // 3. Default to Movies and Shows (ddl_direct, video streams, torrent movies/series, web videos)
-  return 'movies';
+  // 3. Movies & TV Shows checks (Cinema, TV Series, BitTorrent Movie Releases, DDL Direct Movie Resolvers)
+  const isMovieCode = ['MOVIE', 'TV_SERIES', 'DDL_DIRECT', 'SWARM'].includes(codeUpper);
+  const isMovieMode = mode === 'ddl_direct' || (mode === 'torrent' && codeUpper !== 'MUSIC_ALBUM');
+  const isMovieOpt = Boolean(jobOrOpts.isMovieHub || jobOrOpts.isFullMovie || jobOrOpts.imdbId ||
+    (jobOrOpts.opts && (jobOrOpts.opts.isMovieHub || jobOrOpts.opts.isFullMovie || jobOrOpts.opts.imdbId || jobOrOpts.opts.pureTitle)));
+  const movieDomains = ['yts.mx', 'yts.lt', 'yts.gg', 'apibay.org', 'thepiratebay', '1337x.to', 'strem.io', 'cinemeta'];
+  const isMovieDomain = movieDomains.some(d => urlStr.includes(d));
+
+  if (isMovieCode || isMovieMode || isMovieOpt || isMovieDomain) {
+    return 'movies';
+  }
+
+  // 4. Default for generic link downloads (YouTube, social media, web streams, direct URLs)
+  return 'links';
 }
 
 function finalizeJobPermanentStorage(job) {
@@ -1482,7 +1497,7 @@ function finalizeJobPermanentStorage(job) {
     ensureCategorySubfolders(userFolder);
 
     const category = getJobCategory(job);
-    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Movies and Shows';
+    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
     const baseName = path.basename(userFolder);
     const targetFolder = Object.values(CATEGORY_SUBFOLDERS).includes(baseName)
       ? userFolder
@@ -2575,7 +2590,7 @@ app.post('/api/admin/users/:id/folders', requireAdmin, (req, res) => {
       saveUsers();
       return res.json({
         success: true,
-        message: `Allocated ${u.allowedFolders.length} folder(s) to "${u.username}". Category subfolders (Movies and Shows, Music, Adult) configured.`,
+        message: `Allocated ${u.allowedFolders.length} folder(s) to "${u.username}". Category subfolders (Movies and Shows, Music, Adult, Links) configured.`,
         allowedFolders: u.allowedFolders,
         downloadFolder: u.downloadFolder,
         subfolders: Object.values(CATEGORY_SUBFOLDERS)
@@ -6940,7 +6955,7 @@ function createAndStartJob(opts) {
   }
   if (assignedFolder) {
     const category = getJobCategory(opts);
-    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Movies and Shows';
+    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
     initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${path.join(assignedFolder, subfolderName)}`);
   }
 
