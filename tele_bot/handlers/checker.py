@@ -39,17 +39,17 @@ async def checkflac_command(event: events.NewMessage.Event):
         await event.reply("⚠️ FLAC Authenticity Checker is not available on this server.")
         return
 
-    reply_to = await event.get_reply_message()
-    if reply_to and (reply_to.audio or reply_to.document):
+    reply_to = await event.get_reply_message() if hasattr(event, "get_reply_message") else None
+    if reply_to and (getattr(reply_to, "audio", None) or getattr(reply_to, "document", None)):
         # Media found in replied message
         status_msg = await event.reply("⏳ **Downloading audio for spectral authenticity analysis...**")
         await process_media_for_flac_check(event.client, event.chat_id, reply_to, status_msg)
         return
 
     # Check if current message has media
-    if event.audio or event.document:
+    if getattr(event, "audio", None) or getattr(event, "document", None):
         status_msg = await event.reply("⏳ **Downloading audio for spectral authenticity analysis...**")
-        await process_media_for_flac_check(event.client, event.chat_id, event.message, status_msg)
+        await process_media_for_flac_check(event.client, event.chat_id, getattr(event, "message", event), status_msg)
         return
 
     # No media attached or replied

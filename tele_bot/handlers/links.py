@@ -170,7 +170,8 @@ async def track_job_and_deliver(
                 meta = {
                     "title": job.get("title") or title,
                     "artist": job.get("artist") or "",
-                    "album": job.get("album") or ""
+                    "album": job.get("album") or "",
+                    "job_id": job_id
                 }
                 await upload_and_send_media(
                     client=client,

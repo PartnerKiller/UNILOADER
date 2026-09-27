@@ -79,6 +79,24 @@ async def upload_and_send_media(
     filename = file_path.name
     ext = file_path.suffix.lower()
 
+    # Telegram MTProto Bot API limit is 2000 MB
+    MAX_TELEGRAM_UPLOAD = 2000 * 1024 * 1024
+    if file_size > MAX_TELEGRAM_UPLOAD:
+        if status_message:
+            job_id = metadata.get("job_id")
+            dl_hint = ""
+            if job_id:
+                from config import BACKEND_URL
+                dl_hint = f"\n\n🔗 [Direct Browser Download]({BACKEND_URL}/api/download-file/{job_id})"
+            await status_message.edit(
+                f"✅ **Download Complete!**\n\n"
+                f"📁 **File:** `{filename}`\n"
+                f"💾 **Size:** `{format_size(file_size)}`\n\n"
+                f"⚠️ File exceeds Telegram's **2.0 GB** bot upload limit.\n"
+                f"📂 Stored on server at:\n`{file_path}`{dl_hint}"
+            )
+        return
+
     # Determine media kind
     is_audio = ext in [".flac", ".mp3", ".m4a", ".wav", ".aac", ".opus", ".ogg"]
     is_video = ext in [".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts"]

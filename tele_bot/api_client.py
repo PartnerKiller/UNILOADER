@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import os
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from config import BACKEND_URL, BACKEND_ADMIN_USER, BACKEND_ADMIN_PASS, TEMP_DIR
@@ -121,6 +122,48 @@ class BackendClient:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    async def download_movie(self, movie_info: Dict[str, Any], release: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        payload = {
+            "title": movie_info.get("title", ""),
+            "pureTitle": movie_info.get("pureTitle") or movie_info.get("title", ""),
+            "poster": movie_info.get("poster", ""),
+            "year": movie_info.get("year", "")
+        }
+        if release:
+            payload.update({
+                "magnet": release.get("magnet", ""),
+                "torrentUrl": release.get("torrentUrl", ""),
+                "quality": release.get("quality", "1080p"),
+                "releaseFilename": release.get("filename", ""),
+                "releaseLabel": release.get("label", ""),
+                "size": release.get("size", "")
+            })
+        try:
+            async with session.post(f"{self.base_url}/api/movies/download", json=payload, headers=self._headers(), timeout=20) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def download_adult(self, adult_info: Dict[str, Any]) -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        payload = {
+            "title": adult_info.get("title", ""),
+            "magnet": adult_info.get("magnet", ""),
+            "torrentUrl": adult_info.get("torrentUrl", ""),
+            "url": adult_info.get("url", ""),
+            "thumb": adult_info.get("thumb") or adult_info.get("rawThumb", ""),
+            "code": adult_info.get("code", ""),
+            "type": adult_info.get("type", "jav")
+        }
+        try:
+            async with session.post(f"{self.base_url}/api/adult/download", json=payload, headers=self._headers(), timeout=20) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     async def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         await self.ensure_auth()
         session = await self.get_session()
@@ -145,34 +188,73 @@ class BackendClient:
             return False
 
     def resolve_local_media_file(self, job: Dict[str, Any]) -> Optional[Path]:
-        """Locates the downloaded file on local disk"""
+        """Locates the downloaded file on local disk across temp and permanent storage"""
         # 1. Direct filePath in job object
         file_path = job.get("filePath")
         if file_path and os.path.isfile(file_path):
             return Path(file_path)
 
-        # 2. Check filename in TEMP_DIR
         filename = job.get("filename")
+        job_id = job.get("id") or ""
+        
+        # Build candidate filenames (both with and without job_id prefixes)
+        candidates = []
         if filename:
-            p = TEMP_DIR / filename
-            if p.is_file():
-                return p
+            candidates.append(filename)
+            if job_id and filename.startswith(f"{job_id}_"):
+                candidates.append(filename[len(job_id) + 1:])
+            # Also handle generic job_ prefix
+            clean_job_prefix = re.sub(r"^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_", "", filename)
+            if clean_job_prefix != filename:
+                candidates.append(clean_job_prefix)
 
-        # 3. Check job folder or prefix in TEMP_DIR
-        job_id = job.get("id")
+        # 2. Check downloadFolder assigned in job
+        download_folder = job.get("downloadFolder")
+        if download_folder and os.path.isdir(download_folder):
+            p_dl = Path(download_folder)
+            for c in candidates:
+                # Direct in folder
+                if (p_dl / c).is_file():
+                    return p_dl / c
+                # Recursive in subfolders (e.g. Music, Movies, Adult, Links)
+                matches = list(p_dl.glob(f"**/{c}"))
+                if matches:
+                    return matches[0]
+
+        # 3. Check filename candidates in TEMP_DIR
+        if TEMP_DIR.exists():
+            for c in candidates:
+                p = TEMP_DIR / c
+                if p.is_file():
+                    return p
+
+        # 4. Check dedicated job folder or job_id matches in TEMP_DIR
         if job_id and TEMP_DIR.exists():
-            # Check dedicated subfolder
             job_subfolder = TEMP_DIR / job_id
             if job_subfolder.is_dir():
                 media_files = [f for f in job_subfolder.glob("**/*") if f.is_file() and not f.name.endswith(('.aria2', '.part', '.temp', '.txt'))]
                 if media_files:
-                    # Return largest file
                     return max(media_files, key=lambda f: f.stat().st_size)
 
-            # Check files starting with jobId_
             matches = [f for f in TEMP_DIR.glob(f"{job_id}_*") if f.is_file() and not f.name.endswith(('.part', '.temp'))]
             if matches:
                 return max(matches, key=lambda f: f.stat().st_size)
+
+        # 5. Check permanent Uni-Downloads folder
+        uni_root = Path("/home/sakura/Uni-Downloads")
+        if uni_root.exists():
+            for c in candidates:
+                matches_uni = list(uni_root.glob(f"**/{c}"))
+                if matches_uni:
+                    return matches_uni[0]
+
+        # 6. Check Soulseek downloads directory
+        slskd_dir = Path("/home/sakura/slskd_downloads")
+        if slskd_dir.exists():
+            for c in candidates:
+                matches_slskd = [f for f in slskd_dir.glob(f"**/{c}") if f.is_file()]
+                if matches_slskd:
+                    return matches_slskd[0]
 
         return None
 

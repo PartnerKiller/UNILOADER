@@ -452,7 +452,6 @@ function setupUiLab() {
       }
     });
   });
-
   // Density Buttons (in collapsible accordion)
   document.querySelectorAll('.density-btn').forEach(btn => {
     btn.addEventListener('click', () => {
