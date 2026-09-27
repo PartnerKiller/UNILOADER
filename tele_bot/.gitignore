@@ -1,0 +1,17 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.session
+
+*.session-journal
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary downloads & logs
+*.log
+downloads/
+temp/
