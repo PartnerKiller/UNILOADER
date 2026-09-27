@@ -95,6 +95,7 @@ class BackendClient:
             payload["audioFormat"] = audio_format
             if audio_format.lower() == "flac":
                 payload["mode"] = "audiophile_flac"
+                payload["quality"] = "24bit"
         try:
             async with session.post(f"{self.base_url}/api/download", json=payload, headers=self._headers(), timeout=20) as resp:
                 data = await resp.json()
@@ -112,7 +113,7 @@ class BackendClient:
             "cover": track_info.get("cover") or track_info.get("image", ""),
             "duration": track_info.get("duration", 0),
             "format": "flac" if flac else "mp3",
-            "quality": "flac" if flac else "320k"
+            "quality": "24bit" if flac else "320k"
         }
         try:
             async with session.post(f"{self.base_url}/api/music/download", json=payload, headers=self._headers(), timeout=20) as resp:

@@ -118,11 +118,56 @@ def tag_flac(flac_path, meta):
     except Exception as e:
         print(f"[Soulseek Tagging] Warning: {e}", file=sys.stderr)
 
+SLSKD_AUTH_TOKEN = None
+
+def ensure_slskd_auth():
+    global SLSKD_AUTH_TOKEN
+    if SLSKD_AUTH_TOKEN and "Authorization" in session.headers:
+        return SLSKD_AUTH_TOKEN
+
+    creds_list = [
+        {"username": os.environ.get("SLSKD_USERNAME", "sakura"), "password": os.environ.get("SLSKD_PASSWORD", "sakura")},
+        {"username": "sakura", "password": "sakura"},
+        {"username": "admin", "password": "password"}
+    ]
+    slskd_yml = "/home/sakura/slskd_data/slskd.yml"
+    if os.path.exists(slskd_yml):
+        try:
+            with open(slskd_yml, "r", encoding="utf-8") as f:
+                content = f.read()
+                m_u = re.search(r'username:\s*([^\s]+)', content)
+                m_p = re.search(r'password:\s*([^\s]+)', content)
+                if m_u and m_p:
+                    creds_list.insert(0, {"username": m_u.group(1).strip(), "password": m_p.group(1).strip()})
+        except Exception:
+            pass
+
+    for cred in creds_list:
+        try:
+            r = session.post(f"{SLSKD_API_BASE}/session", json=cred, timeout=3)
+            if r.status_code in [200, 201]:
+                t = r.json().get('token')
+                if t:
+                    SLSKD_AUTH_TOKEN = t
+                    session.headers["Authorization"] = f"Bearer {t}"
+                    return t
+        except Exception:
+            pass
+    return None
+
 def is_slskd_available():
     """Checks if slskd daemon is running and reachable."""
     try:
+        ensure_slskd_auth()
         r = session.get(f"{SLSKD_API_BASE}/application", timeout=2)
-        return r.status_code == 200
+        if r.status_code == 200:
+            return True
+        if r.status_code == 401:
+            token = ensure_slskd_auth()
+            if token:
+                r2 = session.get(f"{SLSKD_API_BASE}/application", timeout=2)
+                return r2.status_code == 200
+        return False
     except Exception:
         return False
 
