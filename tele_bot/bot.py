@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 
 from telethon import TelegramClient, events
+from telethon.tl.functions.bots import SetBotCommandsRequest
+from telethon.tl.types import BotCommand, BotCommandScopeDefault
 
 from config import (
     BOT_TOKEN,
@@ -23,6 +25,11 @@ from handlers.search import (
     movies_search_command,
     adult_search_command,
     search_callback_handler
+)
+from handlers.checker import (
+    checkflac_command,
+    media_file_handler,
+    checker_callback_handler
 )
 
 logging.basicConfig(
@@ -42,6 +49,27 @@ if not API_ID or not API_HASH:
 session_path = SESSION_DIR / "bot_session"
 client = TelegramClient(str(session_path), API_ID, API_HASH)
 
+async def setup_bot_commands():
+    """Registers bot commands with Telegram so typing '/' displays the full autocomplete palette."""
+    commands = [
+        BotCommand(command="start", description="Start bot & show main menu"),
+        BotCommand(command="music", description="Search & download Hi-Res Studio FLAC"),
+        BotCommand(command="movies", description="Search Movies & TV Series"),
+        BotCommand(command="adult", description="Search Adult & JAV Hub"),
+        BotCommand(command="checkflac", description="Analyze FLAC audio authenticity & spectrum"),
+        BotCommand(command="queue", description="View active download queue"),
+        BotCommand(command="help", description="Show help & documentation")
+    ]
+    try:
+        await client(SetBotCommandsRequest(
+            scope=BotCommandScopeDefault(),
+            lang_code='',
+            commands=commands
+        ))
+        logger.info("Bot commands palette successfully registered with Telegram.")
+    except Exception as e:
+        logger.warning(f"Failed to register bot commands with Telegram: {e}")
+
 def register_handlers():
     # Commands
     client.add_event_handler(start_handler, events.NewMessage(pattern=r"^/start"))
@@ -51,11 +79,18 @@ def register_handlers():
     client.add_event_handler(music_search_command, events.NewMessage(pattern=r"^/music"))
     client.add_event_handler(movies_search_command, events.NewMessage(pattern=r"^/movies"))
     client.add_event_handler(adult_search_command, events.NewMessage(pattern=r"^/adult"))
+    client.add_event_handler(checkflac_command, events.NewMessage(pattern=r"^/checkflac"))
 
     # Link pasting
     client.add_event_handler(
         link_message_handler,
-        events.NewMessage(pattern=r"(?i)^(?!\/(start|help|queue|status|music|movies|adult)).*https?:\/\/")
+        events.NewMessage(pattern=r"(?i)^(?!\/(start|help|queue|status|music|movies|adult|checkflac)).*https?:\/\/")
+    )
+
+    # Audio & FLAC file upload detection
+    client.add_event_handler(
+        media_file_handler,
+        events.NewMessage(func=lambda e: bool(e.audio or (e.document and not (e.text or '').startswith('/'))))
     )
 
     # Callback queries
@@ -67,6 +102,10 @@ def register_handlers():
         search_callback_handler,
         events.CallbackQuery(pattern=r"^(m_|menu_|mv_|ad_)")
     )
+    client.add_event_handler(
+        checker_callback_handler,
+        events.CallbackQuery(pattern=r"^check_flac:")
+    )
 
 async def main():
     logger.info("Initializing Universal Downloader Telegram Bot...")
@@ -77,6 +116,9 @@ async def main():
     logger.info(f"Bot connected successfully as @{me.username} (ID: {me.id})")
     logger.info(f"Authorized User IDs: {list(ALLOWED_USERS) if ALLOWED_USERS else 'ALL (open)'}")
     logger.info(f"Backend Target: {BACKEND_URL}")
+
+    # Register '/' command palette with Telegram
+    await setup_bot_commands()
 
     # Authenticate to backend
     auth_ok = await backend_client.ensure_auth()

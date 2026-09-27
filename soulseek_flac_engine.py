@@ -422,42 +422,20 @@ def calc_fidelity_score(bit_depth, sample_rate, size_bytes, filename, speed=0, f
     if any(k in inspect_target for k in ['studio master', 'master', 'hi-res', 'hires', 'vinyl', 'sacd', 'mqa', 'qobuz', 'dsd', 'hdtracks', 'analog', 'analogue']):
         score += 50_000
 
-    # 4. Physical size sanity check:
-    # FLAC sizes within the same tier (e.g. 154MB - 157MB) decode to identical audio samples.
-    # Award normalized points for valid audio stream without letting minor tag/compression differences dominate speed.
-    if eff_bits >= 24 and size_mb < 35:
-        score -= 2_000_000
-    else:
-        score += min(int(size_mb * 50), 20_000)
+    # 4. File size: The bigger the size, the higher the dynamic range / uncompressed bitstream
+    # Strictly adhering to Rule #1 & User Preference: "best of the best of the best quality (big in size), not the fastest downloadable"
+    score += int(size_mb * 100_000)
 
-    # 5. Peer Availability & Bandwidth - The decisive factors within a resolution tier
-    # Free upload slot is paramount: without a free slot, transfers wait in remote queue.
+    # 5. Peer Availability & Bandwidth - Minor tiebreaker ONLY (cannot overtake file size)
     if free_slot:
-        score += 2_000_000
+        score += 500
         if queue_len == 0:
-            score += 200_000
+            score += 100
     else:
-        score -= 2_000_000
-        score -= min(queue_len, 200) * 20_000
+        score -= min(queue_len, 50) * 10
 
-    # Peer upload speed rating:
     peer_kbps = speed / 1024.0
-    if peer_kbps >= 10000:
-        score += 3_000_000
-    elif peer_kbps >= 5000:
-        score += 2_000_000
-    elif peer_kbps >= 2500:
-        score += 1_200_000
-    elif peer_kbps >= 1500:
-        score += 700_000
-    elif peer_kbps >= 800:
-        score += 200_000
-    elif peer_kbps < 600:
-        score -= 800_000
-    elif peer_kbps < 300:
-        score -= 1_500_000
-
-    score += int(min(peer_kbps, 25000) * 100)
+    score += int(min(peer_kbps, 10000) * 0.05)
 
     return score
 

@@ -163,6 +163,11 @@ async def search_callback_handler(event: events.CallbackQuery.Event):
         await event.answer()
         await event.reply("🔞 Send `/adult <query>` to search the Adult Hub.")
         return
+    elif data == "menu_checker":
+        await event.answer()
+        from handlers.checker import checkflac_command
+        await checkflac_command(event)
+        return
     elif data == "menu_queue":
         await event.answer()
         from handlers.common import queue_handler

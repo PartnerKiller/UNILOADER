@@ -29,10 +29,11 @@ async def start_handler(event: events.NewMessage.Event):
         f"🆔 **Your User ID:** `{user_id}`\n\n"
         f"📥 **Quick Download:**\n"
         f"Simply paste any URL (YouTube, Instagram, TikTok, Deezer, Spotify, Adult/JAV, HLS streams) into this chat!\n\n"
-        f"🔍 **Search Hub:**\n"
+        f"🔍 **Search & Tools:**\n"
         f"• `/music <query>` — Search & download Studio Master FLAC\n"
         f"• `/movies <query>` — Search Movies & Series\n"
         f"• `/adult <query>` — Search Adult Hub\n"
+        f"• `/checkflac` — Multi-band FLAC Authenticity & Spectral Analyzer\n"
         f"• `/queue` — View active downloads\n"
         f"• `/help` — Detailed help & documentation"
     )
@@ -44,6 +45,9 @@ async def start_handler(event: events.NewMessage.Event):
         ],
         [
             Button.inline("🔞 Search Adult", b"menu_adult"),
+            Button.inline("🔬 FLAC Checker", b"menu_checker")
+        ],
+        [
             Button.inline("📊 Queue Status", b"menu_queue")
         ]
     ]
