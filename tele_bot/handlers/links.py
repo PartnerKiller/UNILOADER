@@ -129,7 +129,7 @@ async def track_job_and_deliver(
     last_update_ts = 0
 
     while True:
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.5)
         job = await backend_client.get_job(job_id)
         if not job:
             continue
@@ -141,7 +141,7 @@ async def track_job_and_deliver(
         eta = prog.get("eta", "--")
 
         now = time.time()
-        if now - last_update_ts >= 3:
+        if now - last_update_ts >= 0.5:
             bar_len = 10
             filled = int(bar_len * (pct / 100)) if pct else 0
             bar = "█" * filled + "░" * (bar_len - filled)

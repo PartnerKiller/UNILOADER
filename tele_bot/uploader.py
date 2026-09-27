@@ -169,7 +169,7 @@ async def upload_and_send_media(
     last_update_time = [0]
     async def upload_progress(current, total):
         now = time.time()
-        if now - last_update_time[0] >= 3:
+        if now - last_update_time[0] >= 0.5:
             last_update_time[0] = now
             pct = int((current / total) * 100) if total > 0 else 0
             bar_len = 10
