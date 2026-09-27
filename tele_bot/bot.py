@@ -24,6 +24,7 @@ from handlers.search import (
     music_search_command,
     movies_search_command,
     adult_search_command,
+    plain_text_query_handler,
     search_callback_handler
 )
 from handlers.checker import (
@@ -93,6 +94,14 @@ def register_handlers():
         events.NewMessage(func=lambda e: bool(e.audio or (e.document and not (e.text or '').startswith('/'))))
     )
 
+    # Plain-text conversational search & content query handler
+    client.add_event_handler(
+        plain_text_query_handler,
+        events.NewMessage(func=lambda e: bool(
+            e.text and not e.text.startswith('/') and not ('http://' in e.text or 'https://' in e.text) and not e.audio and not e.document
+        ))
+    )
+
     # Callback queries
     client.add_event_handler(
         link_callback_handler,
@@ -100,7 +109,7 @@ def register_handlers():
     )
     client.add_event_handler(
         search_callback_handler,
-        events.CallbackQuery(pattern=r"^(m_|menu_|mv_|ad_)")
+        events.CallbackQuery(pattern=r"^(m_|menu_|mv_|ad_|q_)")
     )
     client.add_event_handler(
         checker_callback_handler,

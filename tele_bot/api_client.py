@@ -85,6 +85,29 @@ class BackendClient:
             print(f"[BackendClient] Adult search error: {e}")
         return []
 
+    async def fetch_preview_image(self, url: str) -> Optional[bytes]:
+        """Fetches an image preview buffer from remote URL or backend image proxy"""
+        if not url:
+            return None
+        session = await self.get_session()
+        target_url = url
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        if url.startswith("/"):
+            target_url = f"{self.base_url}{url}"
+            headers.update(self._headers())
+
+        try:
+            async with session.get(target_url, headers=headers, timeout=12) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    if len(data) > 500:
+                        return data
+        except Exception as e:
+            print(f"[BackendClient] Fetch preview image error for {url}: {e}")
+        return None
+
     async def download_url(self, url: str, video_quality: str = "best", audio_format: Optional[str] = None) -> Dict[str, Any]:
         await self.ensure_auth()
         session = await self.get_session()
