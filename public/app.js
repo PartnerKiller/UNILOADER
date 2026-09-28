@@ -1355,6 +1355,7 @@ async function startDownload() {
     url: currentExtractedData.sourceUrl || urlInput.value.trim(),
     hlsUrl: currentExtractedData.hlsUrl,
     downloadTargetUrl: currentExtractedData.downloadTargetUrl,
+    referer: currentExtractedData.referer || undefined,
     title: currentExtractedData.title,
     code: currentExtractedData.code,
     poster: currentExtractedData.poster,

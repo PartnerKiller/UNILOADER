@@ -6553,11 +6553,13 @@ function startJobProcess(job) {
     }
 
     // Dynamic Referers for JAV streaming CDNs & adult networks
-    if (rawTarget.includes('phncdn.com') || (url && url.includes('pornhub'))) {
+    if (opts.referer || job.referer) {
+      args.push('--add-header', `Referer: ${opts.referer || job.referer}`);
+    } else if (rawTarget.includes('phncdn.com') || (url && url.includes('pornhub'))) {
       args.push('--add-header', 'Referer: https://www.pornhub.com/');
     } else if (rawTarget.includes('surrit.com') || rawTarget.includes('sixyik.com') || (url && url.includes('missav'))) {
       args.push('--add-header', 'Referer: https://missav.ws/');
-    } else if (url && url.includes('jable.tv')) {
+    } else if (rawTarget.includes('mushroomtrack.com') || (url && url.includes('jable.tv'))) {
       args.push('--add-header', 'Referer: https://en.jable.tv/');
     } else if (rawTarget.includes('turbovid') || rawTarget.includes('turboviplay') || rawTarget.includes('turbosplayer')) {
       args.push('--add-header', 'Referer: https://turboviplay.com/');
@@ -7161,6 +7163,7 @@ app.post('/api/download', identifyUser, async (req, res) => {
         payload.code = meta.code;
         payload.poster = meta.poster;
         payload.downloadTargetUrl = meta.downloadTargetUrl;
+        if (meta.referer) payload.referer = meta.referer;
       } catch (e) {}
     }
 
@@ -7234,6 +7237,7 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
         code: meta ? meta.code : '',
         poster: meta ? meta.poster : '',
         downloadTargetUrl: meta ? meta.downloadTargetUrl : '',
+        referer: (meta && meta.referer) ? meta.referer : '',
         ownerId: req.currentUser.userId,
         isPremium: req.currentUser.isPremium
       };
