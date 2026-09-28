@@ -6496,18 +6496,32 @@ function startJobProcess(job) {
     job.process = child;
     attachProcessListeners(job, child);
   } else {
-    const concurrentFragments = parseInt(opts.concurrentFragments, 10) || engineConfig.aria2cFragments || 32;
+    const isRateLimitedHost = (url && (url.includes('googleusercontent') || url.includes('turbovid') || url.includes('turboviplay') || url.includes('turbosplayer') || url.includes('lh3.google'))) ||
+                              (rawTarget && (rawTarget.includes('googleusercontent') || rawTarget.includes('turbovid') || rawTarget.includes('turboviplay') || rawTarget.includes('turbosplayer') || rawTarget.includes('lh3.google')));
+
+    let concurrentFragments = parseInt(opts.concurrentFragments, 10) || engineConfig.aria2cFragments || 32;
+    if (isRateLimitedHost) {
+      // Google User Content and Turbovid aggressively rate-limit (HTTP 429) when blasted with high concurrency
+      concurrentFragments = Math.min(concurrentFragments, 2);
+    } else {
+      // Cap general HLS fragment concurrency to 6 to prevent server-side 429 rate limit errors
+      concurrentFragments = Math.min(concurrentFragments, 6);
+    }
+
     const outputTemplate = path.join(TEMP_DIR, `${job.id}_${job.title}.%(ext)s`);
     const args = [
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
       '--buffer-size', engineConfig.bufferSize || '32M',
-      '--retries', String(engineConfig.retries || 10),
-      '--fragment-retries', String(engineConfig.retries || 10),
-      '--socket-timeout', '15',
+      '--retries', String(isRateLimitedHost ? 30 : (engineConfig.retries || 15)),
+      '--fragment-retries', String(isRateLimitedHost ? 50 : 30),
+      '--retry-sleep', 'fragment:exp=1:20',
+      '--retry-sleep', 'http:exp=1:20',
+      '--socket-timeout', isRateLimitedHost ? '30' : '20',
       '--hls-use-mpegts',
       '--newline',
-      '--ignore-errors',
+      '--no-skip-unavailable-fragments',
+      '--abort-on-unavailable-fragment',
       '--js-runtimes', process.platform === 'win32' ? 'node' : (fs.existsSync('/usr/bin/node') ? 'node:/usr/bin/node' : 'node'),
       '-o', outputTemplate
     ];
@@ -6545,10 +6559,12 @@ function startJobProcess(job) {
       args.push('--add-header', 'Referer: https://missav.ws/');
     } else if (url && url.includes('jable.tv')) {
       args.push('--add-header', 'Referer: https://en.jable.tv/');
-    } else if (url && (url.includes('supjav') || url.includes('supremejav') || rawTarget.includes('turbovid') || rawTarget.includes('turboviplay'))) {
-      args.push('--add-header', 'Referer: https://supjav.com/');
-    } else if (url && url.includes('javgg')) {
+    } else if (rawTarget.includes('turbovid') || rawTarget.includes('turboviplay') || rawTarget.includes('turbosplayer')) {
+      args.push('--add-header', 'Referer: https://turboviplay.com/');
+    } else if ((url && url.includes('javgg')) || rawTarget.includes('javstream') || rawTarget.includes('cdn-centaurus') || rawTarget.includes('earnvid') || rawTarget.includes('acek-cdn')) {
       args.push('--add-header', 'Referer: https://javgg.net/');
+    } else if (url && (url.includes('supjav') || url.includes('supremejav'))) {
+      args.push('--add-header', 'Referer: https://supjav.com/');
     } else if (url && url.includes('njav')) {
       args.push('--add-header', 'Referer: https://njav.tv/');
     } else if (url && (url.includes('xvideos') || url.includes('xnxx'))) {

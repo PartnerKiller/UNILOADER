@@ -778,6 +778,21 @@ def extract_all(url):
 
         iframes = [ifr.get('src') or ifr.get('data-src') for ifr in soup.find_all('iframe') if ifr.get('src') or ifr.get('data-src')]
 
+        # Prioritize dedicated, unthrottled streaming CDNs over Google User Content proxies (which throw HTTP 429)
+        def iframe_priority(ifr_url):
+            u = (ifr_url or '').lower()
+            if 'javstream' in u:
+                return 1
+            if 'earnvid' in u:
+                return 2
+            if any(k in u for k in ['streamtape', 'dood', 'mixdrop', 'filemoon']):
+                return 3
+            if 'turbovid' in u or 'turbosplayer' in u or 'google' in u:
+                return 10
+            return 5
+
+        iframes = sorted(iframes, key=iframe_priority)
+
         hls_url = ''
         for ifr in iframes:
             try:
