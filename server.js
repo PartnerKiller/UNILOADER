@@ -1431,24 +1431,40 @@ function getJobCategory(jobOrOpts) {
   ];
 
   const codeUpper = String(jobOrOpts.code || (jobOrOpts.opts && jobOrOpts.opts.code) || '').toUpperCase();
-  const titleStr = `${jobOrOpts.title || ''} ${jobOrOpts.filename || ''} ${(jobOrOpts.opts && jobOrOpts.opts.title) || ''}`;
+  const titleStr = [jobOrOpts.title, jobOrOpts.filename, jobOrOpts.opts && jobOrOpts.opts.title].filter(Boolean).join(' ');
   const urlStr = String(jobOrOpts.url || (jobOrOpts.opts && (jobOrOpts.opts.url || jobOrOpts.opts.magnet || jobOrOpts.opts.torrentUrl)) || '').toLowerCase();
   const provider = String((jobOrOpts.opts && jobOrOpts.opts.provider) || jobOrOpts.provider || '').toLowerCase();
   const typeStr = String((jobOrOpts.opts && jobOrOpts.opts.type) || jobOrOpts.type || '').toLowerCase();
+  const mode = String(jobOrOpts.mode || (jobOrOpts.opts && jobOrOpts.opts.mode) || '').toLowerCase();
 
-  // 1. Adult & JAV checks
+  // Explicit Adult signals
   const isAdultCode = codeUpper === 'ADULT' || codeUpper === 'JAV';
   const isAdultType = typeStr === 'jav' || typeStr === 'tube' || !!(jobOrOpts.opts && jobOrOpts.opts.isAdult) || !!jobOrOpts.isAdult;
   const isAdultDomain = adultDomains.some(d => urlStr.includes(d) || provider.includes(d));
+  const hasAdultKeywords = /\b(jav|censored|uncensored|hentai|fanza|r18|xvideos|pornhub|spankbang|brazzers|fucktoy|blowjob|creampie|dildo|slut)\b/i.test(titleStr);
   const hasJavCode = !!(extractJavCode(jobOrOpts.title) || extractJavCode(jobOrOpts.filename) || (jobOrOpts.opts && extractJavCode(jobOrOpts.opts.title)));
-  const hasAdultKeywords = /\b(jav|censored|uncensored|hentai|fanza|r18|xvideos|pornhub)\b/i.test(titleStr);
 
+  // Movie & TV Show signals (Cinema, TV Series, BitTorrent Movie Releases, DDL Direct Movie Resolvers)
+  const isMovieCode = ['MOVIE', 'TV_SERIES', 'DDL_DIRECT', 'SWARM'].includes(codeUpper);
+  const isMovieMode = mode === 'ddl_direct' || (mode === 'torrent' && codeUpper !== 'MUSIC_ALBUM');
+  const isMovieOpt = Boolean(jobOrOpts.isMovieHub || jobOrOpts.isFullMovie || jobOrOpts.imdbId ||
+    (jobOrOpts.opts && (jobOrOpts.opts.isMovieHub || jobOrOpts.opts.isFullMovie || jobOrOpts.opts.imdbId || jobOrOpts.opts.pureTitle)));
+  const movieDomains = ['yts.mx', 'yts.lt', 'yts.gg', 'apibay.org', 'thepiratebay', '1337x.to', 'strem.io', 'cinemeta'];
+  const isMovieDomain = movieDomains.some(d => urlStr.includes(d));
+  const movieReleasePattern = /\b(mkvmoviespoint|yts|yify|pahe|psa|rarbg|galaxyrg|tgx|1337x|bluray|bdrip|web[-._]?dl|webrip|hdrip|dvdrip|hdts|hdcam|camrip|telesync|tc|remux|s\d{1,2}e\d{1,2}|s\d{1,2}\b|season\s*\d+|episode\s*\d+|complete\s*(series|season)|dual[\s._-]?audio|multi[\s._-]?audio|hindi|bollywood|hollywood)\b/i;
+  const isMovieFilename = movieReleasePattern.test(titleStr);
+
+  // If explicit movie indicators are present and NO explicit adult domain/keywords, prioritize Movies!
+  if ((isMovieCode || isMovieMode || isMovieOpt || isMovieDomain || isMovieFilename) && !isAdultDomain && !isAdultType && !isAdultCode && !hasAdultKeywords) {
+    return 'movies';
+  }
+
+  // 1. Adult & JAV checks
   if (isAdultCode || isAdultType || isAdultDomain || hasJavCode || hasAdultKeywords) {
     return 'adult';
   }
 
   // 2. Audio & Music checks
-  const mode = String(jobOrOpts.mode || (jobOrOpts.opts && jobOrOpts.opts.mode) || '').toLowerCase();
   const isAudioMode = ['audio', 'audiophile_flac', 'cdrip'].includes(mode);
   const isAudioCode = ['CD_RIP_1TO1', 'FLAC_MASTER', 'FLAC', 'AUDIO_TRACK', 'MUSIC_ALBUM'].includes(codeUpper);
   const isCdRip = !!((jobOrOpts.opts && jobOrOpts.opts.isCdRip) || jobOrOpts.isCdRip || isAudioCode || mode === 'cdrip');
@@ -1465,15 +1481,8 @@ function getJobCategory(jobOrOpts) {
     return 'music';
   }
 
-  // 3. Movies & TV Shows checks (Cinema, TV Series, BitTorrent Movie Releases, DDL Direct Movie Resolvers)
-  const isMovieCode = ['MOVIE', 'TV_SERIES', 'DDL_DIRECT', 'SWARM'].includes(codeUpper);
-  const isMovieMode = mode === 'ddl_direct' || (mode === 'torrent' && codeUpper !== 'MUSIC_ALBUM');
-  const isMovieOpt = Boolean(jobOrOpts.isMovieHub || jobOrOpts.isFullMovie || jobOrOpts.imdbId ||
-    (jobOrOpts.opts && (jobOrOpts.opts.isMovieHub || jobOrOpts.opts.isFullMovie || jobOrOpts.opts.imdbId || jobOrOpts.opts.pureTitle)));
-  const movieDomains = ['yts.mx', 'yts.lt', 'yts.gg', 'apibay.org', 'thepiratebay', '1337x.to', 'strem.io', 'cinemeta'];
-  const isMovieDomain = movieDomains.some(d => urlStr.includes(d));
-
-  if (isMovieCode || isMovieMode || isMovieOpt || isMovieDomain) {
+  // 3. Movies & TV Shows fallback check
+  if (isMovieCode || isMovieMode || isMovieOpt || isMovieDomain || isMovieFilename) {
     return 'movies';
   }
 
@@ -3941,14 +3950,50 @@ app.post('/api/flac-check', identifyUser, async (req, res) => {
 // Adult Search & JAV Engine (Tubes via XVideos & Studio Masters via Sukebei)
 // ==========================================================================
 
+const NON_JAV_PREFIXES = new Set([
+  'ANSH', 'YEAR', 'MOVIE', 'FILM', 'SERIES', 'SEASON', 'EPISODE', 'PART', 'VOL', 'VOLUME',
+  'DISC', 'DISK', 'HINDI', 'TAMIL', 'TELUGU', 'KANNADA', 'MALAYALAM', 'BENGALI', 'MARATHI',
+  'PUNJABI', 'ENGLISH', 'FRENCH', 'GERMAN', 'SPANISH', 'JAPAN', 'KOREA', 'CHINA', 'ASIAN',
+  'WORLD', 'INDIA', 'AUDIO', 'VIDEO', 'SOUND', 'TRACK', 'SCENE', 'CLIP', 'TRAILER', 'TEASER',
+  'HDTS', 'HDCAM', 'CAMRIP', 'BLURAY', 'WEBDL', 'WEBRIP', 'HDRIP', 'DVDRIP', 'REPACK',
+  'PROPER', 'COMPLETE', 'SUPER', 'ULTRA', 'MEGA', 'EXTRA', 'PLUS', 'BONUS', 'LIVE', 'LIFE',
+  'TIME', 'NIGHT', 'DARK', 'LIGHT', 'HERO', 'KING', 'LORD', 'GAME', 'WAR', 'STAR', 'CITY',
+  'ROAD', 'PARK', 'ZONE', 'TRUE', 'REAL', 'GOOD', 'BEST', 'LOVE', 'DEAD', 'FAST', 'LAST',
+  'LOST', 'ROOM', 'FIRE', 'WIND', 'WATER', 'GOLD', 'IRON', 'ROCK', 'BOOK', 'SONG', 'SHOW'
+]);
+
 function extractJavCode(title) {
-  if (!title) return null;
-  const match = title.match(/\b([A-Za-z]{2,6})[-_ ]?(\d{2,5})\b/);
-  if (match) {
-    const letters = match[1].toUpperCase();
-    const numbers = match[2];
-    return `${letters}-${numbers}`;
+  if (!title || typeof title !== 'string') return null;
+  const clean = title.trim();
+
+  // 1. FC2 PPV format (e.g. FC2-PPV-1234567 or FC2-123456)
+  const fc2Match = clean.match(/\bFC2[-_ ]?(?:PPV[-_ ]?)?(\d{5,7})\b/i);
+  if (fc2Match) {
+    return `FC2-PPV-${fc2Match[1]}`;
   }
+
+  // 2. Standard JAV Studio codes with hyphen/underscore delimiter (e.g. SSIS-001, IPX-534)
+  const stdMatch = clean.match(/\b([A-Za-z]{2,6})[-_](\d{2,5})\b/);
+  if (stdMatch) {
+    const letters = stdMatch[1].toUpperCase();
+    const numStr = stdMatch[2];
+    const num = parseInt(numStr, 10);
+    if (NON_JAV_PREFIXES.has(letters)) return null;
+    if (numStr.length === 4 && num >= 1920 && num <= 2099) return null;
+    return `${letters}-${numStr}`;
+  }
+
+  // 3. Compact JAV code without space or delimiter (e.g. IPX534, SSIS001) - 3 to 5 digits only
+  const compactMatch = clean.match(/\b([A-Za-z]{2,5})(\d{3,5})\b/);
+  if (compactMatch) {
+    const letters = compactMatch[1].toUpperCase();
+    const numStr = compactMatch[2];
+    const num = parseInt(numStr, 10);
+    if (NON_JAV_PREFIXES.has(letters)) return null;
+    if (numStr.length === 4 && num >= 1920 && num <= 2099) return null;
+    return `${letters}-${numStr}`;
+  }
+
   return null;
 }
 
