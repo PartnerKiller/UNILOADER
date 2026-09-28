@@ -575,17 +575,31 @@ function broadcastJobUpdate(jobId) {
 
 // Global SSE Stream Endpoint (Real-time live updates isolated per user with proxy buffering bypass)
 app.get('/api/jobs/stream', identifyUser, (req, res) => {
+  // Prevent socket timeouts from closing long-lived streaming connections
+  if (req.socket) {
+    req.socket.setTimeout(0);
+    req.socket.setNoDelay(true);
+    req.socket.setKeepAlive(true, 10000);
+  }
+
   res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform, no-store, must-revalidate',
     'Connection': 'keep-alive',
     'X-Accel-Buffering': 'no',
+    'Content-Encoding': 'none',
     'Access-Control-Allow-Origin': '*'
   });
+
   if (typeof res.flushHeaders === 'function') {
     res.flushHeaders();
   }
+
+  // Instruct client EventSource to auto-reconnect after 2000ms if ever dropped
+  res.write('retry: 2000\n\n');
   res.write(': connected\n\n');
+  res.write(`event: ping\ndata: ${Date.now()}\n\n`);
+
   globalSseClients.set(res, req.currentUser);
 
   // Send initial jobs payload strictly filtered for this user
@@ -602,19 +616,24 @@ app.get('/api/jobs/stream', identifyUser, (req, res) => {
 function clientResWriteSafe(res, chunk) {
   try {
     res.write(chunk);
+    if (typeof res.flush === 'function') res.flush();
   } catch (e) {}
 }
 
-// SSE Heartbeat every 15 seconds to keep reverse-proxy connections persistent
+// SSE Heartbeat every 10 seconds to keep reverse-proxy & Cloudflare tunnel connections persistent
 setInterval(() => {
+  if (globalSseClients.size === 0) return;
+  const pingPayload = `event: ping\ndata: ${Date.now()}\n\n`;
   for (const client of globalSseClients.keys()) {
     try {
       client.write(': keepalive\n\n');
+      client.write(pingPayload);
+      if (typeof client.flush === 'function') client.flush();
     } catch (e) {
       globalSseClients.delete(client);
     }
   }
-}, 15000);
+}, 10000);
 
 // Concurrency Queue Manager
 function getActiveDownloadCount() {
@@ -7813,10 +7832,14 @@ function gracefulShutdown() {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);
   console.log(`🚀 Universal Downloader Web Service is running!`);
   console.log(`🌐 Server listening on http://0.0.0.0:${PORT}`);
   console.log(`====================================================`);
   startEmbeddedSlskd();
 });
+
+// Configure Node.js HTTP server keepAlive timeouts for Cloudflare Tunnel / Reverse Proxies
+server.keepAliveTimeout = 65000; // 65 seconds (longer than Cloudflare 60s window)
+server.headersTimeout = 66000;   // Must exceed keepAliveTimeout

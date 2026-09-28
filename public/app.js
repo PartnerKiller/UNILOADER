@@ -2255,6 +2255,8 @@ window.addEventListener('DOMContentLoaded', () => {
 let sseEventSource = null;
 let sseReconnectTimer = null;
 let sseReconnectAttempts = 0;
+let sseLastMessageTime = Date.now();
+let sseDisconnectGraceTimer = null;
 
 function updateSseStatus(status) {
   const badge = document.getElementById('liveSyncBadge');
@@ -2286,6 +2288,10 @@ function restartJobsSSE() {
     clearTimeout(sseReconnectTimer);
     sseReconnectTimer = null;
   }
+  if (sseDisconnectGraceTimer) {
+    clearTimeout(sseDisconnectGraceTimer);
+    sseDisconnectGraceTimer = null;
+  }
   sseReconnectAttempts = 0;
   initGlobalSSEStream();
 }
@@ -2297,13 +2303,30 @@ function initGlobalSSEStream() {
     return;
   }
 
+  function scheduleReconnect() {
+    if (sseReconnectTimer) return;
+    sseReconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(1.3, sseReconnectAttempts - 1), 6000);
+    sseReconnectTimer = setTimeout(() => {
+      sseReconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
+  function markAlive() {
+    sseLastMessageTime = Date.now();
+    if (sseDisconnectGraceTimer) {
+      clearTimeout(sseDisconnectGraceTimer);
+      sseDisconnectGraceTimer = null;
+    }
+    updateSseStatus('connected');
+  }
+
   function connect() {
     if (sseEventSource) {
       try { sseEventSource.close(); } catch (e) {}
       sseEventSource = null;
     }
-
-    updateSseStatus('connecting');
 
     const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
     const cid = getClientId();
@@ -2312,15 +2335,29 @@ function initGlobalSSEStream() {
     if (cid) q.set('client_id', cid);
     const qs = q.toString() ? `?${q.toString()}` : '';
 
-    sseEventSource = new EventSource(`/api/jobs/stream${qs}`);
+    try {
+      sseEventSource = new EventSource(`/api/jobs/stream${qs}`);
+    } catch (e) {
+      console.warn('Failed to construct EventSource:', e);
+      scheduleReconnect();
+      return;
+    }
 
     sseEventSource.onopen = () => {
       sseReconnectAttempts = 0;
-      updateSseStatus('connected');
+      markAlive();
+      // Silently refresh jobs list on connect/reconnect to guarantee queue accuracy
+      loadJobs();
     };
+
+    // Heartbeat ping from server (prevents idle proxy timeouts)
+    sseEventSource.addEventListener('ping', () => {
+      markAlive();
+    });
 
     // Full queue synchronization event
     sseEventSource.addEventListener('sync', (event) => {
+      markAlive();
       if (!event.data || event.data.startsWith(':')) return;
       try {
         const jobs = JSON.parse(event.data);
@@ -2334,6 +2371,7 @@ function initGlobalSSEStream() {
 
     // Default message fallback (sync payload)
     sseEventSource.onmessage = (event) => {
+      markAlive();
       if (!event.data || event.data.startsWith(':')) return;
       try {
         const jobs = JSON.parse(event.data);
@@ -2345,6 +2383,7 @@ function initGlobalSSEStream() {
 
     // Real-time incremental job progress event
     sseEventSource.addEventListener('job_progress', (event) => {
+      markAlive();
       if (!event.data || event.data.startsWith(':')) return;
       try {
         const job = JSON.parse(event.data);
@@ -2390,21 +2429,56 @@ function initGlobalSSEStream() {
     });
 
     sseEventSource.onerror = () => {
-      try { sseEventSource.close(); } catch (e) {}
-      sseEventSource = null;
-      updateSseStatus('offline');
-      if (!sseReconnectTimer) {
-        sseReconnectAttempts++;
-        const delay = Math.min(1000 * Math.pow(1.5, sseReconnectAttempts - 1), 10000);
-        sseReconnectTimer = setTimeout(() => {
-          sseReconnectTimer = null;
-          connect();
-        }, delay);
+      // If browser EventSource is automatically reconnecting natively (readyState === CONNECTING),
+      // do not forcefully close it or show jarring OFFLINE badge immediately.
+      // Use a graceful 4-second dampening window so momentary HTTP/2 frame renegotiations are invisible.
+      if (!sseDisconnectGraceTimer) {
+        sseDisconnectGraceTimer = setTimeout(() => {
+          sseDisconnectGraceTimer = null;
+          if (!sseEventSource || sseEventSource.readyState !== EventSource.OPEN) {
+            updateSseStatus(sseEventSource && sseEventSource.readyState === EventSource.CONNECTING ? 'connecting' : 'offline');
+          }
+        }, 4000);
+      }
+
+      // If the browser permanently closed the connection, initiate reconnection
+      if (sseEventSource && sseEventSource.readyState === EventSource.CLOSED) {
+        try { sseEventSource.close(); } catch (e) {}
+        sseEventSource = null;
+        scheduleReconnect();
       }
     };
   }
 
   connect();
+
+  // Re-establish connection automatically on tab visibility change or network recovery
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      if (!sseEventSource || sseEventSource.readyState !== EventSource.OPEN) {
+        restartJobsSSE();
+      } else {
+        loadJobs();
+      }
+    }
+  });
+
+  window.addEventListener('online', () => {
+    restartJobsSSE();
+  });
+
+  // Watchdog timer to automatically recover from silent mobile zombie connections
+  if (!window._sseWatchdogInterval) {
+    window._sseWatchdogInterval = setInterval(() => {
+      if (sseEventSource && sseEventSource.readyState === EventSource.OPEN) {
+        // If more than 25 seconds have elapsed without any event or ping
+        if (Date.now() - sseLastMessageTime > 25000) {
+          console.warn('[SSE Watchdog] Stale stream detected (>25s), auto-recovering...');
+          restartJobsSSE();
+        }
+      }
+    }, 10000);
+  }
 }
 
 // ==========================================================================

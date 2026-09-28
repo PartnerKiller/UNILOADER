@@ -1019,10 +1019,14 @@ function initAdminQueueSSE() {
       } catch (err) {}
     });
 
+    es.addEventListener('ping', () => {});
+
     es.onerror = () => {
-      try { es.close(); } catch (err) {}
-      adminQueueSSE = null;
-      setTimeout(initAdminQueueSSE, 6000);
+      if (es.readyState === EventSource.CLOSED) {
+        try { es.close(); } catch (err) {}
+        adminQueueSSE = null;
+        setTimeout(initAdminQueueSSE, 3000);
+      }
     };
   } catch (err) {
     console.warn('Failed to start Admin Queue SSE:', err);
