@@ -26,6 +26,7 @@ const express = require('express');
 const cors = require('cors');
 const { spawn, exec, execSync } = require('child_process');
 const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
+const aiService = require('./ai_service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -906,7 +907,8 @@ const FEATURE_METADATA = [
   { key: 'adult', label: 'Adult & JAV Hub', description: 'Censored & Uncensored JAV streams, Rule34Video, and Tube engine' },
   { key: 'quality_4k', label: '4K & 8K Ultra HD', description: 'Unclamped 2160p and 4320p maximum resolution streaming' },
   { key: 'unlimited_concurrency', label: 'Unlimited Concurrency', description: 'Download multiple active tasks concurrently without queue throttling' },
-  { key: 'custom_storage', label: 'Dedicated Folder Storage', description: 'User-assigned persistent destination folder routing' }
+  { key: 'custom_storage', label: 'Dedicated Folder Storage', description: 'User-assigned persistent destination folder routing' },
+  { key: 'ai_copilot', label: 'AI Media Copilot & Multimodal Engine', description: 'Owner-exclusive Google Gemini AI Copilot, FLAC Spectrogram Audit, Subtitles, JAV recognition' }
 ];
 
 const DEFAULT_ROLE_PERMISSIONS = {
@@ -920,7 +922,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     adult: false,
     quality_4k: false,
     unlimited_concurrency: false,
-    custom_storage: false
+    custom_storage: false,
+    ai_copilot: false
   },
   user: {
     downloader: true,
@@ -932,7 +935,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     adult: true,
     quality_4k: true,
     unlimited_concurrency: true,
-    custom_storage: true
+    custom_storage: true,
+    ai_copilot: false
   },
   premium: {
     downloader: true,
@@ -944,7 +948,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     adult: true,
     quality_4k: true,
     unlimited_concurrency: true,
-    custom_storage: true
+    custom_storage: true,
+    ai_copilot: false
   }
 };
 
@@ -1695,6 +1700,136 @@ function identifyUser(req, res, next) {
   }
   next();
 }
+
+function requireOwner(req, res, next) {
+  if (!req.currentUser || !req.currentUser.isOwner) {
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: AI features are exclusively reserved for the server owner (Sakura).',
+      ownerOnly: true
+    });
+  }
+  next();
+}
+
+// ==========================================================================
+// Owner AI Engine Endpoints (Powered by Google Gemini Multimodal)
+// Strictly guarded by requireOwner middleware
+// ==========================================================================
+
+// 1. AI Engine Health & Status
+app.get('/api/ai/status', identifyUser, requireOwner, (req, res) => {
+  res.json({
+    success: true,
+    ...aiService.getAiStatus()
+  });
+});
+
+// 2. AI Media Copilot: Natural Language Intent Parser & Search Resolver
+app.post('/api/ai/copilot', identifyUser, requireOwner, async (req, res) => {
+  try {
+    const { prompt } = req.body || {};
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ success: false, error: 'Query prompt is required' });
+    }
+    const result = await aiService.parseSearchIntent(prompt.trim());
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. FLAC Checker AI Audiophile Spectrogram Audit
+app.post('/api/ai/audit-spectrogram', identifyUser, requireOwner, async (req, res) => {
+  try {
+    const { imageBase64, metadata } = req.body || {};
+    if (!imageBase64) {
+      return res.status(400).json({ success: false, error: 'Spectrogram image data is required' });
+    }
+    const result = await aiService.auditSpectrogram(imageBase64, metadata || {});
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. Dirty Filename & Scene Release Metadata Cleaner
+app.post('/api/ai/clean-filename', identifyUser, requireOwner, async (req, res) => {
+  try {
+    const { filename } = req.body || {};
+    if (!filename || typeof filename !== 'string') {
+      return res.status(400).json({ success: false, error: 'Filename is required' });
+    }
+    const result = await aiService.cleanDirtyFilename(filename.trim());
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5. Adult & JAV Hub: Image Recognition for Actress or Code Series
+app.post('/api/ai/jav-recognize', identifyUser, requireOwner, async (req, res) => {
+  try {
+    const { imageBase64, contextText } = req.body || {};
+    if (!imageBase64) {
+      return res.status(400).json({ success: false, error: 'Image data is required' });
+    }
+    const result = await aiService.identifyJavFromImage(imageBase64, contextText || '');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Adult & JAV Hub: Japanese Title & Synopsis Translation & Cleansing
+app.post('/api/ai/jav-translate', identifyUser, requireOwner, async (req, res) => {
+  try {
+    const { title, synopsis } = req.body || {};
+    if (!title || typeof title !== 'string') {
+      return res.status(400).json({ success: false, error: 'Title is required' });
+    }
+    const result = await aiService.translateAndCleanJavTitle(title.trim(), synopsis || '');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 7. Video Auto-Subtitles (.srt) Generation via Gemini Native Audio Processing
+app.post('/api/ai/generate-subtitles', identifyUser, requireOwner, async (req, res) => {
+  try {
+    const { jobId, audioBase64, language } = req.body || {};
+    let audioData = audioBase64;
+
+    if (!audioData && jobId) {
+      const match = findMediaFileByJobId(jobId);
+      if (match && match.filePath && fs.existsSync(match.filePath)) {
+        // Extract 45s audio snippet with ffmpeg for fast transcription
+        const tmpAudio = path.join(TEMP_DIR, `ai_sub_${jobId}_${Date.now()}.mp3`);
+        try {
+          const ffmpegBin = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+          execSync(`"${ffmpegBin}" -y -i "${match.filePath}" -t 120 -vn -ar 16000 -ac 1 -ab 64k "${tmpAudio}"`, { timeout: 20000, stdio: 'ignore' });
+          if (fs.existsSync(tmpAudio)) {
+            const buf = fs.readFileSync(tmpAudio);
+            audioData = `data:audio/mp3;base64,${buf.toString('base64')}`;
+            try { fs.unlinkSync(tmpAudio); } catch (e) {}
+          }
+        } catch (e) {
+          try { if (fs.existsSync(tmpAudio)) fs.unlinkSync(tmpAudio); } catch (e2) {}
+        }
+      }
+    }
+
+    if (!audioData) {
+      return res.status(400).json({ success: false, error: 'Audio data or valid jobId is required' });
+    }
+
+    const result = await aiService.generateSubtitlesFromAudio(audioData, language || 'en');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // Auth API Routes
 // Auth API Routes - Registration is disabled for public guests
@@ -3124,10 +3259,13 @@ app.post('/api/admin/update-ytdlp', requireAdmin, (req, res) => {
 // 7. Get Creds Status
 app.get('/api/admin/creds', requireAdmin, (req, res) => {
   const arl = process.env.DEEZER_ARL || '';
+  const gemKey = process.env.GEMINI_API_KEY || '';
   res.json({
     deezerArl: arl ? (arl.slice(0, 8) + '...' + arl.slice(-6)) : '',
     spotifyClientId: process.env.SPOTIFY_CLIENT_ID || '',
     spotifyClientSecret: process.env.SPOTIFY_CLIENT_SECRET ? '••••••••••••••••' : '',
+    geminiApiKey: gemKey ? (gemKey.slice(0, 6) + '...' + gemKey.slice(-4)) : '',
+    hasGeminiKey: !!gemKey,
     adminUser: process.env.ADMIN_USER || 'sakura'
   });
 });
@@ -3135,7 +3273,7 @@ app.get('/api/admin/creds', requireAdmin, (req, res) => {
 // 8. Update Creds & Persist to .env
 app.post('/api/admin/creds', requireAdmin, (req, res) => {
   try {
-    const { deezerArl, spotifyClientId, spotifyClientSecret, adminUser, adminPass } = req.body || {};
+    const { deezerArl, spotifyClientId, spotifyClientSecret, geminiApiKey, adminUser, adminPass } = req.body || {};
 
     if (deezerArl && !deezerArl.includes('...') && !deezerArl.includes('•')) {
       process.env.DEEZER_ARL = deezerArl.trim();
@@ -3145,6 +3283,9 @@ app.post('/api/admin/creds', requireAdmin, (req, res) => {
     }
     if (spotifyClientSecret && !spotifyClientSecret.includes('••')) {
       process.env.SPOTIFY_CLIENT_SECRET = spotifyClientSecret.trim();
+    }
+    if (geminiApiKey && !geminiApiKey.includes('...') && !geminiApiKey.includes('•')) {
+      process.env.GEMINI_API_KEY = geminiApiKey.trim();
     }
     if (adminUser) {
       process.env.ADMIN_USER = adminUser.trim();
@@ -3177,6 +3318,7 @@ app.post('/api/admin/creds', requireAdmin, (req, res) => {
       if (process.env.DEEZER_ARL) envMap.set('DEEZER_ARL', process.env.DEEZER_ARL);
       if (process.env.SPOTIFY_CLIENT_ID) envMap.set('SPOTIFY_CLIENT_ID', process.env.SPOTIFY_CLIENT_ID);
       if (process.env.SPOTIFY_CLIENT_SECRET) envMap.set('SPOTIFY_CLIENT_SECRET', process.env.SPOTIFY_CLIENT_SECRET);
+      if (process.env.GEMINI_API_KEY) envMap.set('GEMINI_API_KEY', process.env.GEMINI_API_KEY);
       if (process.env.ADMIN_USER) envMap.set('ADMIN_USER', process.env.ADMIN_USER);
       if (process.env.ADMIN_PASS) envMap.set('ADMIN_PASS', process.env.ADMIN_PASS);
       if (process.env.PORT) envMap.set('PORT', process.env.PORT);

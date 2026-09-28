@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.17.5">
+  <link rel="stylesheet" href="styles.css?v=4.19.0">
 </head>
 <body>
   <div class="app-layout">
@@ -98,7 +98,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.18.3 &bull; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.19.0 &bull; Gemini AI Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -258,7 +258,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.18.3 &bull; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.19.0 &bull; Gemini AI Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -319,6 +319,10 @@
                     </svg>
                     <span>Paste</span>
                   </button>
+                  <button type="button" class="btn btn-icon-text btn-ai-trigger ai-owner-feature" id="btnAiCopilotTrigger" title="AI Media Copilot (Gemini) - Natural Language Downloader">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+                    <span>✨ Copilot</span>
+                  </button>
                 </div>
                 <button type="submit" class="btn btn-primary btn-fetch" id="fetchBtn">
                   <span class="btn-text">Fetch Info</span>
@@ -326,6 +330,37 @@
                 </button>
               </div>
             </form>
+
+            <!-- AI Media Copilot Panel (Owner Only) -->
+            <div class="ai-copilot-container ai-owner-feature" id="aiCopilotContainer" style="display: none;">
+              <div class="ai-copilot-header">
+                <div class="ai-badge-group">
+                  <span class="ai-sparkle-pill">✨ GEMINI COPILOT</span>
+                  <span class="ai-sub-pill">Natural Language Media Resolver</span>
+                </div>
+                <button type="button" class="btn-close-copilot" id="btnCloseCopilot" title="Close AI Copilot">&times;</button>
+              </div>
+              <div class="ai-copilot-body">
+                <div class="ai-prompt-input-row">
+                  <input type="text" id="aiCopilotInput" class="ai-prompt-input" placeholder="e.g. 'Download Daft Punk Discovery in 24-bit FLAC' or 'Find Oppenheimer 4K'..." autocomplete="off" />
+                  <button type="button" class="btn-ai-submit" id="btnAiCopilotSubmit">
+                    <span>Ask AI</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                  </button>
+                </div>
+                <div class="ai-quick-examples">
+                  <span class="ai-examples-label">Try:</span>
+                  <button type="button" class="ai-example-chip" data-prompt="Download Daft Punk Discovery in 24-bit FLAC">🎵 Daft Punk Discovery 24-bit FLAC</button>
+                  <button type="button" class="ai-example-chip" data-prompt="Find Christopher Nolan Oppenheimer 4K">🎬 Oppenheimer 4K Cinema</button>
+                  <button type="button" class="ai-example-chip" data-prompt="SSIS-888 Yua Mikami">🔞 SSIS-888 Yua Mikami</button>
+                  <button type="button" class="ai-example-chip" data-prompt="Download Hotel California Eagles studio master on Soulseek">🎧 Hotel California Audiophile Master</button>
+                </div>
+                <div class="ai-copilot-feedback" id="aiCopilotFeedback" style="display: none;">
+                  <div class="ai-feedback-spinner" id="aiFeedbackSpinner" style="display: none;"></div>
+                  <span class="ai-feedback-text" id="aiFeedbackText"></span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Batch Mode Form (Hidden by default) -->
@@ -851,11 +886,40 @@
                   <h4 class="spectrogram-title">High-Definition Audio Frequency Spectrogram</h4>
                   <p class="spectrogram-subtitle">Logarithmic Frequency Scale (0 Hz &ndash; Nyquist Limit) &bull; Heat-Mapped Decibels</p>
                 </div>
-                <span class="spectrogram-tag">Visual Spectral Proof</span>
+                <div class="spectrogram-header-actions" style="display: flex; gap: 8px; align-items: center;">
+                  <button type="button" class="btn-ai-audit ai-owner-feature" id="btnFlacAiAudit" title="Run Gemini Vision Audiophile Authenticity Audit">
+                    <span>✨ AI Lossless Audit</span>
+                  </button>
+                  <span class="spectrogram-tag">Visual Spectral Proof</span>
+                </div>
               </div>
               <div class="spectrogram-img-wrap" id="spectrogramImgWrap">
                 <img id="spectrogramImg" class="spectrogram-img" alt="Audio Spectrogram" />
               </div>
+              
+              <!-- AI Audiophile Lossless Verdict Card (Owner Only) -->
+              <div class="flac-ai-verdict-card ai-owner-feature" id="flacAiVerdictCard" style="display: none;">
+                <div class="ai-verdict-header">
+                  <div class="ai-verdict-title-wrap">
+                    <span class="ai-verdict-badge" id="aiVerdictBadge">VERIFIED MASTER</span>
+                    <span class="ai-verdict-score" id="aiVerdictScore">Fidelity: --/100</span>
+                  </div>
+                  <span class="ai-engine-tag">Google Gemini Vision &bull; Lossless Authenticator</span>
+                </div>
+                <div class="ai-verdict-body">
+                  <div class="ai-verdict-row">
+                    <span class="ai-metric-label">Estimated Original Source:</span>
+                    <strong class="ai-metric-val" id="aiEstimatedSource">--</strong>
+                  </div>
+                  <div class="ai-verdict-row">
+                    <span class="ai-metric-label">Frequency Shelf / Cutoff:</span>
+                    <strong class="ai-metric-val" id="aiCutoffFreq">--</strong>
+                  </div>
+                  <p class="ai-verdict-analysis" id="aiTechnicalAnalysis"></p>
+                  <div class="ai-verdict-badges" id="aiVerdictBadges"></div>
+                </div>
+              </div>
+
               <div class="spectrogram-caption">
                 <strong>Analysis Guide:</strong> Real uncompressed FLAC files show continuous musical harmonics up to 22kHz (CD) or 48kHz (Hi-Res). Fake/transcoded FLACs display a sharp horizontal shelf/cutoff with total darkness above 16kHz or 20kHz.
               </div>
@@ -932,7 +996,46 @@
                 <button type="button" class="quick-tag-chip" data-query="Korean">Korean</button>
                 <button type="button" class="quick-tag-chip" data-query="KMIB">KMIB</button>
                 <button type="button" class="quick-tag-chip" data-query="Uncensored">Uncensored</button>
-                <button type="button" class="quick-tag-chip" data-query="Japanese">Japanese</button>
+            </div>
+
+            <!-- AI Actress & Japanese Title Assistant (Owner Only) -->
+            <div class="ai-jav-assistant-box ai-owner-feature" id="aiJavAssistantBox" style="margin-top: 14px;">
+              <div class="ai-jav-header">
+                <div class="ai-badge-group">
+                  <span class="ai-sparkle-pill">✨ GEMINI JAV INTELLIGENCE</span>
+                  <span class="ai-sub-pill">Visual Actress Matcher & Japanese Title Cleaner</span>
+                </div>
+                <button type="button" class="btn-toggle-jav-ai" id="btnToggleJavAi">
+                  <span id="btnToggleJavAiText">Upload Image / Translate Title</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+              </div>
+              <div class="ai-jav-content" id="aiJavContent" style="display: none;">
+                <div class="ai-jav-tabs">
+                  <button type="button" class="ai-jav-tab active" id="tabJavImageMatch">📸 Screenshot / Image Match</button>
+                  <button type="button" class="ai-jav-tab" id="tabJavTranslate">🈯 Japanese Title &amp; Synopsis Translator</button>
+                </div>
+                
+                <!-- Panel 1: Image Match -->
+                <div class="ai-jav-tab-panel" id="panelJavImageMatch">
+                  <div class="ai-dropzone" id="javAiDropzone">
+                    <input type="file" id="javAiFileInput" accept="image/*" style="display: none;" />
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    <span>Click or Drag &amp; Drop a video frame, screenshot, or poster here</span>
+                  </div>
+                  <div class="ai-jav-result" id="javAiResult" style="display: none;"></div>
+                </div>
+
+                <!-- Panel 2: Title Translation -->
+                <div class="ai-jav-tab-panel" id="panelJavTranslate" style="display: none;">
+                  <div class="ai-translate-row">
+                    <input type="text" id="javRawTitleInput" class="ai-prompt-input" placeholder="Paste raw Japanese title (e.g. 【HD】専属 美人新妻 禁断の過ち...)" />
+                    <button type="button" class="btn-ai-submit" id="btnJavTranslateSubmit">
+                      <span>Clean &amp; Translate</span>
+                    </button>
+                  </div>
+                  <div class="ai-jav-result" id="javTranslateResult" style="display: none;"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -1381,6 +1484,10 @@
               </svg>
               <span>Stream / Preview Online</span>
             </button>
+            <button type="button" class="btn btn-secondary btn-ready-action ai-owner-feature" id="readyModalAiSubsBtn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+              <span>✨ AI Subtitles (.srt)</span>
+            </button>
             <button type="button" class="btn btn-secondary btn-ready-action" id="readyModalFolderBtn">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -1406,6 +1513,9 @@
         </div>
         <div class="modal-footer">
           <span class="modal-file-info" id="modalFileInfo"></span>
+          <button type="button" class="btn btn-secondary btn-sm ai-owner-feature" id="modalAiSubsBtn" title="Auto-transcribe &amp; generate synchronized SRT subtitles with Gemini">
+            <span>✨ Generate AI Subtitles</span>
+          </button>
           <a href="#" class="btn btn-primary btn-sm" id="modalDownloadDeviceBtn" download>
             <span>Save to Device</span>
           </a>

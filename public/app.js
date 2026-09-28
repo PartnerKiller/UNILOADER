@@ -342,6 +342,13 @@ function updateAuthUI(user, limits) {
     }
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account';
 
+    const isOwner = user && (user.role === 'owner' || user.isOwner || user.username?.toLowerCase() === 'sakura');
+    if (isOwner) {
+      document.body.classList.add('user-is-owner');
+    } else {
+      document.body.classList.remove('user-is-owner');
+    }
+
     document.body.classList.add('authenticated-user');
     document.querySelectorAll('.guest-only-nav').forEach(el => {
       el.style.display = 'none';
@@ -363,6 +370,7 @@ function updateAuthUI(user, limits) {
   } else {
     // Guest User
     document.body.classList.remove('authenticated-user');
+    document.body.classList.remove('user-is-owner');
     document.querySelectorAll('.guest-only-nav').forEach(el => {
       el.style.display = 'flex';
     });
@@ -2146,8 +2154,11 @@ async function clearAllCompletedJobs() {
 }
 
 // 6. In-Browser Media Player
-window.playMedia = function(streamUrl, title, downloadUrl) {
+window.playMedia = function(streamUrl, title, downloadUrl, jobId = null) {
   if (!playerModal) return;
+
+  const urlJobMatch = (streamUrl || '').match(/\/api\/stream\/([a-zA-Z0-9_\-]+)/);
+  window.currentPlayingJobId = jobId || (urlJobMatch ? urlJobMatch[1] : (window.activeReadyJob?.id || null));
 
   // Immediately close any other open dialogs so they never cover or obscure the video player
   const movieReleasesModal = document.getElementById('movieReleasesModal');
@@ -2175,15 +2186,16 @@ window.playMedia = function(streamUrl, title, downloadUrl) {
 };
 
 window.playMediaById = function(jobId) {
+  window.currentPlayingJobId = jobId;
   fetch('/api/jobs').then(r => r.json()).then(jobs => {
     const job = jobs.find(j => j.id === jobId);
     if (job) {
-      playMedia(job.streamUrl, job.title, job.downloadUrl);
+      playMedia(job.streamUrl, job.title, job.downloadUrl, jobId);
     } else {
-      playMedia(`/api/stream/${jobId}`, 'Media Player', `/api/download-file/${jobId}`);
+      playMedia(`/api/stream/${jobId}`, 'Media Player', `/api/download-file/${jobId}`, jobId);
     }
   }).catch(() => {
-    playMedia(`/api/stream/${jobId}`, 'Media Player', `/api/download-file/${jobId}`);
+    playMedia(`/api/stream/${jobId}`, 'Media Player', `/api/download-file/${jobId}`, jobId);
   });
 };
 
@@ -2939,10 +2951,17 @@ function renderFlacReport(report) {
   // 4. Spectrogram Image
   const specBox = document.getElementById('flacSpectrogramBox');
   const specImg = document.getElementById('spectrogramImg');
+  const aiVerdictCard = document.getElementById('flacAiVerdictCard');
+  if (aiVerdictCard) aiVerdictCard.style.display = 'none';
+
   if (report.spectrogram && specImg) {
+    window.currentFlacSpectrogram = report.spectrogram;
+    window.currentFlacMetadata = report;
     specImg.src = report.spectrogram;
     specBox.style.display = 'block';
   } else if (specBox) {
+    window.currentFlacSpectrogram = null;
+    window.currentFlacMetadata = null;
     specBox.style.display = 'none';
   }
 
@@ -4811,12 +4830,555 @@ function initMusicView() {
   }
 }
 
+// ==========================================================================
+// 8. GEMINI MULTIMODAL AI INTELLIGENCE SUITE (OWNER EXCLUSIVE)
+// ==========================================================================
+function initAiFeatures() {
+  // 1. AI Media Copilot
+  const btnAiCopilotTrigger = document.getElementById('btnAiCopilotTrigger');
+  const aiCopilotContainer = document.getElementById('aiCopilotContainer');
+  const aiCopilotClose = document.getElementById('aiCopilotClose');
+  const aiCopilotInput = document.getElementById('aiCopilotInput');
+  const btnAiCopilotSubmit = document.getElementById('btnAiCopilotSubmit');
+  const aiCopilotFeedback = document.getElementById('aiCopilotFeedback');
+  const aiFeedbackSpinner = document.getElementById('aiFeedbackSpinner');
+  const aiFeedbackText = document.getElementById('aiFeedbackText');
+  const exampleChips = document.querySelectorAll('.ai-copilot-chip');
+
+  if (btnAiCopilotTrigger && aiCopilotContainer) {
+    btnAiCopilotTrigger.addEventListener('click', () => {
+      const isHidden = aiCopilotContainer.style.display === 'none' || !aiCopilotContainer.style.display;
+      aiCopilotContainer.style.display = isHidden ? 'block' : 'none';
+      if (isHidden && aiCopilotInput) {
+        aiCopilotInput.focus();
+      }
+    });
+  }
+
+  if (aiCopilotClose && aiCopilotContainer) {
+    aiCopilotClose.addEventListener('click', () => {
+      aiCopilotContainer.style.display = 'none';
+    });
+  }
+
+  async function handleAiCopilotSubmit(promptText) {
+    const prompt = (promptText || (aiCopilotInput ? aiCopilotInput.value : '')).trim();
+    if (!prompt) {
+      showToast('Please enter a media prompt for AI Copilot', 'warning');
+      return;
+    }
+
+    if (btnAiCopilotSubmit) btnAiCopilotSubmit.disabled = true;
+    if (aiCopilotFeedback) aiCopilotFeedback.style.display = 'flex';
+    if (aiFeedbackSpinner) aiFeedbackSpinner.style.display = 'inline-block';
+    if (aiFeedbackText) aiFeedbackText.textContent = '✨ Consulting Google Gemini AI...';
+
+    try {
+      const res = await fetch('/api/ai/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success && data.intent) {
+        const intent = data.intent;
+        if (aiFeedbackText) {
+          aiFeedbackText.textContent = intent.explanation || 'Intent resolved successfully';
+        }
+
+        // Auto-route based on intent category and suggestedTab
+        const targetTab = intent.suggestedTab || intent.intent;
+        if (targetTab === 'adult-search' || intent.intent === 'adult_jav') {
+          switchView('adult-search');
+          const adultInput = document.getElementById('adultSearchInput');
+          const q = intent.javCode || intent.javActress || intent.query;
+          if (adultInput && q) {
+            adultInput.value = q;
+            currentAdultQuery = q;
+            currentAdultPage = 1;
+            if (typeof executeAdultSearch === 'function') executeAdultSearch();
+          }
+        } else if (targetTab === 'music' || intent.intent === 'music') {
+          switchView('music');
+          const musicInput = document.getElementById('musicSearchInput');
+          if (musicInput && intent.query) {
+            musicInput.value = intent.query;
+            currentMusicQuery = intent.query;
+            currentMusicPage = 1;
+            if (typeof executeMusicSearch === 'function') executeMusicSearch(intent.query, 1);
+          }
+        } else if (targetTab === 'movies' || intent.intent === 'movies') {
+          switchView('movies');
+          const movieInput = document.getElementById('movieSearchInput');
+          if (movieInput && intent.query) {
+            movieInput.value = intent.query;
+            currentMovieQuery = intent.query;
+            currentMoviePage = 1;
+            if (typeof executeMovieSearch === 'function') executeMovieSearch(intent.query, 1);
+          }
+        } else if (intent.directUrl || intent.intent === 'direct_url') {
+          switchView('downloader');
+          if (urlInput) {
+            urlInput.value = intent.directUrl || intent.query;
+            if (fetchBtn) fetchBtn.click();
+          }
+        } else {
+          switchView('downloader');
+          if (urlInput && intent.query) {
+            urlInput.value = intent.query;
+            if (fetchBtn) fetchBtn.click();
+          }
+        }
+
+        showToast(`✨ Copilot: ${intent.explanation || intent.query}`, 'success');
+      } else {
+        if (data.ownerOnly) {
+          showToast('AI features are strictly reserved for Owner account (Sakura)', 'error');
+        } else {
+          showToast(data.error || 'AI Copilot could not resolve request', 'error');
+        }
+        if (aiFeedbackText) aiFeedbackText.textContent = data.error || 'Request failed';
+      }
+    } catch (err) {
+      showToast(`AI Copilot error: ${err.message}`, 'error');
+      if (aiFeedbackText) aiFeedbackText.textContent = `Error: ${err.message}`;
+    } finally {
+      if (btnAiCopilotSubmit) btnAiCopilotSubmit.disabled = false;
+      if (aiFeedbackSpinner) aiFeedbackSpinner.style.display = 'none';
+    }
+  }
+
+  if (btnAiCopilotSubmit) {
+    btnAiCopilotSubmit.addEventListener('click', () => handleAiCopilotSubmit());
+  }
+
+  if (aiCopilotInput) {
+    aiCopilotInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAiCopilotSubmit();
+      }
+    });
+  }
+
+  exampleChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      const ex = chip.dataset.example || chip.textContent.trim();
+      if (aiCopilotInput) aiCopilotInput.value = ex;
+      handleAiCopilotSubmit(ex);
+    });
+  });
+
+  // 2. FLAC Checker Spectrogram AI Audit
+  const btnFlacAiAudit = document.getElementById('btnFlacAiAudit');
+  const flacAiVerdictCard = document.getElementById('flacAiVerdictCard');
+  const aiVerdictBadge = document.getElementById('aiVerdictBadge');
+  const aiVerdictScore = document.getElementById('aiVerdictScore');
+  const aiEstimatedSource = document.getElementById('aiEstimatedSource');
+  const aiCutoffFreq = document.getElementById('aiCutoffFreq');
+  const aiTechnicalAnalysis = document.getElementById('aiTechnicalAnalysis');
+  const aiVerdictBadges = document.getElementById('aiVerdictBadges');
+
+  if (btnFlacAiAudit) {
+    btnFlacAiAudit.addEventListener('click', async () => {
+      if (!window.currentFlacSpectrogram) {
+        showToast('No spectrogram image available. Upload and analyze an audio file first.', 'warning');
+        return;
+      }
+
+      btnFlacAiAudit.disabled = true;
+      btnFlacAiAudit.innerHTML = `<span>✨ Auditing Spectrogram...</span>`;
+
+      try {
+        const res = await fetch('/api/ai/audit-spectrogram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: window.currentFlacSpectrogram,
+            metadata: window.currentFlacMetadata || {}
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success && data.audit) {
+          const audit = data.audit;
+          if (flacAiVerdictCard) flacAiVerdictCard.style.display = 'block';
+
+          if (aiVerdictBadge) {
+            aiVerdictBadge.textContent = (audit.verdict || 'AUTHENTIC').replace(/_/g, ' ');
+            aiVerdictBadge.className = 'ai-verdict-badge ' + (audit.isAuthenticLossless ? 'badge-genuine' : 'badge-fake');
+          }
+
+          if (aiVerdictScore) {
+            aiVerdictScore.textContent = `Fidelity: ${audit.fidelityScore || 90}/100`;
+          }
+
+          if (aiEstimatedSource) {
+            aiEstimatedSource.textContent = audit.estimatedOriginalSource || '16-bit / 44.1 kHz CDDA';
+          }
+
+          if (aiCutoffFreq) {
+            aiCutoffFreq.textContent = audit.cutoffFrequency || 'No cutoff detected';
+          }
+
+          if (aiTechnicalAnalysis) {
+            aiTechnicalAnalysis.textContent = audit.technicalAnalysis || '';
+          }
+
+          if (aiVerdictBadges) {
+            const badges = Array.isArray(audit.badges) ? audit.badges : [];
+            aiVerdictBadges.innerHTML = badges.map(b => `<span class="ai-pill-tag">${escapeHtml(b)}</span>`).join('');
+          }
+
+          flacAiVerdictCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          showToast(`Audiophile Audit: ${audit.verdict}`, audit.isAuthenticLossless ? 'success' : 'warning');
+        } else {
+          showToast(data.error || 'Failed to complete spectrogram audit', 'error');
+        }
+      } catch (err) {
+        showToast(`Audit failed: ${err.message}`, 'error');
+      } finally {
+        btnFlacAiAudit.disabled = false;
+        btnFlacAiAudit.innerHTML = `<span>✨ AI Lossless Audit</span>`;
+      }
+    });
+  }
+
+  // 3. Adult & JAV Hub AI Assistant
+  const btnToggleJavAi = document.getElementById('btnToggleJavAi');
+  const aiJavContent = document.getElementById('aiJavContent');
+  const tabJavImageMatch = document.getElementById('tabJavImageMatch');
+  const tabJavTranslate = document.getElementById('tabJavTranslate');
+  const panelJavImageMatch = document.getElementById('panelJavImageMatch');
+  const panelJavTranslate = document.getElementById('panelJavTranslate');
+
+  const javAiDropzone = document.getElementById('javAiDropzone');
+  const javAiFileInput = document.getElementById('javAiFileInput');
+  const javAiResult = document.getElementById('javAiResult');
+
+  const javRawTitleInput = document.getElementById('javRawTitleInput');
+  const btnJavTranslateSubmit = document.getElementById('btnJavTranslateSubmit');
+  const javTranslateResult = document.getElementById('javTranslateResult');
+
+  if (btnToggleJavAi && aiJavContent) {
+    btnToggleJavAi.addEventListener('click', () => {
+      const isHidden = aiJavContent.style.display === 'none' || !aiJavContent.style.display;
+      aiJavContent.style.display = isHidden ? 'block' : 'none';
+      btnToggleJavAi.classList.toggle('active', isHidden);
+    });
+  }
+
+  if (tabJavImageMatch && tabJavTranslate && panelJavImageMatch && panelJavTranslate) {
+    tabJavImageMatch.addEventListener('click', () => {
+      tabJavImageMatch.classList.add('active');
+      tabJavTranslate.classList.remove('active');
+      panelJavImageMatch.style.display = 'block';
+      panelJavTranslate.style.display = 'none';
+    });
+
+    tabJavTranslate.addEventListener('click', () => {
+      tabJavTranslate.classList.add('active');
+      tabJavImageMatch.classList.remove('active');
+      panelJavTranslate.style.display = 'block';
+      panelJavImageMatch.style.display = 'none';
+    });
+  }
+
+  // Image recognition
+  async function processJavImageFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+      showToast('Please select a valid image file', 'warning');
+      return;
+    }
+
+    if (javAiResult) {
+      javAiResult.style.display = 'block';
+      javAiResult.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;padding:12px;color:var(--text-muted);">
+          <div class="ai-feedback-spinner" style="display:inline-block;"></div>
+          <span>Analyzing visual features, actress face, and studio codes with Gemini Vision...</span>
+        </div>
+      `;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64Data = e.target.result;
+      try {
+        const res = await fetch('/api/ai/jav-recognize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64Data })
+        });
+        const data = await res.json();
+        if (res.ok && data.success && data.recognition) {
+          const r = data.recognition;
+          const searchTag = r.detectedCode || r.actressName || r.searchQuerySuggestion || '';
+          if (javAiResult) {
+            javAiResult.innerHTML = `
+              <div class="ai-result-card" style="padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;">
+                <div class="ai-result-row" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                  ${r.detectedCode ? `<span class="ai-pill-tag tag-code">${escapeHtml(r.detectedCode)}</span>` : ''}
+                  ${r.actressName ? `<span class="ai-pill-tag tag-actress">${escapeHtml(r.actressName)}${r.actressKanji ? ` (${escapeHtml(r.actressKanji)})` : ''}</span>` : ''}
+                  ${r.maker ? `<span class="ai-pill-tag">${escapeHtml(r.maker)}</span>` : ''}
+                  <span class="ai-pill-tag tag-confidence">Confidence: ${escapeHtml(r.confidence || 'HIGH')}</span>
+                </div>
+                ${r.cleanEnglishTitle ? `<div style="font-weight:600;margin:6px 0;font-size:0.92rem;color:var(--text-primary);">${escapeHtml(r.cleanEnglishTitle)}</div>` : ''}
+                ${searchTag ? `
+                  <button type="button" class="btn btn-sm btn-primary" style="margin-top:8px;" onclick="searchAdultByAiTag('${escapeHtml(searchTag)}')">
+                    <span>Search Adult Hub for "${escapeHtml(searchTag)}"</span>
+                  </button>
+                ` : ''}
+              </div>
+            `;
+          }
+        } else {
+          if (javAiResult) javAiResult.innerHTML = `<div style="color:var(--danger);padding:8px;">${escapeHtml(data.error || 'Image recognition failed')}</div>`;
+        }
+      } catch (err) {
+        if (javAiResult) javAiResult.innerHTML = `<div style="color:var(--danger);padding:8px;">Error: ${escapeHtml(err.message)}</div>`;
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  if (javAiDropzone && javAiFileInput) {
+    javAiDropzone.addEventListener('click', () => javAiFileInput.click());
+    javAiFileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) processJavImageFile(file);
+    });
+
+    javAiDropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      javAiDropzone.classList.add('drag-over');
+    });
+
+    javAiDropzone.addEventListener('dragleave', () => {
+      javAiDropzone.classList.remove('drag-over');
+    });
+
+    javAiDropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      javAiDropzone.classList.remove('drag-over');
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) processJavImageFile(file);
+    });
+  }
+
+  // Japanese Title Translation
+  async function handleJavTitleTranslate() {
+    const rawTitle = (javRawTitleInput ? javRawTitleInput.value : '').trim();
+    if (!rawTitle) {
+      showToast('Please enter a Japanese title to translate', 'warning');
+      return;
+    }
+
+    if (btnJavTranslateSubmit) btnJavTranslateSubmit.disabled = true;
+    if (javTranslateResult) {
+      javTranslateResult.style.display = 'block';
+      javTranslateResult.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;padding:12px;color:var(--text-muted);">
+          <div class="ai-feedback-spinner" style="display:inline-block;"></div>
+          <span>Translating and removing marketing noise with Gemini AI...</span>
+        </div>
+      `;
+    }
+
+    try {
+      const res = await fetch('/api/ai/jav-translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: rawTitle })
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.translated) {
+        const t = data.translated;
+        const searchVal = t.code || t.cleanTitle || '';
+        if (javTranslateResult) {
+          javTranslateResult.innerHTML = `
+            <div class="ai-result-card" style="padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;">
+              <div class="ai-result-row" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                ${t.code ? `<span class="ai-pill-tag tag-code">${escapeHtml(t.code)}</span>` : ''}
+                ${(t.actresses || []).map(a => `<span class="ai-pill-tag tag-actress">${escapeHtml(a)}</span>`).join('')}
+              </div>
+              <div style="font-weight:600;margin:6px 0;font-size:0.92rem;color:var(--text-primary);">${escapeHtml(t.cleanTitle || rawTitle)}</div>
+              ${t.englishSynopsis ? `<p style="font-size:0.83rem;color:var(--text-muted);margin:4px 0 8px 0;">${escapeHtml(t.englishSynopsis)}</p>` : ''}
+              ${searchVal ? `
+                <button type="button" class="btn btn-sm btn-primary" onclick="searchAdultByAiTag('${escapeHtml(searchVal)}')">
+                  <span>Search Adult Hub for "${escapeHtml(searchVal)}"</span>
+                </button>
+              ` : ''}
+            </div>
+          `;
+        }
+      } else {
+        if (javTranslateResult) javTranslateResult.innerHTML = `<div style="color:var(--danger);padding:8px;">${escapeHtml(data.error || 'Translation failed')}</div>`;
+      }
+    } catch (err) {
+      if (javTranslateResult) javTranslateResult.innerHTML = `<div style="color:var(--danger);padding:8px;">Error: ${escapeHtml(err.message)}</div>`;
+    } finally {
+      if (btnJavTranslateSubmit) btnJavTranslateSubmit.disabled = false;
+    }
+  }
+
+  if (btnJavTranslateSubmit) {
+    btnJavTranslateSubmit.addEventListener('click', handleJavTitleTranslate);
+  }
+  if (javRawTitleInput) {
+    javRawTitleInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleJavTitleTranslate();
+      }
+    });
+  }
+
+  // 4. Auto-Subtitles (.srt) Generation
+  const modalAiSubsBtn = document.getElementById('modalAiSubsBtn');
+  const readyModalAiSubsBtn = document.getElementById('readyModalAiSubsBtn');
+
+  async function handleSubtitleGeneration(jobId, filename, triggerBtn) {
+    if (!jobId) {
+      showToast('No active download job available for subtitle generation', 'warning');
+      return;
+    }
+
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.setAttribute('data-original-html', triggerBtn.innerHTML);
+      triggerBtn.innerHTML = `<span>✨ Transcribing Audio with Gemini...</span>`;
+    }
+    showToast('✨ Gemini Multimodal AI is transcribing audio & synchronizing SRT subtitles...', 'info');
+
+    try {
+      const res = await fetch('/api/ai/generate-subtitles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, language: 'en' })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success && data.srt) {
+        const srtContent = data.srt;
+        const cleanName = (filename || 'video').replace(/\.[^/.]+$/, '');
+
+        // 1. Download .srt file directly
+        const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
+        const srtUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = srtUrl;
+        a.download = `${cleanName}.srt`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        // 2. If in-browser video player is open, convert to WebVTT and attach as active track
+        if (html5Player && playerModal && playerModal.style.display !== 'none') {
+          try {
+            const vttContent = "WEBVTT\n\n" + srtContent.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+            const vttBlob = new Blob([vttContent], { type: 'text/vtt' });
+            const vttUrl = URL.createObjectURL(vttBlob);
+
+            Array.from(html5Player.querySelectorAll('track[data-ai="true"]')).forEach(t => t.remove());
+
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.label = 'Gemini AI Subtitles (English)';
+            track.srclang = 'en';
+            track.src = vttUrl;
+            track.default = true;
+            track.dataset.ai = 'true';
+            html5Player.appendChild(track);
+
+            if (html5Player.textTracks && html5Player.textTracks.length > 0) {
+              const lastTrack = html5Player.textTracks[html5Player.textTracks.length - 1];
+              if (lastTrack) lastTrack.mode = 'showing';
+            }
+          } catch (trackErr) {
+            console.warn('Could not attach WebVTT track to player:', trackErr);
+          }
+        }
+
+        showToast('✓ AI Subtitles generated successfully and saved as .srt!', 'success');
+      } else {
+        showToast(data.error || 'Failed to generate subtitles', 'error');
+      }
+    } catch (err) {
+      showToast(`Subtitle generation error: ${err.message}`, 'error');
+    } finally {
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        const orig = triggerBtn.getAttribute('data-original-html');
+        if (orig) triggerBtn.innerHTML = orig;
+      }
+    }
+  }
+
+  if (readyModalAiSubsBtn) {
+    readyModalAiSubsBtn.addEventListener('click', () => {
+      const job = window.activeReadyJob;
+      if (job) {
+        handleSubtitleGeneration(job.id, job.filename || job.title, readyModalAiSubsBtn);
+      } else {
+        showToast('No active download selected', 'warning');
+      }
+    });
+  }
+
+  if (modalAiSubsBtn) {
+    modalAiSubsBtn.addEventListener('click', () => {
+      const jobId = window.currentPlayingJobId || (window.activeReadyJob ? window.activeReadyJob.id : null);
+      const title = modalVideoTitle ? modalVideoTitle.textContent : 'media';
+      if (jobId) {
+        handleSubtitleGeneration(jobId, title, modalAiSubsBtn);
+      } else {
+        showToast('No active media stream found for subtitle generation', 'warning');
+      }
+    });
+  }
+}
+
+window.searchAdultByAiTag = function(tag) {
+  if (!tag) return;
+  switchView('adult-search');
+  const input = document.getElementById('adultSearchInput');
+  if (input) {
+    input.value = tag;
+  }
+  currentAdultQuery = tag;
+  currentAdultPage = 1;
+  if (typeof executeAdultSearch === 'function') {
+    executeAdultSearch();
+  }
+};
+
+window.aiCleanFilename = async function(rawFilename) {
+  if (!rawFilename) return null;
+  try {
+    const res = await fetch('/api/ai/clean-filename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: rawFilename })
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.parsed) {
+      return data.parsed;
+    }
+  } catch (e) {
+    console.warn('AI clean-filename error:', e);
+  }
+  return null;
+};
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   initFlacChecker();
   initAdultSearch();
   initMoviesView();
   initMusicView();
+  initAiFeatures();
   setupVersionTapEasterEgg();
 });
 
