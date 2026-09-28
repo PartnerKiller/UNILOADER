@@ -483,7 +483,7 @@ function getJobsForUser(currentUser, options = {}) {
     }
 
     const jobOwner = job.ownerId || 'owner';
-    if (targetUserId && (jobOwner === targetUserId || jobOwner === 'owner')) {
+    if (targetUserId && jobOwner === targetUserId) {
       result.push(formatJobSummary(job, options.detailed));
     }
   }
@@ -546,8 +546,7 @@ function broadcastJobUpdate(jobId) {
         const isOwner = clientUser && (clientUser.isOwner || clientUser.role === 'owner' || clientUser.userId === 'owner' || clientUser.username?.toLowerCase() === 'sakura');
         const targetUserId = clientUser ? clientUser.userId : null;
         const jobOwner = job.ownerId || 'owner';
-
-        if (isOwner || (targetUserId && (jobOwner === targetUserId || jobOwner === 'owner'))) {
+        if (isOwner || (targetUserId && jobOwner === targetUserId)) {
           clientRes.write(`event: job_progress\ndata: ${jsonPayload}\n\n`);
         }
       } catch (e) {
