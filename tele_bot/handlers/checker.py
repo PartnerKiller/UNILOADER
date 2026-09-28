@@ -3,6 +3,7 @@ import sys
 import base64
 import time
 import tempfile
+import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -178,6 +179,8 @@ async def process_media_for_flac_check(client, chat_id: int, message: Message, s
             badge = "🌟 **GENUINE 24-BIT HI-RES STUDIO MASTER**"
         elif verdict == "GENUINE_CDDA":
             badge = "✅ **100% GENUINE CD LOSSLESS MASTER**"
+        elif verdict == "UPSCALED_HIRES":
+            badge = "⚠️ **UPSCALED HI-RES (CDDA RESAMPLED TO HI-RES)**"
         elif verdict == "SUSPICIOUS":
             badge = "⚠️ **SUSPICIOUS LOSSLESS (HIGH-BITRATE COMPRESSED)**"
         else:
@@ -200,12 +203,19 @@ async def process_media_for_flac_check(client, chat_id: int, message: Message, s
         if energy:
             lines.append("📊 **Spectral Energy at Critical Frequencies:**")
             for freq_key, label in [("16000", "16.0 kHz"), ("18500", "18.5 kHz"), ("20000", "20.0 kHz"), ("22000", "22.0 kHz"), ("24000", "24.0 kHz")]:
-                band = energy.get(freq_key)
+                band = energy.get(freq_key) or energy.get(f"above_{freq_key}hz")
                 if band:
-                    mean_v = band.get("meanDb")
-                    max_v = band.get("maxDb")
-                    status_icon = "🟢" if mean_v and mean_v > -85 else "⚪"
-                    lines.append(f"  {status_icon} **{label}:** Mean `{mean_v or '--'} dB` | Peak `{max_v or '--'} dB`")
+                    mean_v = band.get("meanDb") if "meanDb" in band else band.get("mean_db")
+                    max_v = band.get("maxDb") if "maxDb" in band else band.get("max_db")
+                    status_icon = "🟢" if mean_v is not None and mean_v > -85 else "⚪"
+                    lines.append(f"  {status_icon} **{label}:** Mean `{mean_v if mean_v is not None else '--'} dB` | Peak `{max_v if max_v is not None else '--'} dB`")
+
+        # Warnings / Details
+        warnings = report.get("warnings", [])
+        if warnings:
+            lines.append("\n⚠️ **Analysis Notes:**")
+            for w in warnings:
+                lines.append(f"  • {w}")
 
         caption = "\n".join(lines)
 
@@ -223,11 +233,23 @@ async def process_media_for_flac_check(client, chat_id: int, message: Message, s
                 print(f"[FLAC Checker] Spectrogram decode error: {e}")
 
         if spec_file and spec_file.exists():
-            await client.send_file(
-                entity=chat_id,
-                file=str(spec_file),
-                caption=caption
-            )
+            if len(caption) > 1024:
+                short_caption = caption[:1000] + "..."
+                await client.send_file(
+                    entity=chat_id,
+                    file=str(spec_file),
+                    caption=short_caption
+                )
+                await client.send_message(
+                    entity=chat_id,
+                    message=caption
+                )
+            else:
+                await client.send_file(
+                    entity=chat_id,
+                    file=str(spec_file),
+                    caption=caption
+                )
             await status_msg.delete()
         else:
             await status_msg.edit(caption)

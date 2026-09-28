@@ -73,6 +73,146 @@ def unpack_packer(packed_js):
 
     return re.sub(r'\b\w+\b', replace_fn, payload)
 
+def is_stream_healthy(stream_url, referer=None, session=None, timeout=4):
+    """Proactively verifies that an HLS/media stream is reachable (HTTP 200, valid manifest)."""
+    if not stream_url or not isinstance(stream_url, str) or not stream_url.startswith('http'):
+        return False
+    try:
+        from curl_cffi import requests
+        s = session or requests.Session(impersonate="chrome124")
+        h = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept': '*/*'
+        }
+        if referer:
+            h['Referer'] = referer
+        r = s.get(stream_url, headers=h, timeout=timeout, stream=True, allow_redirects=True)
+        if r.status_code != 200:
+            return False
+        
+        # Read the first chunk (up to 1024 bytes) to verify it's a valid playlist
+        chunk = next(r.iter_content(chunk_size=1024), b'')
+        if b'#EXTM3U' not in chunk and b'#EXT' not in chunk:
+            return len(chunk) > 0
+        
+        # If it's a master playlist, check child playlist reachability (prevents dead CDN domain errors like in turbovid)
+        chunk_str = chunk.decode('utf-8', errors='ignore')
+        lines = [line.strip() for line in chunk_str.splitlines() if line.strip()]
+        child_urls = [line for line in lines if not line.startswith('#') and ('.m3u8' in line or line.endswith('.ts'))]
+        if child_urls:
+            child_url = child_urls[0]
+            if not child_url.startswith('http'):
+                from urllib.parse import urljoin
+                child_url = urljoin(stream_url, child_url)
+            try:
+                c_resp = s.get(child_url, headers=h, timeout=timeout, stream=True, allow_redirects=True)
+                if c_resp.status_code != 200:
+                    return False
+            except Exception:
+                return False
+        return True
+    except Exception:
+        return False
+
+def extract_clean_jav_code(text):
+    if not text or not isinstance(text, str):
+        return None
+    # 1. FC2 PPV format (e.g. FC2-PPV-1234567 or FC2-123456)
+    fc2 = re.search(r'\bFC2[-_ ]?(?:PPV[-_ ]?)?(\d{5,7})\b', text, re.IGNORECASE)
+    if fc2:
+        return f"FC2-PPV-{fc2.group(1)}"
+    # 2. Standard hyphenated studio codes (e.g. IPX-923, SNOS-016, MIDV-001)
+    std = re.search(r'\b([A-Za-z]{2,6})[-_](\d{2,5})\b', text)
+    if std:
+        letters = std.group(1).upper()
+        num_str = std.group(2)
+        if letters not in {'HTTP', 'HTTPS', 'HTML', 'MP4', 'MKV', 'WEBM', 'FLAC', 'JPEG', 'JPG', 'PNG', 'VIDEO', 'ADMIN', 'LOGIN', 'JAVGG'}:
+            return f"{letters}-{num_str}"
+    # 3. Compact studio codes (e.g. IPX923, SSIS001)
+    compact = re.search(r'\b([A-Za-z]{2,5})(\d{3,5})\b', text)
+    if compact:
+        letters = compact.group(1).upper()
+        num_str = compact.group(2)
+        if letters not in {'HTTP', 'HTTPS', 'HTML', 'MP4', 'MKV', 'WEBM', 'FLAC', 'JPEG', 'JPG', 'PNG', 'VIDEO', 'ADMIN', 'LOGIN', 'JAVGG'}:
+            return f"{letters}-{num_str}"
+    return None
+
+def resolve_fallback_jav_stream(jav_code, session=None):
+    """Cascade queries MissAV and Jable for working 1080p/720p streams when the primary provider has broken embeds."""
+    if not jav_code:
+        return None
+    from curl_cffi import requests
+    s = session or requests.Session(impersonate="chrome124")
+    clean_code = jav_code.lower().strip()
+
+    # 1. MissAV Fallback
+    missav_candidates = [
+        f"https://missav.ws/{clean_code}",
+        f"https://missav.ws/en/{clean_code}",
+        f"https://missav.ai/{clean_code}"
+    ]
+    for m_url in missav_candidates:
+        try:
+            r = s.get(m_url, headers={'Referer': 'https://missav.ws/'}, timeout=10)
+            if r.status_code == 200 and ('playlist.m3u8' in r.text or 'eval(function(p,a,c,k,e,d)' in r.text):
+                hls_candidate = ''
+                packed_matches = re.findall(r"eval\(function\(p,a,c,k,e,d\).*?\.split\('\|'\).*?\)\)", r.text, re.DOTALL)
+                for p in packed_matches:
+                    unpacked = unpack_packer(p)
+                    m3u8_matches = re.findall(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', unpacked)
+                    if m3u8_matches:
+                        hls_candidate = m3u8_matches[0].rstrip('\\')
+                        break
+                    surrit_matches = re.findall(r'https?://(?:surrit|sixyik)\.com/[0-9a-f-]+/playlist\.m3u8', unpacked)
+                    if surrit_matches:
+                        hls_candidate = surrit_matches[0].rstrip('\\')
+                        break
+                if not hls_candidate:
+                    uuid_match = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/playlist\.m3u8', r.text)
+                    if uuid_match:
+                        hls_candidate = f"https://surrit.com/{uuid_match.group(1)}/playlist.m3u8"
+
+                if hls_candidate and is_stream_healthy(hls_candidate, referer='https://missav.ws/', session=s):
+                    soup = BeautifulSoup(r.text, 'html.parser')
+                    og_img = soup.find('meta', property='og:image')
+                    poster = og_img.get('content') if og_img else ''
+                    return {
+                        'hlsUrl': hls_candidate,
+                        'downloadTargetUrl': hls_candidate,
+                        'poster': poster,
+                        'extractor': 'JavGG (MissAV Fallback)',
+                        'referer': 'https://missav.ws/'
+                    }
+        except Exception:
+            pass
+
+    # 2. Jable Fallback
+    jable_candidates = [
+        f"https://jable.tv/videos/{clean_code}/",
+        f"https://en.jable.tv/videos/{clean_code}/"
+    ]
+    for j_url in jable_candidates:
+        try:
+            r = s.get(j_url, headers={'Referer': 'https://jable.tv/'}, timeout=10)
+            if r.status_code == 200:
+                hls_match = re.search(r"var\s+hlsUrl\s*=\s*'([^']+)'", r.text)
+                if hls_match:
+                    hls_candidate = hls_match.group(1)
+                    if hls_candidate and is_stream_healthy(hls_candidate, referer='https://jable.tv/', session=s):
+                        img_match = re.search(r'<meta\s+property="og:image"\s+content="([^"]+)"', r.text)
+                        poster = img_match.group(1) if img_match else ''
+                        return {
+                            'hlsUrl': hls_candidate,
+                            'downloadTargetUrl': hls_candidate,
+                            'poster': poster,
+                            'extractor': 'JavGG (Jable Fallback)',
+                            'referer': 'https://en.jable.tv/'
+                        }
+        except Exception:
+            pass
+
+    return None
+
 def extract_all(url):
     url = url.strip()
     from curl_cffi import requests
@@ -598,6 +738,23 @@ def extract_all(url):
             except Exception:
                 continue
 
+        # Validate extracted stream or cascade to fallback mirrors
+        if hls_url and not is_stream_healthy(hls_url, referer=target_stream_url or url, session=session):
+            hls_url = ''
+
+        extractor_name = 'JavGuru'
+        target_referer = target_stream_url or url
+        if not hls_url:
+            clean_code = extract_clean_jav_code(code) or extract_clean_jav_code(title) or extract_clean_jav_code(url)
+            if clean_code:
+                fallback = resolve_fallback_jav_stream(clean_code, session=session)
+                if fallback:
+                    hls_url = fallback['hlsUrl']
+                    if not poster and fallback.get('poster'):
+                        poster = fallback['poster']
+                    extractor_name = fallback.get('extractor', 'JavGuru (Fallback)')
+                    target_referer = fallback.get('referer', target_referer)
+
         return {
             'title': title,
             'code': code,
@@ -607,8 +764,9 @@ def extract_all(url):
             'tags': tags[:10],
             'model': model,
             'duration': '',
-            'extractor': 'JavGuru',
-            'sourceUrl': url
+            'extractor': extractor_name,
+            'sourceUrl': url,
+            'referer': target_referer
         }
 
     # -------------------------------------------------------------
@@ -794,6 +952,7 @@ def extract_all(url):
         iframes = sorted(iframes, key=iframe_priority)
 
         hls_url = ''
+        target_referer = 'https://javgg.net/'
         for ifr in iframes:
             try:
                 ifr_res = session.get(ifr, headers={'Referer': url}, timeout=10)
@@ -801,23 +960,52 @@ def extract_all(url):
                 for p in packed_matches:
                     unpacked = unpack_packer(p)
                     m3u8_matches = re.findall(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', unpacked)
-                    if m3u8_matches:
-                        hls_url = m3u8_matches[0]
+                    for m in m3u8_matches:
+                        clean_m = m.rstrip('\\')
+                        if is_stream_healthy(clean_m, referer=ifr, session=session):
+                            hls_url = clean_m
+                            target_referer = ifr
+                            break
+                    if hls_url:
                         break
                     m3u8_raw = re.findall(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*', unpacked)
-                    if m3u8_raw:
-                        hls_url = m3u8_raw[0]
+                    for m in m3u8_raw:
+                        clean_m = m.rstrip('\\')
+                        if is_stream_healthy(clean_m, referer=ifr, session=session):
+                            hls_url = clean_m
+                            target_referer = ifr
+                            break
+                    if hls_url:
                         break
 
                 if hls_url:
                     break
 
                 direct_m3u8 = re.findall(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*', ifr_res.text)
-                if direct_m3u8:
-                    hls_url = direct_m3u8[0]
+                for m in direct_m3u8:
+                    clean_m = m.rstrip('\\')
+                    if is_stream_healthy(clean_m, referer=ifr, session=session):
+                        hls_url = clean_m
+                        target_referer = ifr
+                        break
+                if hls_url:
                     break
             except Exception:
                 continue
+
+        # If primary JavGG embeds returned no working streams (e.g. 502 Bad Gateway, 404, or dead DNS),
+        # gracefully cascade to verified high-speed JAV network mirrors (MissAV, Jable)
+        extractor_name = 'JavGG'
+        if not hls_url:
+            clean_code = extract_clean_jav_code(code) or extract_clean_jav_code(title) or extract_clean_jav_code(url)
+            if clean_code:
+                fallback = resolve_fallback_jav_stream(clean_code, session=session)
+                if fallback:
+                    hls_url = fallback['hlsUrl']
+                    if not poster and fallback.get('poster'):
+                        poster = fallback['poster']
+                    extractor_name = fallback.get('extractor', 'JavGG (Fallback)')
+                    target_referer = fallback.get('referer', target_referer)
 
         return {
             'title': title,
@@ -828,8 +1016,9 @@ def extract_all(url):
             'tags': tags[:10],
             'model': model,
             'duration': '',
-            'extractor': 'JavGG',
-            'sourceUrl': url
+            'extractor': extractor_name,
+            'sourceUrl': url,
+            'referer': target_referer
         }
 
     # -------------------------------------------------------------
