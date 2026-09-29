@@ -1041,7 +1041,7 @@ const FEATURE_METADATA = [
   { key: 'quality_4k', label: '4K & 8K Ultra HD', description: 'Unclamped 2160p and 4320p maximum resolution streaming' },
   { key: 'unlimited_concurrency', label: 'Unlimited Concurrency', description: 'Download multiple active tasks concurrently without queue throttling' },
   { key: 'custom_storage', label: 'Dedicated Folder Storage', description: 'User-assigned persistent destination folder routing' },
-  { key: 'ai_copilot', label: 'AI Media Copilot & Multimodal Engine', description: 'Owner-exclusive Google Gemini AI Copilot, FLAC Spectrogram Audit, Subtitles, JAV recognition' }
+  { key: 'ai_copilot', label: 'AI Media Copilot & Multimodal Engine', description: 'Google Gemini Multimodal AI Copilot, FLAC Spectrogram Audit, Subtitles, and JAV Intelligence' }
 ];
 
 const DEFAULT_ROLE_PERMISSIONS = {
@@ -1834,32 +1834,41 @@ function identifyUser(req, res, next) {
   next();
 }
 
-function requireOwner(req, res, next) {
-  if (!req.currentUser || !req.currentUser.isOwner) {
+function requireAiAccess(req, res, next) {
+  if (!req.currentUser) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required to access AI features.'
+    });
+  }
+  const isOwner = req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.username?.toLowerCase() === 'sakura';
+  const hasPerm = isOwner || isFeatureAllowed(req.currentUser, 'ai_copilot');
+  if (!hasPerm) {
     return res.status(403).json({
       success: false,
-      error: 'Access denied: AI features are exclusively reserved for the server owner (Sakura).',
-      ownerOnly: true
+      error: 'Access denied: You do not have permission to use AI features. Contact the server owner (Sakura) for access.',
+      requiresPermission: 'ai_copilot'
     });
   }
   next();
 }
 
 // ==========================================================================
-// Owner AI Engine Endpoints (Powered by Google Gemini Multimodal)
-// Strictly guarded by requireOwner middleware
+// Multimodal AI Engine Endpoints (Powered by Google Gemini)
+// Guarded by requireAiAccess middleware (Owner + Authorized Users)
 // ==========================================================================
 
 // 1. AI Engine Health & Status
-app.get('/api/ai/status', identifyUser, requireOwner, (req, res) => {
+app.get('/api/ai/status', identifyUser, requireAiAccess, (req, res) => {
   res.json({
     success: true,
-    ...aiService.getAiStatus()
+    ...aiService.getAiStatus(),
+    userHasAccess: true
   });
 });
 
 // 2. AI Media Copilot: Natural Language Intent Parser & Search Resolver
-app.post('/api/ai/copilot', identifyUser, requireOwner, async (req, res) => {
+app.post('/api/ai/copilot', identifyUser, requireAiAccess, async (req, res) => {
   try {
     const { prompt } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -1873,7 +1882,7 @@ app.post('/api/ai/copilot', identifyUser, requireOwner, async (req, res) => {
 });
 
 // 3. FLAC Checker AI Audiophile Spectrogram Audit
-app.post('/api/ai/audit-spectrogram', identifyUser, requireOwner, async (req, res) => {
+app.post('/api/ai/audit-spectrogram', identifyUser, requireAiAccess, async (req, res) => {
   try {
     const { imageBase64, metadata } = req.body || {};
     if (!imageBase64) {
@@ -1887,7 +1896,7 @@ app.post('/api/ai/audit-spectrogram', identifyUser, requireOwner, async (req, re
 });
 
 // 4. Dirty Filename & Scene Release Metadata Cleaner
-app.post('/api/ai/clean-filename', identifyUser, requireOwner, async (req, res) => {
+app.post('/api/ai/clean-filename', identifyUser, requireAiAccess, async (req, res) => {
   try {
     const { filename } = req.body || {};
     if (!filename || typeof filename !== 'string') {
@@ -1901,7 +1910,7 @@ app.post('/api/ai/clean-filename', identifyUser, requireOwner, async (req, res) 
 });
 
 // 5. Adult & JAV Hub: Image Recognition for Actress or Code Series
-app.post('/api/ai/jav-recognize', identifyUser, requireOwner, async (req, res) => {
+app.post('/api/ai/jav-recognize', identifyUser, requireAiAccess, async (req, res) => {
   try {
     const { imageBase64, contextText } = req.body || {};
     if (!imageBase64) {
@@ -1915,7 +1924,7 @@ app.post('/api/ai/jav-recognize', identifyUser, requireOwner, async (req, res) =
 });
 
 // 6. Adult & JAV Hub: Japanese Title & Synopsis Translation & Cleansing
-app.post('/api/ai/jav-translate', identifyUser, requireOwner, async (req, res) => {
+app.post('/api/ai/jav-translate', identifyUser, requireAiAccess, async (req, res) => {
   try {
     const { title, synopsis } = req.body || {};
     if (!title || typeof title !== 'string') {
@@ -1929,7 +1938,7 @@ app.post('/api/ai/jav-translate', identifyUser, requireOwner, async (req, res) =
 });
 
 // 7. Video Auto-Subtitles (.srt) Generation via Gemini Native Audio Processing
-app.post('/api/ai/generate-subtitles', identifyUser, requireOwner, async (req, res) => {
+app.post('/api/ai/generate-subtitles', identifyUser, requireAiAccess, async (req, res) => {
   try {
     const { jobId, audioBase64, language } = req.body || {};
     let audioData = audioBase64;

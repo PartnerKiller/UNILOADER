@@ -7718,11 +7718,12 @@ body.authenticated-user .guest-only-nav {
 }
 
 /* ==========================================================================
-   AI ENGINE & MULTIMODAL COPILOT (OWNER EXCLUSIVE)
+   AI ENGINE & MULTIMODAL COPILOT (OWNER & AUTHORIZED USERS)
    ========================================================================== */
 
-/* 1. Owner-Only Security Enforcement */
-body:not(.user-is-owner) .ai-owner-feature {
+/* 1. AI Feature Access Enforcement (Owner or Authorized Users) */
+body:not(.user-has-ai):not(.user-is-owner) .ai-owner-feature,
+body:not(.user-has-ai):not(.user-is-owner) .ai-feature-authorized {
   display: none !important;
 }
 

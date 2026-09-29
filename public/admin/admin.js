@@ -2354,6 +2354,7 @@ async function loadAdminUsers() {
                 <div class="user-name-row">
                   <span class="user-name">${escapeHtml(u.username)}</span>
                   ${u.hasCustomPermissions ? '<span class="user-custom-tag" title="Custom individual feature permissions active">⚡ Custom</span>' : ''}
+                  ${(!isOwner && u.effectivePermissions?.ai_copilot) ? '<span class="user-ai-tag" title="AI Multimodal Copilot access granted by Owner">✨ AI Active</span>' : ''}
                 </div>
                 <div class="user-id-sub">
                   <span class="user-id-mono" title="User ID: ${escapeHtml(u.id)}">${escapeHtml(u.id)}</span>
@@ -2419,6 +2420,10 @@ async function loadAdminUsers() {
                     <span>Edit Direct Path</span>
                   </button>
                   ${!isOwner ? `
+                    <button type="button" class="dropdown-item" onclick="toggleUserAiPermission('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', ${!u.effectivePermissions?.ai_copilot}); closeAllUserActionMenus();" title="${u.effectivePermissions?.ai_copilot ? 'Revoke Gemini AI Multimodal access' : 'Grant Gemini AI Multimodal access'}">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+                      <span>${u.effectivePermissions?.ai_copilot ? 'Revoke AI Access' : '✨ Grant AI Access'}</span>
+                    </button>
                     <button type="button" class="dropdown-item" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', '${escapeHtml(u.role || 'user')}'); closeAllUserActionMenus();">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"></circle><path d="M10.85 12.15L19 4"></path><path d="M18 5l2 2"></path><path d="M15 8l2 2"></path></svg>
                       <span>Change Password</span>
@@ -2703,6 +2708,43 @@ window.toggleUserRole = async function(id, newRole) {
     }
   } catch (e) {
     showToast('Failed to update user role', 'error');
+  }
+};
+
+window.toggleUserAiPermission = async function(userId, username, enable) {
+  try {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/permissions`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.user) {
+      showToast(data.error || 'Failed to fetch user permissions', 'error');
+      return;
+    }
+
+    const currentPerms = Object.assign({}, data.user.customPermissions || data.user.effectivePermissions || data.user.rolePermissions || {});
+    currentPerms.ai_copilot = !!enable;
+
+    const saveRes = await fetch('/api/admin/users/permissions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({
+        id: userId,
+        permissions: currentPerms
+      })
+    });
+    const saveData = await saveRes.json();
+    if (saveRes.ok && saveData.success) {
+      showToast(enable ? `✨ Granted Gemini AI access to "${username}"!` : `Revoked AI access from "${username}"`, 'success');
+      loadAdminUsers();
+    } else {
+      showToast(saveData.error || 'Failed to update AI permission', 'error');
+    }
+  } catch (err) {
+    showToast(`Error updating AI permission: ${err.message}`, 'error');
   }
 };
 
@@ -3015,13 +3057,14 @@ function renderUserPermsModalBody() {
   listEl.innerHTML = features.map(f => {
     const isChecked = currentPerms[f.key] === true;
     const roleDefault = rolePerms[f.key] === true;
-    const isFlacChecker = f.key === 'flac_checker';
+    const isAi = f.key === 'ai_copilot';
 
     return `
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border); border-radius: 8px; padding: 10px 14px; transition: background 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='rgba(0,0,0,0.3)'">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: ${isAi ? 'rgba(168, 85, 247, 0.08)' : 'rgba(0,0,0,0.3)'}; border: 1px solid ${isAi ? 'rgba(168, 85, 247, 0.35)' : 'var(--admin-border)'}; border-radius: 8px; padding: 10px 14px; transition: background 0.15s;" onmouseover="this.style.background='${isAi ? 'rgba(168, 85, 247, 0.15)' : 'rgba(255,255,255,0.03)'}'" onmouseout="this.style.background='${isAi ? 'rgba(168, 85, 247, 0.08)' : 'rgba(0,0,0,0.3)'}'">
         <div style="flex: 1;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <strong style="font-size: 0.88rem; color: #f1f5f9;">${escapeHtml(f.label)}</strong>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <strong style="font-size: 0.88rem; color: ${isAi ? '#e9d5ff' : '#f1f5f9'};">${escapeHtml(f.label)}</strong>
+            ${isAi ? '<span style="font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; background: rgba(168, 85, 247, 0.25); color: #c4b5fd; border: 1px solid rgba(168, 85, 247, 0.4); font-weight: 700;">✨ Gemini AI</span>' : ''}
             <span style="font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; ${roleDefault ? 'color: #34d399; background: rgba(16,185,129,0.12);' : 'color: #94a3b8; background: rgba(255,255,255,0.06);'}">
               Role default: ${roleDefault ? 'Allowed' : 'Disabled'}
             </span>

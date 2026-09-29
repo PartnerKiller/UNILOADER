@@ -390,10 +390,18 @@ function updateAuthUI(user, limits) {
     if (drawerAuthBtnText) drawerAuthBtnText.textContent = 'Account';
 
     const isOwner = user && (user.role === 'owner' || user.isOwner || user.username?.toLowerCase() === 'sakura');
+    const hasAiAccess = isOwner || canAccess('ai_copilot');
+
     if (isOwner) {
       document.body.classList.add('user-is-owner');
     } else {
       document.body.classList.remove('user-is-owner');
+    }
+
+    if (hasAiAccess) {
+      document.body.classList.add('user-has-ai');
+    } else {
+      document.body.classList.remove('user-has-ai');
     }
 
     document.body.classList.add('authenticated-user');
@@ -418,6 +426,7 @@ function updateAuthUI(user, limits) {
     // Guest User
     document.body.classList.remove('authenticated-user');
     document.body.classList.remove('user-is-owner');
+    document.body.classList.remove('user-has-ai');
     document.querySelectorAll('.guest-only-nav').forEach(el => {
       el.style.display = 'flex';
     });
@@ -5116,8 +5125,8 @@ function initAiFeatures() {
 
         showToast(`Copilot: ${intent.explanation || intent.query}`, 'success');
       } else {
-        if (data.ownerOnly) {
-          showToast('AI features are strictly reserved for Owner account (Sakura)', 'error');
+        if (data.requiresPermission || data.ownerOnly) {
+          showToast(data.error || 'Access denied: AI features require permission from Sakura.', 'error');
         } else {
           showToast(data.error || 'AI Copilot could not resolve request', 'error');
         }

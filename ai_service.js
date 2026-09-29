@@ -63,7 +63,7 @@ function getAiStatus() {
       javRecognition: configured,
       filenameCleaner: configured
     },
-    ownerOnly: true
+    requiresPermission: 'ai_copilot'
   };
 }
 
