@@ -2273,7 +2273,7 @@ async function loadAdminUsers() {
     if (!tbody) return;
 
     if (users.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">No registered members yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 28px;">No registered members yet.</td></tr>`;
       return;
     }
 
@@ -2287,114 +2287,154 @@ async function loadAdminUsers() {
       const folderCount = folders.length;
       const ownerDownloadFolder = u.downloadFolder || (folders.length > 0 ? folders[0] : '');
 
+      const avatarInitial = isOwner ? '👑' : (u.username ? u.username.charAt(0).toUpperCase() : '?');
+      const avatarClass = isOwner ? 'avatar-owner' : (isPrem ? 'avatar-prem' : 'avatar-user');
+
       let passwordCellHtml = '';
       if (u.password) {
         passwordCellHtml = `
-          <div style="display: inline-flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.35); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--admin-border);">
-            <code id="user-pw-${escapeHtml(u.id)}" data-pw="${escapeHtml(u.password)}" data-masked="true" style="font-family: monospace; font-size: 0.82rem; color: #a5f3fc; letter-spacing: 2px;">••••••••</code>
-            <button type="button" class="btn btn-outline btn-xs" onclick="toggleInlinePassword('${escapeHtml(u.id)}')" title="Reveal / Hide password" style="border: none; background: transparent; padding: 2px 4px; font-size: 0.8rem; cursor: pointer; color: #94a3b8;">👁️</button>
-            <button type="button" class="btn btn-outline btn-xs" onclick="copyInlinePassword('${escapeHtml(u.id)}')" title="Copy password" style="border: none; background: transparent; padding: 2px 4px; font-size: 0.8rem; cursor: pointer; color: #94a3b8;">📋</button>
+          <div class="user-pw-chip">
+            <code class="pw-code" id="user-pw-${escapeHtml(u.id)}" data-pw="${escapeHtml(u.password)}" data-masked="true">••••••••</code>
+            <button type="button" class="btn-pw-action" onclick="toggleInlinePassword('${escapeHtml(u.id)}')" title="Reveal / Hide password">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+            <button type="button" class="btn-pw-action" onclick="copyInlinePassword('${escapeHtml(u.id)}')" title="Copy password">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
           </div>
         `;
       } else {
         passwordCellHtml = `
-          <div style="display: inline-flex; align-items: center; gap: 6px;">
-            <span style="font-size: 0.72rem; color: var(--text-muted); font-style: italic; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">Legacy Hashed</span>
-            <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '', '${escapeHtml(u.role || 'user')}')" style="font-size: 0.72rem; padding: 2px 6px; border-color: #f59e0b; color: #fbbf24;" title="Set known password">Set 🔑</button>
+          <div class="pw-legacy-wrap">
+            <span class="pw-legacy-tag">Encrypted</span>
+            <button type="button" class="btn-pw-set" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '', '${escapeHtml(u.role || 'user')}')">Set 🔑</button>
           </div>
         `;
       }
 
-      const folderDisplay = isOwner
-        ? (ownerDownloadFolder
-          ? `<div style="display: flex; flex-direction: column; gap: 3px;">
-               <div style="display: inline-flex; align-items: center; gap: 4px; color: #fbbf24; font-size: 0.72rem; font-weight: 600;">
-                 <span style="width: 6px; height: 6px; border-radius: 50%; background: #fbbf24;"></span> Root System Access
-               </div>
-               <span style="font-size: 0.75rem; color: #93c5fd; font-weight: 600;">📁 Permanent Folder:</span>
-               <code style="font-size: 0.72rem; color: #a7f3d0; background: rgba(16,185,129,0.1); padding: 2px 6px; border-radius: 4px; word-break: break-all; max-width: 220px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ownerDownloadFolder)}">
-                 ${escapeHtml(ownerDownloadFolder)}
-               </code>
-               <span style="font-size: 0.68rem; color: #94a3b8;">🎬 Movies &amp; Shows • 🎵 Music • 🔞 Adult</span>
+      let storageCellHtml = '';
+      if (isOwner) {
+        storageCellHtml = ownerDownloadFolder
+          ? `<div class="storage-chip owner" title="${escapeHtml(ownerDownloadFolder)}">
+               <svg class="storage-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+               <span class="storage-path">${escapeHtml(ownerDownloadFolder)}</span>
              </div>`
-          : `<div style="display: flex; flex-direction: column; gap: 2px;">
-               <div style="display: inline-flex; align-items: center; gap: 4px; color: #fbbf24; font-size: 0.72rem; font-weight: 600;">
-                 <span style="width: 6px; height: 6px; border-radius: 50%; background: #fbbf24;"></span> Root System Access
-               </div>
-               <span style="font-size: 0.72rem; color: var(--text-muted); font-style: italic;">No permanent folder assigned (uses temp cache)</span>
-             </div>`)
-        : (folderCount > 0
-          ? `<div style="display: flex; flex-direction: column; gap: 3px;">
-               <span style="font-size: 0.75rem; color: #93c5fd; font-weight: 600;">📁 ${folderCount} folder${folderCount === 1 ? '' : 's'}:</span>
-               <code style="font-size: 0.72rem; color: #a7f3d0; background: rgba(16,185,129,0.1); padding: 2px 6px; border-radius: 4px; word-break: break-all; max-width: 220px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(folders.join(', '))}">
-                 ${escapeHtml(folders[0])}${folderCount > 1 ? ` +${folderCount - 1} more` : ''}
-               </code>
-               <span style="font-size: 0.68rem; color: #94a3b8;">🎬 Movies &amp; Shows • 🎵 Music • 🔞 Adult</span>
-             </div>`
-          : `<span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Default (Temp Cache)</span>`);
+          : `<span class="storage-empty root-access">👑 Root System Access</span>`;
+      } else if (folderCount > 0) {
+        storageCellHtml = `
+          <div class="storage-chip" title="${escapeHtml(folders.join(', '))}">
+            <svg class="storage-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span class="storage-path">${escapeHtml(folders[0])}</span>
+            ${folderCount > 1 ? `<span class="storage-badge-more">+${folderCount - 1}</span>` : ''}
+          </div>
+        `;
+      } else {
+        storageCellHtml = `<span class="storage-empty">Default (Temp Cache)</span>`;
+      }
+
+      const tierBadge = isOwner
+        ? `<span class="tier-pill tier-owner"><span class="tier-dot"></span>OWNER</span>`
+        : (isPrem
+          ? `<span class="tier-pill tier-prem"><span class="tier-dot"></span>PREMIUM</span>`
+          : `<span class="tier-pill tier-user"><span class="tier-dot"></span>MEMBER</span>`);
+
+      const speedBadge = isOwner
+        ? `<span class="speed-pill speed-uncapped">🚀 Uncapped</span>`
+        : (u.bandwidthCap
+          ? `<span class="speed-pill speed-capped" title="Bandwidth cap enforced">⚡ ${escapeHtml(u.bandwidthCap)}</span>`
+          : `<span class="speed-pill speed-default" title="Role default speed policy">⚡ ${escapeHtml(u.effectiveBandwidthCap || 'Default')}</span>`);
 
       return `
-          <td style="padding: 12px 14px;">
-            <div><strong>${escapeHtml(u.username)}</strong></div>
-            ${isOwner 
-              ? '<div style="font-size: 0.72rem; color: #fbbf24; margin-top: 2px;">⚡ Full System Access • 🚀 Uncapped Pipe</div>' 
-              : `<div style="display: flex; align-items: center; gap: 6px; margin-top: 2px; flex-wrap: wrap;">
-                   <span style="font-size: 0.72rem; color: #94a3b8;">📁 ${folderCount} folder${folderCount === 1 ? '' : 's'}</span>
-                   ${u.hasCustomPermissions 
-                     ? '<span style="font-size: 0.68rem; color: #c4b5fd; background: rgba(139,92,246,0.18); border: 1px solid rgba(139,92,246,0.4); padding: 1px 6px; border-radius: 4px; font-weight: 600;" title="Individual permissions customized by owner">⚡ Custom Perms</span>' 
-                     : '<span style="font-size: 0.68rem; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px;">Role Default</span>'}
-                   ${u.bandwidthCap
-                     ? `<span style="font-size: 0.68rem; color: #67e8f9; background: rgba(6,182,212,0.18); border: 1px solid rgba(6,182,212,0.4); padding: 1px 6px; border-radius: 4px; font-weight: 600;" title="Custom bandwidth cap enforced">⚡ Capped: ${escapeHtml(u.bandwidthCap)}</span>`
-                     : `<span style="font-size: 0.68rem; color: #94a3b8; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px;" title="Following tier bandwidth limit">Speed: ${escapeHtml(u.effectiveBandwidthCap || 'Default')}</span>`}
-                 </div>`}
+        <tr class="user-row ${isOwner ? 'user-row-owner' : ''}">
+          <!-- 1. Member -->
+          <td>
+            <div class="user-identity-cell">
+              <div class="user-avatar ${avatarClass}">${avatarInitial}</div>
+              <div class="user-meta">
+                <div class="user-name-row">
+                  <span class="user-name">${escapeHtml(u.username)}</span>
+                  ${u.hasCustomPermissions ? '<span class="user-custom-tag" title="Custom individual feature permissions active">⚡ Custom</span>' : ''}
+                </div>
+                <div class="user-id-sub">
+                  <span class="user-id-mono" title="User ID: ${escapeHtml(u.id)}">${escapeHtml(u.id)}</span>
+                </div>
+              </div>
+            </div>
           </td>
-          <td style="padding: 12px 14px;"><code style="font-size: 0.8rem; color: #93c5fd;">${escapeHtml(u.id)}</code></td>
-          <td style="padding: 12px 14px;">
-            <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; ${isOwner ? 'background: linear-gradient(135deg, rgba(245,158,11,0.3) 0%, rgba(217,119,6,0.3) 100%); color: #fef08a; border: 1px solid rgba(245,158,11,0.6);' : (isPrem ? 'background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4);' : 'background: rgba(255,255,255,0.08); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12);')}">
-              ${isOwner ? '👑 OWNER' : escapeHtml(u.role ? u.role.toUpperCase() : 'USER')}
-            </span>
+
+          <!-- 2. Tier & Speed -->
+          <td>
+            <div class="user-tier-cell">
+              ${tierBadge}
+              ${speedBadge}
+            </div>
           </td>
-          <td style="padding: 12px 14px;">${passwordCellHtml}</td>
-          <td style="padding: 12px 14px;">${folderDisplay}</td>
-          <td style="padding: 12px 14px; color: var(--text-muted);">${dateStr}</td>
-          <td style="padding: 12px 14px; text-align: right;">
-            <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+
+          <!-- 3. Password -->
+          <td class="user-pw-cell">
+            ${passwordCellHtml}
+          </td>
+
+          <!-- 4. Permanent Storage -->
+          <td class="user-storage-cell">
+            ${storageCellHtml}
+          </td>
+
+          <!-- 5. Joined -->
+          <td class="user-date-cell">${dateStr}</td>
+
+          <!-- 6. Actions Cluster -->
+          <td style="text-align: right;">
+            <div class="user-actions-cluster">
               ${isOwner ? `
-                <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', 'owner')" style="border-color: #eab308; color: #fde047; font-size: 0.75rem; padding: 3px 8px;" title="View or change owner password">
-                  🔑 Password
+                <button type="button" class="btn-action-primary owner" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', 'owner')" title="Assign Permanent Storage">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                  <span>Folder</span>
                 </button>
-                <button type="button" class="btn btn-primary btn-xs" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', 'owner')" style="font-size: 0.75rem; padding: 3px 8px;" title="Browse drives and assign permanent folder">
-                  📁 Assign Folder
+                <button type="button" class="btn-action-secondary owner" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', 'owner')" title="Change Owner Password">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"></circle><path d="M10.85 12.15L19 4"></path><path d="M18 5l2 2"></path><path d="M15 8l2 2"></path></svg>
+                  <span>Password</span>
                 </button>
-                <button type="button" class="btn btn-outline btn-xs" onclick="openQuickFolderPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(ownerDownloadFolder)}')" style="border-color: #3b82f6; color: #60a5fa; font-size: 0.75rem; padding: 3px 8px;" title="Set or edit path directly">
-                  ✏️ Path
-                </button>
-                <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; color: #fbbf24; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3);">
-                  👑 Owner
-                </span>
               ` : `
-                <button type="button" class="btn btn-outline btn-xs" onclick="openUserPermissionsModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" style="border-color: #8b5cf6; color: #c4b5fd; font-size: 0.75rem; padding: 3px 8px;" title="Configure individual feature permissions for this user">
-                  🛡️ Perms${u.hasCustomPermissions ? ' ⚡' : ''}
+                <button type="button" class="btn-action-primary" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" title="Folder Allocations (${folderCount})">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                  <span>Folders (${folderCount})</span>
                 </button>
-                <button type="button" class="btn btn-outline btn-xs" onclick="openQuickBandwidthPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.bandwidthCap || '')}')" style="border-color: #06b6d4; color: #67e8f9; font-size: 0.75rem; padding: 3px 8px;" title="Set user download speed cap">
-                  🚀 Speed${u.bandwidthCap ? ` (${escapeHtml(u.bandwidthCap)})` : ''}
-                </button>
-                <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', '${escapeHtml(u.role || 'user')}')" style="border-color: #eab308; color: #fde047; font-size: 0.75rem; padding: 3px 8px;" title="View or change user password">
-                  🔑 Password
-                </button>
-                <button type="button" class="btn btn-outline btn-xs" onclick="openFolderAllocationModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" style="border-color: #3b82f6; color: #60a5fa;" title="Configure folder allocations">
-                  📁 Folders (${folderCount})
-                </button>
-                <button type="button" class="btn btn-outline btn-xs" onclick="openQuickFolderPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.downloadFolder || '')}')" style="border-color: #3b82f6; color: #60a5fa; font-size: 0.75rem; padding: 3px 8px;" title="Set or edit path directly">
-                  ✏️ Path
-                </button>
-                <button type="button" class="btn btn-outline btn-xs" onclick="toggleUserRole('${escapeHtml(u.id)}', '${isPrem ? 'user' : 'premium'}')">
-                  ${isPrem ? 'Demote' : 'Make Premium'}
-                </button>
-                <button type="button" class="btn btn-danger-outline btn-xs" onclick="deleteUserAccount('${escapeHtml(u.id)}', '${escapeHtml(u.username)}')">
-                  Delete
+                <button type="button" class="btn-action-secondary" onclick="openUserPermissionsModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" title="Configure Feature Permissions">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                  <span>Perms${u.hasCustomPermissions ? ' ⚡' : ''}</span>
                 </button>
               `}
+              <div class="user-menu-wrap" id="menu-wrap-${escapeHtml(u.id)}">
+                <button type="button" class="btn-action-menu" onclick="toggleUserActionMenu(event, '${escapeHtml(u.id)}')" title="More actions" aria-label="More options">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="19" r="2"></circle></svg>
+                </button>
+                <div class="user-dropdown-menu" id="dropdown-${escapeHtml(u.id)}">
+                  <button type="button" class="dropdown-item" onclick="openQuickBandwidthPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.bandwidthCap || '')}'); closeAllUserActionMenus();">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                    <span>Speed Limit${u.bandwidthCap ? ` (${escapeHtml(u.bandwidthCap)})` : ''}</span>
+                  </button>
+                  <button type="button" class="dropdown-item" onclick="openQuickFolderPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(isOwner ? ownerDownloadFolder : (u.downloadFolder || ''))}'); closeAllUserActionMenus();">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    <span>Edit Direct Path</span>
+                  </button>
+                  ${!isOwner ? `
+                    <button type="button" class="dropdown-item" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', '${escapeHtml(u.role || 'user')}'); closeAllUserActionMenus();">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"></circle><path d="M10.85 12.15L19 4"></path><path d="M18 5l2 2"></path><path d="M15 8l2 2"></path></svg>
+                      <span>Change Password</span>
+                    </button>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item" onclick="toggleUserRole('${escapeHtml(u.id)}', '${isPrem ? 'user' : 'premium'}'); closeAllUserActionMenus();">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                      <span>${isPrem ? 'Demote to Member' : 'Promote to Premium'}</span>
+                    </button>
+                    <button type="button" class="dropdown-item text-danger" onclick="deleteUserAccount('${escapeHtml(u.id)}', '${escapeHtml(u.username)}'); closeAllUserActionMenus();">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                      <span>Delete Account</span>
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
             </div>
           </td>
         </tr>
@@ -2402,6 +2442,55 @@ async function loadAdminUsers() {
     }).join('');
   } catch (e) {}
 }
+
+window.toggleUserActionMenu = function(event, userId) {
+  event.stopPropagation();
+  const menuEl = document.getElementById(`dropdown-${userId}`);
+  const btn = event.currentTarget;
+  if (!menuEl || !btn) return;
+  const isAlreadyOpen = menuEl.classList.contains('open');
+
+  window.closeAllUserActionMenus();
+
+  if (!isAlreadyOpen) {
+    menuEl.classList.add('open');
+    btn.classList.add('active');
+
+    const rect = btn.getBoundingClientRect();
+    const menuWidth = 205;
+    let leftPos = rect.right - menuWidth;
+    if (leftPos < 10) leftPos = 10;
+    menuEl.style.left = leftPos + 'px';
+    menuEl.style.right = 'auto';
+
+    const menuHeight = menuEl.offsetHeight || 190;
+    if (rect.bottom + menuHeight + 10 > window.innerHeight) {
+      menuEl.style.top = Math.max(10, rect.top - menuHeight - 4) + 'px';
+      menuEl.style.bottom = 'auto';
+    } else {
+      menuEl.style.top = (rect.bottom + 4) + 'px';
+      menuEl.style.bottom = 'auto';
+    }
+  }
+};
+
+window.closeAllUserActionMenus = function() {
+  document.querySelectorAll('.user-dropdown-menu.open').forEach(el => {
+    el.classList.remove('open');
+  });
+  document.querySelectorAll('.btn-action-menu.active').forEach(el => {
+    el.classList.remove('active');
+  });
+};
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.user-menu-wrap') && !e.target.closest('.user-dropdown-menu')) {
+    window.closeAllUserActionMenus();
+  }
+});
+
+window.addEventListener('scroll', () => window.closeAllUserActionMenus(), { passive: true });
+window.addEventListener('resize', () => window.closeAllUserActionMenus(), { passive: true });
 
 window.openQuickBandwidthPrompt = async function(userId, username, currentCap) {
   const current = currentCap || 'default';
