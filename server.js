@@ -214,6 +214,11 @@ if (!fs.existsSync(TEMP_DIR)) {
 app.use(cors());
 app.use(express.json({ limit: '150mb' }));
 
+app.use((req, res, next) => {
+  console.log(`[REQ] ${req.method} ${req.url} proto=${req.headers['x-forwarded-proto']} referer=${req.headers['referer']}`);
+  next();
+});
+
 // Automatically redirect HTTP to HTTPS when behind Cloudflare proxy
 app.use((req, res, next) => {
   const proto = req.headers['x-forwarded-proto'];
