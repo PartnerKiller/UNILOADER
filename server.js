@@ -60,6 +60,13 @@ const defaultEngineConfig = {
   retries: 10,
   maintenanceMode: false,
   maintenanceMessage: 'We are currently performing scheduled maintenance and system upgrades. The site will be back online shortly. Thank you for your patience!',
+  bandwidthCaps: {
+    enabled: false,           // Master bandwidth cap switch (off = full pipe for everyone)
+    guestLimit: '1M',         // Default limit for anonymous visitors / guests
+    userLimit: '3M',          // Default limit for registered standard members
+    premiumLimit: '0',        // '0' = uncapped for premium, or e.g. '10M'
+    customUserLimits: {}      // Per-user overrides: { [usernameOrId]: '500K' | '2M' | '0' }
+  },
   features: {
     adultHub: true,
     movieHub: true,
@@ -76,6 +83,87 @@ const defaultEngineConfig = {
 };
 let engineConfig = { ...defaultEngineConfig };
 
+function normalizeBandwidthString(val) {
+  if (val === undefined || val === null) return '0';
+  const str = String(val).trim().toUpperCase();
+  if (!str || str === '0' || str === 'UNLIMITED' || str === 'NONE' || str === 'OFF' || str === 'FALSE') {
+    return '0';
+  }
+  // Strip trailing /s or b/s (e.g. 1MB/s -> 1M, 500KB/s -> 500K)
+  let cleaned = str.replace(/\/S$/i, '').replace(/B$/i, '');
+  const match = cleaned.match(/^(\d+(?:\.\d+)?)\s*([KMG])?$/);
+  if (!match) return '0';
+  const num = match[1];
+  const unit = match[2] || '';
+  if (parseFloat(num) <= 0) return '0';
+  return `${num}${unit}`;
+}
+
+function resolveUserBandwidthCap(entity) {
+  // If master bandwidth capping is disabled in engine config, no cap applied
+  if (!engineConfig.bandwidthCaps || !engineConfig.bandwidthCaps.enabled) {
+    return null;
+  }
+
+  if (!entity) {
+    const defaultGuest = normalizeBandwidthString(engineConfig.bandwidthCaps.guestLimit || '1M');
+    return defaultGuest === '0' ? null : defaultGuest;
+  }
+
+  // Extract identity attributes from user object or job object
+  const isOwner = !!(
+    entity.isOwner ||
+    entity.role === 'owner' ||
+    entity.ownerId === 'owner' ||
+    entity.userId === 'owner' ||
+    entity.username === 'sakura' ||
+    (entity.opts && (entity.opts.isOwner || entity.opts.ownerId === 'owner' || entity.opts.role === 'owner' || entity.opts.username === 'sakura'))
+  );
+
+  // OWNER is ALWAYS uncapped (highest priority, full gigabit pipe speed)
+  if (isOwner) {
+    return null;
+  }
+
+  const userId = entity.userId || entity.ownerId || (entity.opts && entity.opts.ownerId);
+  const username = entity.username || (entity.opts && entity.opts.username);
+  const customLimits = (engineConfig.bandwidthCaps && engineConfig.bandwidthCaps.customUserLimits) ? engineConfig.bandwidthCaps.customUserLimits : {};
+
+  // Check individual custom override by userId or username (case-insensitive)
+  if (userId && customLimits[userId] !== undefined) {
+    const norm = normalizeBandwidthString(customLimits[userId]);
+    return norm === '0' ? null : norm;
+  }
+  if (username) {
+    const lowerUser = username.toLowerCase();
+    for (const [k, v] of Object.entries(customLimits)) {
+      if (k.toLowerCase() === lowerUser) {
+        const norm = normalizeBandwidthString(v);
+        return norm === '0' ? null : norm;
+      }
+    }
+  }
+
+  // Tiered role limit: Premium
+  const isPremium = !!(entity.isPremium || entity.role === 'premium' || (entity.opts && entity.opts.isPremium));
+  if (isPremium) {
+    const norm = normalizeBandwidthString(engineConfig.bandwidthCaps.premiumLimit);
+    return norm === '0' ? null : norm;
+  }
+
+  // Tiered role limit: Guest
+  const role = entity.role || (entity.opts && entity.opts.role);
+  const isGuest = role === 'guest' || (!role && (!userId || String(userId).startsWith('guest_')));
+  if (isGuest) {
+    const norm = normalizeBandwidthString(engineConfig.bandwidthCaps.guestLimit || '1M');
+    return norm === '0' ? null : norm;
+  }
+
+  // Registered standard member
+  const norm = normalizeBandwidthString(engineConfig.bandwidthCaps.userLimit || '3M');
+  return norm === '0' ? null : norm;
+}
+
 function loadEngineConfig() {
   try {
     if (fs.existsSync(ENGINE_CONFIG_FILE)) {
@@ -85,6 +173,14 @@ function loadEngineConfig() {
         ...parsed,
         maintenanceMode: parsed.maintenanceMode !== undefined ? !!parsed.maintenanceMode : false,
         maintenanceMessage: typeof parsed.maintenanceMessage === 'string' && parsed.maintenanceMessage.trim() ? parsed.maintenanceMessage.trim() : defaultEngineConfig.maintenanceMessage,
+        bandwidthCaps: {
+          ...defaultEngineConfig.bandwidthCaps,
+          ...(parsed.bandwidthCaps || {}),
+          customUserLimits: {
+            ...(defaultEngineConfig.bandwidthCaps?.customUserLimits || {}),
+            ...(parsed.bandwidthCaps?.customUserLimits || {})
+          }
+        },
         features: {
           ...defaultEngineConfig.features,
           ...(parsed.features || {})
@@ -2064,6 +2160,7 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
     limits: {
       isPremium: u.isPremium,
       isOwner: u.isOwner || u.role === 'owner',
+      bandwidthCap: resolveUserBandwidthCap(u) || 'Uncapped',
       allowedFolders: u.allowedFolders || [],
       maxDailyDownloads: u.isPremium ? 'unlimited' : 10,
       usedDailyDownloads: guestCount,
@@ -2128,6 +2225,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
     const isOwner = u.role === 'owner' || u.id === 'owner_sakura' || (u.username && u.username.toLowerCase() === 'sakura');
     const userPass = u.password || (isOwner ? (process.env.ADMIN_PASS || 'Sakura@002') : '');
     const effectivePerms = getUserPermissions(u);
+    const customCap = (engineConfig.bandwidthCaps && engineConfig.bandwidthCaps.customUserLimits && (engineConfig.bandwidthCaps.customUserLimits[u.id] || engineConfig.bandwidthCaps.customUserLimits[u.username])) || null;
     return {
       id: u.id,
       username: u.username,
@@ -2139,6 +2237,8 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
       customPermissions: u.customPermissions || null,
       hasCustomPermissions: !!(u.customPermissions && Object.keys(u.customPermissions).length > 0),
       effectivePermissions: effectivePerms,
+      bandwidthCap: customCap,
+      effectiveBandwidthCap: isOwner ? 'Uncapped' : (resolveUserBandwidthCap(u) || 'Default'),
       createdAt: u.createdAt
     };
   });
@@ -2410,6 +2510,43 @@ app.post('/api/admin/users/folder', requireAdmin, (req, res) => {
     }
   }
   res.status(404).json({ error: 'User not found' });
+});
+
+// Set or Clear Individual User Bandwidth Limit (Owner & Admin)
+app.post('/api/admin/users/:id/bandwidth', requireAdmin, (req, res) => {
+  try {
+    const targetId = req.params.id;
+    const { limit } = req.body || {};
+    if (!engineConfig.bandwidthCaps) {
+      engineConfig.bandwidthCaps = { ...defaultEngineConfig.bandwidthCaps };
+    }
+    if (!engineConfig.bandwidthCaps.customUserLimits) {
+      engineConfig.bandwidthCaps.customUserLimits = {};
+    }
+
+    if (!limit || limit === 'default' || limit === 'auto' || limit === 'none' || limit === 'reset') {
+      delete engineConfig.bandwidthCaps.customUserLimits[targetId];
+      saveEngineConfig();
+      return res.json({
+        success: true,
+        userId: targetId,
+        bandwidthCap: null,
+        message: 'Custom bandwidth limit cleared. User will follow role policy.'
+      });
+    }
+
+    const normalized = normalizeBandwidthString(limit);
+    engineConfig.bandwidthCaps.customUserLimits[targetId] = normalized;
+    saveEngineConfig();
+    return res.json({
+      success: true,
+      userId: targetId,
+      bandwidthCap: normalized,
+      message: `Bandwidth limit for user set to ${normalized}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
@@ -3611,6 +3748,22 @@ app.post('/api/admin/engine-config', requireAdmin, (req, res) => {
         ...updates.features
       };
     }
+    if (updates.bandwidthCaps && typeof updates.bandwidthCaps === 'object') {
+      const bwc = updates.bandwidthCaps;
+      if (!engineConfig.bandwidthCaps) {
+        engineConfig.bandwidthCaps = { ...defaultEngineConfig.bandwidthCaps };
+      }
+      if (typeof bwc.enabled === 'boolean') engineConfig.bandwidthCaps.enabled = bwc.enabled;
+      if (bwc.guestLimit !== undefined) engineConfig.bandwidthCaps.guestLimit = normalizeBandwidthString(bwc.guestLimit);
+      if (bwc.userLimit !== undefined) engineConfig.bandwidthCaps.userLimit = normalizeBandwidthString(bwc.userLimit);
+      if (bwc.premiumLimit !== undefined) engineConfig.bandwidthCaps.premiumLimit = normalizeBandwidthString(bwc.premiumLimit);
+      if (bwc.customUserLimits && typeof bwc.customUserLimits === 'object') {
+        engineConfig.bandwidthCaps.customUserLimits = {
+          ...(engineConfig.bandwidthCaps.customUserLimits || {}),
+          ...bwc.customUserLimits
+        };
+      }
+    }
     saveEngineConfig();
     broadcastMaintenanceUpdate();
     res.json({ success: true, config: engineConfig, message: 'Engine configuration updated and saved' });
@@ -3645,6 +3798,53 @@ app.post('/api/admin/maintenance', requireAdmin, (req, res) => {
       maintenanceMode: !!engineConfig.maintenanceMode,
       maintenanceMessage: engineConfig.maintenanceMessage,
       message: `Work In Progress mode is now ${engineConfig.maintenanceMode ? 'ENABLED' : 'DISABLED'}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 12.2 Dedicated Bandwidth Capping & Traffic Allocation APIs
+app.get('/api/admin/bandwidth-caps', requireAdmin, (req, res) => {
+  res.json({
+    success: true,
+    bandwidthCaps: engineConfig.bandwidthCaps || defaultEngineConfig.bandwidthCaps
+  });
+});
+
+app.post('/api/admin/bandwidth-caps', requireAdmin, (req, res) => {
+  try {
+    const { enabled, guestLimit, userLimit, premiumLimit, customUserLimits } = req.body || {};
+    if (!engineConfig.bandwidthCaps) {
+      engineConfig.bandwidthCaps = { ...defaultEngineConfig.bandwidthCaps };
+    }
+    if (typeof enabled === 'boolean') {
+      engineConfig.bandwidthCaps.enabled = enabled;
+    }
+    if (guestLimit !== undefined) {
+      engineConfig.bandwidthCaps.guestLimit = normalizeBandwidthString(guestLimit);
+    }
+    if (userLimit !== undefined) {
+      engineConfig.bandwidthCaps.userLimit = normalizeBandwidthString(userLimit);
+    }
+    if (premiumLimit !== undefined) {
+      engineConfig.bandwidthCaps.premiumLimit = normalizeBandwidthString(premiumLimit);
+    }
+    if (customUserLimits && typeof customUserLimits === 'object') {
+      const sanitized = {};
+      for (const [k, v] of Object.entries(customUserLimits)) {
+        if (typeof k === 'string' && k.trim()) {
+          sanitized[k.trim()] = normalizeBandwidthString(v);
+        }
+      }
+      engineConfig.bandwidthCaps.customUserLimits = sanitized;
+    }
+    saveEngineConfig();
+    console.log(`[Bandwidth] Caps updated: enabled=${engineConfig.bandwidthCaps.enabled}, guest=${engineConfig.bandwidthCaps.guestLimit}, user=${engineConfig.bandwidthCaps.userLimit}, premium=${engineConfig.bandwidthCaps.premiumLimit}`);
+    res.json({
+      success: true,
+      bandwidthCaps: engineConfig.bandwidthCaps,
+      message: 'Bandwidth caps updated successfully'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -5510,6 +5710,9 @@ app.post('/api/movies/download', identifyUser, async (req, res) => {
       videoQuality: item.quality || 'best',
       type: isTorrent ? 'torrent' : 'video',
       ownerId: req.currentUser.userId,
+      username: req.currentUser.username,
+      role: req.currentUser.role,
+      isOwner: req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura',
       isPremium: req.currentUser.isPremium
     };
 
@@ -5546,6 +5749,7 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
     }
     const jobId = 'job_ddl_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
     const ownerFolder = getUserDownloadFolder(req.currentUser.userId);
+    const isOwner = req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura';
 
     // Fast-path: If release already has verified swarm magnet/torrent, start directly without redundant discovery
     if (magnet || torrentUrl) {
@@ -5560,7 +5764,12 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
           imdbId: imdbId || '',
           magnet,
           torrentUrl,
-          type: 'torrent'
+          type: 'torrent',
+          ownerId: req.currentUser.userId,
+          username: req.currentUser.username,
+          role: req.currentUser.role,
+          isOwner,
+          isPremium: req.currentUser.isPremium
         },
         title: rawTitle,
         poster: poster || '',
@@ -5568,6 +5777,9 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
         code: 'SWARM',
         mode: 'torrent',
         ownerId: req.currentUser.userId,
+        username: req.currentUser.username,
+        role: req.currentUser.role,
+        isOwner,
         isPremium: req.currentUser.isPremium,
         downloadFolder: ownerFolder || '',
         isPermanent: !!ownerFolder,
@@ -5607,7 +5819,12 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
         pureTitle: pureTitle || title || '',
         year: year || '',
         quality: quality || '1080p',
-        imdbId: imdbId || ''
+        imdbId: imdbId || '',
+        ownerId: req.currentUser.userId,
+        username: req.currentUser.username,
+        role: req.currentUser.role,
+        isOwner,
+        isPremium: req.currentUser.isPremium
       },
       title: (filename || title || 'Movie Media').trim(),
       poster: poster || '',
@@ -5615,6 +5832,9 @@ app.post('/api/movies/resolve-ddl', identifyUser, async (req, res) => {
       code: 'DDL_DIRECT',
       mode: 'ddl_direct',
       ownerId: req.currentUser.userId,
+      username: req.currentUser.username,
+      role: req.currentUser.role,
+      isOwner,
       isPremium: req.currentUser.isPremium,
       downloadFolder: ownerFolder || '',
       isPermanent: !!ownerFolder,
@@ -5866,6 +6086,9 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
         mode: 'torrent',
         type: 'torrent',
         ownerId: req.currentUser.userId,
+        username: req.currentUser.username,
+        role: req.currentUser.role,
+        isOwner: req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura',
         isPremium: req.currentUser.isPremium
       };
       const job = createAndStartJob(jobPayload);
@@ -5899,6 +6122,9 @@ app.post('/api/music/download', identifyUser, async (req, res) => {
       type: 'audio',
       isMusicTrack: true,
       ownerId: req.currentUser.userId,
+      username: req.currentUser.username,
+      role: req.currentUser.role,
+      isOwner: req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura',
       isPremium: req.currentUser.isPremium
     };
 
@@ -6036,7 +6262,10 @@ app.post('/api/adult/download', identifyUser, async (req, res) => {
       videoQuality: 'best',
       type: isTorrent ? 'torrent' : 'tube',
       ownerId: req.currentUser.userId,
-      isPremium: true
+      username: req.currentUser.username,
+      role: req.currentUser.role,
+      isOwner: req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura',
+      isPremium: req.currentUser.isPremium
     };
 
     const job = createAndStartJob(jobPayload);
@@ -6095,8 +6324,8 @@ function startTorrentJob(job) {
     '--bt-request-peer-speed-limit=0',
     '--listen-port=6881-6999',
     '--dht-listen-port=6881-6999',
-    '--max-overall-download-limit=0',
-    '--max-download-limit=0',
+    `--max-overall-download-limit=${resolveUserBandwidthCap(job) || '0'}`,
+    `--max-download-limit=${resolveUserBandwidthCap(job) || '0'}`,
     '--dht-entry-point=router.bittorrent.com:6881',
     '--dht-entry-point=dht.transmissionbt.com:6881',
     '--dht-entry-point=router.utorrent.com:6881',
@@ -6302,7 +6531,9 @@ function startDirectHttpJob(job) {
     '--auto-file-renaming=false',
     '--file-allocation=none',
     '--check-certificate=false',
-    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    `--max-download-limit=${resolveUserBandwidthCap(job) || '0'}`,
+    `--max-overall-download-limit=${resolveUserBandwidthCap(job) || '0'}`
   ];
 
   if (job.url && (job.url.includes('workers.dev') || job.url.includes('omd-'))) {
@@ -6803,6 +7034,11 @@ function startJobProcess(job) {
       : '16M';
     args.push('--http-chunk-size', effectiveChunk);
 
+    const bwCap = resolveUserBandwidthCap(job);
+    if (bwCap) {
+      args.push('--limit-rate', bwCap);
+    }
+
     // Never force aria2c on YouTube or tokenized streaming sites (causes 403 Forbidden & severe throttling)
     const isDirectMediaUrl = (url && /\.(mp4|mkv|webm|avi|mov|flv|ts|mp3|flac|wav|m4a)(\?|$)/i.test(url)) || (rawTarget && /\.(mp4|mkv|webm|avi|mov|flv|ts|mp3|flac|wav|m4a)(\?|$)/i.test(rawTarget));
     const allowAria2c = !isYouTube && (isDirectMediaUrl || (opts.customArgs && opts.customArgs.includes('aria2c')));
@@ -6812,8 +7048,9 @@ function startJobProcess(job) {
         execSync('which aria2c', { stdio: 'ignore' });
         const frag = engineConfig.aria2cFragments || 32;
         const split = engineConfig.aria2cMinSplitSize || '1M';
+        const ariaLimitStr = bwCap ? ` --max-download-limit=${bwCap}` : '';
         args.push('--downloader', 'http,https:aria2c');
-        args.push('--downloader-args', `aria2c:-s ${frag} -x 16 -k 1M -j ${frag} --disk-cache=64M --min-split-size=${split} --summary-interval=1`);
+        args.push('--downloader-args', `aria2c:-s ${frag} -x 16 -k 1M -j ${frag} --disk-cache=64M --min-split-size=${split} --summary-interval=1${ariaLimitStr}`);
       } catch (e) {}
     } else if (process.platform === 'win32') {
       args.push('--impersonate', 'chrome');
@@ -7270,14 +7507,24 @@ function createAndStartJob(opts) {
   const finalFilename = `${safeTitle}.${ext}`;
   const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
   const isPremium = !!opts.isPremium;
+  const isOwner = !!(opts.isOwner || opts.role === 'owner' || opts.ownerId === 'owner' || opts.username === 'sakura');
+  const role = opts.role || (isOwner ? 'owner' : (isPremium ? 'premium' : 'user'));
+  const username = opts.username || (isOwner ? 'sakura' : 'User');
   const ownerId = opts.ownerId || 'guest';
   const assignedFolder = (opts.downloadFolder && typeof opts.downloadFolder === 'string' && opts.downloadFolder.trim() && opts.downloadFolder.trim() !== '*')
     ? path.resolve(opts.downloadFolder.trim())
     : getUserDownloadFolder(ownerId);
 
   const initialLogs = [];
-  if (isPremium) {
-    initialLogs.push('🌟 Priority bandwidth allocated (Premium User)');
+  if (isOwner) {
+    initialLogs.push('🌟 Priority Bandwidth: Uncapped (Owner Access)');
+  } else {
+    const bwCap = resolveUserBandwidthCap({ ...opts, isOwner, isPremium, role, username, ownerId });
+    if (bwCap) {
+      initialLogs.push(`⚡ Bandwidth Allocation: Capped at ${bwCap} (${isPremium ? 'Premium Tier' : (role === 'guest' ? 'Guest Tier' : 'Standard Member Tier')})`);
+    } else {
+      initialLogs.push('⚡ Bandwidth Allocation: Uncapped (Full Pipe Speed)');
+    }
   }
   if (assignedFolder) {
     const category = getJobCategory(opts);
@@ -7294,6 +7541,9 @@ function createAndStartJob(opts) {
     poster: poster || '',
     mode,
     ownerId,
+    username,
+    role,
+    isOwner,
     isPremium,
     downloadFolder: assignedFolder || '',
     isPermanent: !!assignedFolder,
@@ -7403,6 +7653,9 @@ app.post('/api/download', identifyUser, async (req, res) => {
     }
 
     payload.ownerId = req.currentUser.userId;
+    payload.username = req.currentUser.username;
+    payload.role = req.currentUser.role;
+    payload.isOwner = req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura';
     payload.isPremium = req.currentUser.isPremium;
 
     if (payload.downloadFolder && typeof payload.downloadFolder === 'string' && payload.downloadFolder.trim()) {
@@ -7511,6 +7764,9 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
         downloadTargetUrl: meta ? meta.downloadTargetUrl : '',
         referer: (meta && meta.referer) ? meta.referer : '',
         ownerId: req.currentUser.userId,
+        username: req.currentUser.username,
+        role: req.currentUser.role,
+        isOwner: req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura',
         isPremium: req.currentUser.isPremium
       };
 

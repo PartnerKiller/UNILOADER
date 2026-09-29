@@ -63,7 +63,7 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.20.1</span>
+          <span class="badge-tag">Sakura Suite v4.21.0</span>
         </div>
       </div>
 
@@ -484,8 +484,9 @@
             <span>Filter Category:</span>
           </label>
           <select id="engineCategoryDropdown" class="admin-select engine-category-select" aria-label="Filter Engine Settings Category">
-            <option value="all">⚡ All Engine Settings (5 Modules)</option>
+            <option value="all">⚡ All Engine Settings (6 Modules)</option>
             <option value="maintenance">🚧 Work In Progress &amp; Maintenance Mode</option>
+            <option value="bandwidth">🚀 Bandwidth Allocation &amp; Speed Capping</option>
             <option value="concurrency">⚡ Concurrency &amp; Throughput Acceleration</option>
             <option value="ddl">☁️ Native Direct DDL Movie Engine</option>
             <option value="switches">🛡️ Master Feature Switches &amp; Pipelines</option>
@@ -536,6 +537,87 @@
                     <span>💾 Update Notice</span>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bandwidth Speed Capping & Traffic Allocation Card -->
+          <div class="engine-config-card engine-card-bandwidth" id="engineCardBandwidth" style="grid-column: 1 / -1;">
+            <div class="card-head maint-card-head">
+              <div class="maint-head-left">
+                <div class="maint-title-row">
+                  <span class="maint-title-icon">🚀</span>
+                  <div>
+                    <h3>Bandwidth Allocation &amp; Speed Capping</h3>
+                    <p>Enforce download speed limits for public guests and standard members to protect server bandwidth. <strong>Owner downloads are always completely uncapped with full pipe priority.</strong></p>
+                  </div>
+                </div>
+              </div>
+              <div class="maint-head-right">
+                <div class="bandwidth-status-pill pill-inactive" id="adminBandwidthStatusPill">
+                  <span class="pill-dot"></span>
+                  <span id="adminBandwidthStatusText">UNRESTRICTED (No Speed Caps)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="maintenance-card-body">
+              <div class="switch-list">
+                <label class="engine-switch-row bw-switch-row" style="background: rgba(6, 182, 212, 0.08); border-color: rgba(6, 182, 212, 0.25);">
+                  <div class="switch-info">
+                    <strong>Enable Master Bandwidth Rate Limiter</strong>
+                    <span>When enabled, download speeds for non-owner users and guests are throttled across yt-dlp &amp; aria2c. When disabled, downloads run at unrestricted network speed.</span>
+                  </div>
+                  <input type="checkbox" id="switchBandwidthCaps" class="admin-toggle">
+                </label>
+              </div>
+
+              <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 14px; gap: 14px;">
+                <div class="form-group">
+                  <label for="cfgBandwidthGuest">Guest Visitor Limit</label>
+                  <select id="cfgBandwidthGuest" class="admin-select">
+                    <option value="256K">256 KB/s (Strict Throttle)</option>
+                    <option value="500K">500 KB/s (Low Tier)</option>
+                    <option value="1M" selected>1 MB/s (Standard Guest Cap)</option>
+                    <option value="2M">2 MB/s (Moderate)</option>
+                    <option value="3M">3 MB/s (Relaxed)</option>
+                    <option value="5M">5 MB/s (High Speed)</option>
+                    <option value="0">0 (Unlimited / Uncapped)</option>
+                  </select>
+                  <span class="field-hint">Maximum download speed for unauthenticated guests</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="cfgBandwidthUser">Registered Member Limit</label>
+                  <select id="cfgBandwidthUser" class="admin-select">
+                    <option value="1M">1 MB/s (Conservative)</option>
+                    <option value="2M">2 MB/s (Standard)</option>
+                    <option value="3M" selected>3 MB/s (Recommended)</option>
+                    <option value="5M">5 MB/s (Fast Member Tier)</option>
+                    <option value="10M">10 MB/s (Ultra Fast)</option>
+                    <option value="0">0 (Unlimited / Uncapped)</option>
+                  </select>
+                  <span class="field-hint">Maximum download speed for standard registered users</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="cfgBandwidthPremium">Premium Member Limit</label>
+                  <select id="cfgBandwidthPremium" class="admin-select">
+                    <option value="0" selected>0 (Unlimited - No Speed Cap)</option>
+                    <option value="5M">5 MB/s</option>
+                    <option value="10M">10 MB/s</option>
+                    <option value="15M">15 MB/s</option>
+                    <option value="25M">25 MB/s</option>
+                  </select>
+                  <span class="field-hint">Rate cap for premium accounts (0 = Unrestricted full pipe)</span>
+                </div>
+              </div>
+
+              <div style="margin-top: 14px; display: flex; justify-content: flex-end; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="font-size: 0.72rem; color: #67e8f9;">💡 Custom per-user speed limits can also be set individually in the User Accounts tab.</span>
+                <button type="button" class="btn btn-primary btn-sm" id="btnSaveBandwidthCaps" style="padding: 7px 16px;">
+                  <span>💾 Save Bandwidth Settings</span>
+                </button>
               </div>
             </div>
           </div>

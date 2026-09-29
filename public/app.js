@@ -660,6 +660,19 @@ function openAccountModal() {
     const isOwnerOrAdmin = currentUser && (currentUser.role === 'owner' || currentUser.isOwner || currentUser.role === 'admin');
     adminLinkBtn.style.display = isOwnerOrAdmin ? 'inline-flex' : 'none';
   }
+
+  const bwValEl = document.getElementById('accountModalBandwidthVal');
+  if (bwValEl && currentUser) {
+    const isOwner = currentUser.role === 'owner' || currentUser.isOwner;
+    const cap = currentUser.limits && currentUser.limits.bandwidthCap;
+    if (isOwner) {
+      bwValEl.innerHTML = '<span class="stat-dot" style="background: #fbbf24;"></span>Uncapped (Owner Gigabit Pipe)';
+    } else if (cap && cap !== 'Uncapped' && cap !== '0') {
+      bwValEl.innerHTML = `<span class="stat-dot" style="background: #06b6d4;"></span>Capped at ${escapeHtml(cap)}`;
+    } else {
+      bwValEl.innerHTML = '<span class="stat-dot"></span>Uncapped Priority';
+    }
+  }
   modal.style.display = 'flex';
 }
 

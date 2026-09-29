@@ -1413,6 +1413,74 @@ function setupEngineSettings() {
     });
   }
 
+  // Bandwidth Allocation & Speed Capping Controls
+  const switchBandwidth = document.getElementById('switchBandwidthCaps');
+  const selBwGuest = document.getElementById('cfgBandwidthGuest');
+  const selBwUser = document.getElementById('cfgBandwidthUser');
+  const selBwPremium = document.getElementById('cfgBandwidthPremium');
+  const btnSaveBandwidth = document.getElementById('btnSaveBandwidthCaps');
+
+  function updateAdminBandwidthUI(enabled) {
+    const pill = document.getElementById('adminBandwidthStatusPill');
+    const text = document.getElementById('adminBandwidthStatusText');
+    if (switchBandwidth) switchBandwidth.checked = !!enabled;
+    if (pill && text) {
+      if (enabled) {
+        pill.className = 'bandwidth-status-pill pill-active';
+        text.textContent = 'ACTIVE (Speed Capped)';
+      } else {
+        pill.className = 'bandwidth-status-pill pill-inactive';
+        text.textContent = 'UNRESTRICTED (No Speed Caps)';
+      }
+    }
+  }
+
+  async function saveBandwidthSettings(showFeedback = true) {
+    try {
+      const enabled = switchBandwidth ? switchBandwidth.checked : false;
+      const guestLimit = selBwGuest ? selBwGuest.value : '1M';
+      const userLimit = selBwUser ? selBwUser.value : '3M';
+      const premiumLimit = selBwPremium ? selBwPremium.value : '0';
+
+      const res = await fetch('/api/admin/bandwidth-caps', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          enabled,
+          guestLimit,
+          userLimit,
+          premiumLimit
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        updateAdminBandwidthUI(data.bandwidthCaps.enabled);
+        if (showFeedback) {
+          showToast(data.message || (data.bandwidthCaps.enabled ? 'Bandwidth Caps Activated' : 'Bandwidth Caps Disabled'));
+        }
+      } else {
+        showToast(data.error || 'Failed to save bandwidth settings', 'error');
+      }
+    } catch (err) {
+      showToast('Network error: ' + err.message, 'error');
+    }
+  }
+
+  if (switchBandwidth) {
+    switchBandwidth.addEventListener('change', () => {
+      saveBandwidthSettings(true);
+    });
+  }
+
+  if (btnSaveBandwidth) {
+    btnSaveBandwidth.addEventListener('click', () => {
+      saveBandwidthSettings(true);
+    });
+  }
+
   // Category Filter Dropdown
   const engineCategoryDropdown = document.getElementById('engineCategoryDropdown');
   if (engineCategoryDropdown) {
@@ -1420,6 +1488,7 @@ function setupEngineSettings() {
       const selected = engineCategoryDropdown.value;
       const cardMap = {
         maintenance: document.getElementById('engineCardMaintenance'),
+        bandwidth: document.getElementById('engineCardBandwidth'),
         concurrency: document.getElementById('engineCardConcurrency'),
         ddl: document.getElementById('engineCardDdl'),
         switches: document.getElementById('engineCardSwitches'),
@@ -1469,6 +1538,31 @@ async function loadEngineConfig() {
     }
     if (hdrBadge) {
       hdrBadge.style.display = isMaintActive ? 'inline-flex' : 'none';
+    }
+
+    // Bandwidth Speed Capping Status
+    const bwCaps = cfg.bandwidthCaps || {};
+    const switchBw = document.getElementById('switchBandwidthCaps');
+    const guestBw = document.getElementById('cfgBandwidthGuest');
+    const userBw = document.getElementById('cfgBandwidthUser');
+    const premBw = document.getElementById('cfgBandwidthPremium');
+    const bwPill = document.getElementById('adminBandwidthStatusPill');
+    const bwText = document.getElementById('adminBandwidthStatusText');
+
+    const isBwActive = !!bwCaps.enabled;
+    if (switchBw) switchBw.checked = isBwActive;
+    if (guestBw && bwCaps.guestLimit !== undefined) guestBw.value = bwCaps.guestLimit;
+    if (userBw && bwCaps.userLimit !== undefined) userBw.value = bwCaps.userLimit;
+    if (premBw && bwCaps.premiumLimit !== undefined) premBw.value = bwCaps.premiumLimit;
+
+    if (bwPill && bwText) {
+      if (isBwActive) {
+        bwPill.className = 'bandwidth-status-pill pill-active';
+        bwText.textContent = 'ACTIVE (Speed Capped)';
+      } else {
+        bwPill.className = 'bandwidth-status-pill pill-inactive';
+        bwText.textContent = 'UNRESTRICTED (No Speed Caps)';
+      }
     }
 
     if (cfg.maxConcurrentJobs) document.getElementById('cfgMaxConcurrent').value = cfg.maxConcurrentJobs;
@@ -2240,16 +2334,18 @@ async function loadAdminUsers() {
           : `<span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Default (Temp Cache)</span>`);
 
       return `
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); ${isOwner ? 'background: rgba(245,158,11,0.04);' : ''}">
           <td style="padding: 12px 14px;">
             <div><strong>${escapeHtml(u.username)}</strong></div>
             ${isOwner 
-              ? '<div style="font-size: 0.72rem; color: #fbbf24; margin-top: 2px;">⚡ Full System Access</div>' 
+              ? '<div style="font-size: 0.72rem; color: #fbbf24; margin-top: 2px;">⚡ Full System Access • 🚀 Uncapped Pipe</div>' 
               : `<div style="display: flex; align-items: center; gap: 6px; margin-top: 2px; flex-wrap: wrap;">
                    <span style="font-size: 0.72rem; color: #94a3b8;">📁 ${folderCount} folder${folderCount === 1 ? '' : 's'}</span>
                    ${u.hasCustomPermissions 
                      ? '<span style="font-size: 0.68rem; color: #c4b5fd; background: rgba(139,92,246,0.18); border: 1px solid rgba(139,92,246,0.4); padding: 1px 6px; border-radius: 4px; font-weight: 600;" title="Individual permissions customized by owner">⚡ Custom Perms</span>' 
                      : '<span style="font-size: 0.68rem; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px;">Role Default</span>'}
+                   ${u.bandwidthCap
+                     ? `<span style="font-size: 0.68rem; color: #67e8f9; background: rgba(6,182,212,0.18); border: 1px solid rgba(6,182,212,0.4); padding: 1px 6px; border-radius: 4px; font-weight: 600;" title="Custom bandwidth cap enforced">⚡ Capped: ${escapeHtml(u.bandwidthCap)}</span>`
+                     : `<span style="font-size: 0.68rem; color: #94a3b8; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px;" title="Following tier bandwidth limit">Speed: ${escapeHtml(u.effectiveBandwidthCap || 'Default')}</span>`}
                  </div>`}
           </td>
           <td style="padding: 12px 14px;"><code style="font-size: 0.8rem; color: #93c5fd;">${escapeHtml(u.id)}</code></td>
@@ -2280,6 +2376,9 @@ async function loadAdminUsers() {
                 <button type="button" class="btn btn-outline btn-xs" onclick="openUserPermissionsModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.role || 'user')}')" style="border-color: #8b5cf6; color: #c4b5fd; font-size: 0.75rem; padding: 3px 8px;" title="Configure individual feature permissions for this user">
                   🛡️ Perms${u.hasCustomPermissions ? ' ⚡' : ''}
                 </button>
+                <button type="button" class="btn btn-outline btn-xs" onclick="openQuickBandwidthPrompt('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.bandwidthCap || '')}')" style="border-color: #06b6d4; color: #67e8f9; font-size: 0.75rem; padding: 3px 8px;" title="Set user download speed cap">
+                  🚀 Speed${u.bandwidthCap ? ` (${escapeHtml(u.bandwidthCap)})` : ''}
+                </button>
                 <button type="button" class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.password || '')}', '${escapeHtml(u.role || 'user')}')" style="border-color: #eab308; color: #fde047; font-size: 0.75rem; padding: 3px 8px;" title="View or change user password">
                   🔑 Password
                 </button>
@@ -2303,6 +2402,35 @@ async function loadAdminUsers() {
     }).join('');
   } catch (e) {}
 }
+
+window.openQuickBandwidthPrompt = async function(userId, username, currentCap) {
+  const current = currentCap || 'default';
+  const entered = prompt(
+    `Set download bandwidth speed limit for "${username}":\nOptions: 256K, 500K, 1M, 2M, 3M, 5M, 10M, 0 (uncapped), or "default" (follow role policy)`,
+    current
+  );
+  if (entered === null) return;
+  const cleanLimit = entered.trim();
+  try {
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/bandwidth`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ limit: cleanLimit })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(data.message || `Bandwidth limit updated for ${username}`);
+      loadAdminUsers();
+    } else {
+      showToast(data.error || 'Failed to update bandwidth limit', 'error');
+    }
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'error');
+  }
+};
 
 window.openQuickFolderPrompt = async function(userId, username, currentPath) {
   const defaultVal = currentPath || (username.toLowerCase() === 'sakura' ? '/media/storage/sakura' : `/media/storage/${username}`);
