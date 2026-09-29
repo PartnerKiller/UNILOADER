@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sakura OlaMovies Cloud Hopper & Auto-Downloader
 // @namespace    https://uniloader.dpdns.org/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Automates OlaMovies slider, ad timers, Turnstile, and OM Drive, then sends direct cloud streams straight to Sakura Universal Downloader!
 // @author       Universal Downloader Suite
 // @match        *://*.olamovies.mov/*
@@ -16,7 +16,6 @@
 // @match        *://*.techmags.net/*
 // @match        *://drive.olamovies.download/*
 // @connect      uniloader.dpdns.org
-// @connect      jav.nazuna.dpdns.org
 // @connect      192.168.0.10
 // @connect      *
 // @grant        GM_xmlhttpRequest
@@ -30,7 +29,6 @@
   'use strict';
 
   const SAKURA_URL = 'https://uniloader.dpdns.org';
-  const SAKURA_FALLBACK_URL = 'https://jav.nazuna.dpdns.org';
   const SAKURA_LOCAL_URL = 'http://192.168.0.10:3050';
 
   // Inject sleek HUD notification
@@ -354,8 +352,6 @@
             },
             onerror: () => {
               if (endpoint === SAKURA_URL) {
-                sendReq(SAKURA_FALLBACK_URL);
-              } else if (endpoint === SAKURA_FALLBACK_URL) {
                 sendReq(SAKURA_LOCAL_URL);
               }
             }
@@ -370,8 +366,6 @@
             setTimeout(() => { window.close(); }, 3000);
           }).catch(() => {
             if (endpoint === SAKURA_URL) {
-              sendReq(SAKURA_FALLBACK_URL);
-            } else if (endpoint === SAKURA_FALLBACK_URL) {
               sendReq(SAKURA_LOCAL_URL);
             }
           });
