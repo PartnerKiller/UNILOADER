@@ -5026,7 +5026,7 @@ function initAiFeatures() {
 
     if (btnAiCopilotSubmit) btnAiCopilotSubmit.disabled = true;
     if (aiCopilotFeedback) aiCopilotFeedback.style.display = 'flex';
-    if (aiFeedbackSpinner) aiFeedbackSpinner.style.display = 'inline-block';
+    if (aiFeedbackSpinner) aiFeedbackSpinner.style.display = 'inline-flex';
     if (aiFeedbackText) aiFeedbackText.textContent = 'Consulting Gemini AI...';
 
     try {

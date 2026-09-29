@@ -7981,13 +7981,57 @@ body:not(.user-is-owner) .ai-owner-feature {
 }
 
 .ai-feedback-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.ai-feedback-spinner:empty {
   width: 15px;
   height: 15px;
-  border: 2px solid rgba(199, 210, 254, 0.25);
+  border: 2px solid rgba(99, 102, 241, 0.22);
   border-top-color: #818cf8;
+  border-right-color: #c084fc;
   border-radius: 50%;
-  animation: flacSpin 0.7s linear infinite;
-  flex-shrink: 0;
+  animation: flacSpin 0.75s linear infinite;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.35);
+}
+
+.ai-gemini-logo-spin {
+  width: 18px;
+  height: 18px;
+  display: block;
+  animation: geminiSpinPulse 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  transform-origin: center center;
+}
+
+@keyframes geminiSpinPulse {
+  0% {
+    transform: rotate(0deg) scale(0.92);
+    filter: drop-shadow(0 0 3px rgba(129, 140, 248, 0.5));
+  }
+  50% {
+    transform: rotate(180deg) scale(1.15);
+    filter: drop-shadow(0 0 8px rgba(192, 132, 252, 0.85));
+  }
+  100% {
+    transform: rotate(360deg) scale(0.92);
+    filter: drop-shadow(0 0 3px rgba(129, 140, 248, 0.5));
+  }
+}
+
+@keyframes flacSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes aiSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* 4. FLAC AI Spectrogram Audit Button & Verdict Card */
