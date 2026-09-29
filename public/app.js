@@ -2356,10 +2356,24 @@ let deferredInstallPrompt = null;
 const btnInstallApp = document.getElementById('btnInstallApp');
 
 if ('serviceWorker' in navigator) {
+  // Purge any legacy or HTTP-scoped service workers
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    for (const reg of regs) {
+      if (reg.scope && (reg.scope.startsWith('http://') || reg.scope.includes(':3050'))) {
+        reg.unregister().then(() => console.log('Purged insecure HTTP service worker:', reg.scope));
+      }
+    }
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('PWA ServiceWorker registered:', reg.scope))
-      .catch(err => console.warn('PWA ServiceWorker registration failed:', err));
+    if (window.location.protocol === 'https:') {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => {
+          reg.update();
+          console.log('PWA ServiceWorker registered:', reg.scope);
+        })
+        .catch(err => console.warn('PWA ServiceWorker registration failed:', err));
+    }
   });
 }
 

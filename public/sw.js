@@ -1,4 +1,9 @@
-const CACHE_NAME = 'universal-downloader-v3';
+const CACHE_NAME = 'universal-downloader-v4-https';
+
+// Immediately self-terminate if registered under insecure HTTP
+if (self.location.protocol === 'http:') {
+  self.registration.unregister();
+}
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
