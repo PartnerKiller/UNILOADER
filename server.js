@@ -233,6 +233,11 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+app.get('/api/debug-mixed-content', (req, res) => {
+  console.log('🚨 [MIXED CONTENT REPORTED BY CLIENT]:', JSON.stringify(req.query));
+  res.status(204).end();
+});
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0,
   etag: false,

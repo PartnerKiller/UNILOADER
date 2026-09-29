@@ -4,6 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  <script>
+    document.addEventListener('securitypolicyviolation', function(e) {
+      fetch('/api/debug-mixed-content?type=csp&blocked=' + encodeURIComponent(e.blockedURI) + '&directive=' + encodeURIComponent(e.violatedDirective));
+    });
+    window.addEventListener('error', function(e) {
+      var src = (e.target && (e.target.src || e.target.href)) || '';
+      if (src && src.indexOf('http:') === 0) {
+        fetch('/api/debug-mixed-content?type=insecure_element&src=' + encodeURIComponent(src));
+      }
+    }, true);
+    window.addEventListener('DOMContentLoaded', function() {
+      var insecure = [];
+      document.querySelectorAll('img, script, link, iframe, audio, video, source').forEach(function(el) {
+        var u = el.src || el.href || '';
+        if (u && u.indexOf('http:') === 0) insecure.push(u);
+      });
+      if (insecure.length > 0) {
+        fetch('/api/debug-mixed-content?type=dom_scan&urls=' + encodeURIComponent(insecure.join(',')));
+      }
+    });
+  </script>
   <title>Universal Downloader &bull; High-Speed Media Downloader</title>
   <meta name="description" content="Fast universal online video & audio downloader. Download directly to your device from YouTube, Spotify, Rule34Video, Twitter, TikTok, and more.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
