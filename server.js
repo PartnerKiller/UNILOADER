@@ -221,6 +221,11 @@ app.use((req, res, next) => {
   if (proto === 'http' && host && !host.startsWith('192.168.') && !host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
     return res.redirect(301, `https://${host}${req.url}`);
   }
+  // Enforce HSTS and Upgrade Insecure Requests when on HTTPS
+  if (proto === 'https' || req.secure) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    res.setHeader('Content-Security-Policy', 'upgrade-insecure-requests');
+  }
   next();
 });
 app.use(express.static(path.join(__dirname, 'public'), {
