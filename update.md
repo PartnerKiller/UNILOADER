@@ -1,6 +1,6 @@
 # Bengali 1:1 CD-Rip Collection — Future Implementation Plan
 
-**Target Application:** All-In-One (AIO) Downloader (`jav.nazuna.dpdns.org`)  
+**Target Application:** All-In-One (AIO) Downloader (`uniloader.dpdns.org`)  
 **Scope:** Architecture Design & Implementation Planning (Explanation & Design Only)  
 **Status:** **PLANNING ONLY — NO CODE OR CONFIGURATION MODIFIED**  
 **Classification Guide:**

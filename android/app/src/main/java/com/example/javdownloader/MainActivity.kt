@@ -69,7 +69,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val PREFS_NAME = "jav_downloader_prefs"
         private const val KEY_SERVER_URL = "server_url"
-        const val DEFAULT_CLOUD_URL = "https://jav.nazuna.dpdns.org"
+        const val DEFAULT_CLOUD_URL = "https://uniloader.dpdns.org"
         const val DEFAULT_LAN_URL = "http://192.168.0.10:3050"
     }
 
