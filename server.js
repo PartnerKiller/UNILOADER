@@ -210,14 +210,6 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-// Legacy Domain Migration: Discontinue jav.nazuna.dpdns.org and redirect to uniloader.dpdns.org
-app.use((req, res, next) => {
-  const host = req.headers.host || '';
-  if (host.includes('jav.nazuna.dpdns.org')) {
-    return res.redirect(301, `https://uniloader.dpdns.org${req.originalUrl || '/'}`);
-  }
-  next();
-});
 
 app.use(cors());
 app.use(express.json({ limit: '150mb' }));
