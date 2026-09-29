@@ -15,6 +15,7 @@
 // @match        *://*.financeehelp.com/*
 // @match        *://*.techmags.net/*
 // @match        *://drive.olamovies.download/*
+// @connect      uniloader.dpdns.org
 // @connect      jav.nazuna.dpdns.org
 // @connect      192.168.0.10
 // @connect      *
@@ -28,7 +29,8 @@
 (function() {
   'use strict';
 
-  const SAKURA_URL = 'https://jav.nazuna.dpdns.org';
+  const SAKURA_URL = 'https://uniloader.dpdns.org';
+  const SAKURA_FALLBACK_URL = 'https://jav.nazuna.dpdns.org';
   const SAKURA_LOCAL_URL = 'http://192.168.0.10:3050';
 
   // Inject sleek HUD notification
@@ -352,6 +354,8 @@
             },
             onerror: () => {
               if (endpoint === SAKURA_URL) {
+                sendReq(SAKURA_FALLBACK_URL);
+              } else if (endpoint === SAKURA_FALLBACK_URL) {
                 sendReq(SAKURA_LOCAL_URL);
               }
             }
@@ -366,6 +370,8 @@
             setTimeout(() => { window.close(); }, 3000);
           }).catch(() => {
             if (endpoint === SAKURA_URL) {
+              sendReq(SAKURA_FALLBACK_URL);
+            } else if (endpoint === SAKURA_FALLBACK_URL) {
               sendReq(SAKURA_LOCAL_URL);
             }
           });
