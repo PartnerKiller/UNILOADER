@@ -169,7 +169,7 @@ class MainActivity : AppCompatActivity() {
                 val url = request?.url?.toString() ?: return false
                 val currentServer = getCurrentServerUrl()
 
-                if (url.startsWith(currentServer) || url.startsWith("/") || url.contains("uniloader.dpdns.org") || url.contains("nazuna.dpdns.org") || url.contains("192.168.")) {
+                if (url.startsWith(currentServer) || url.startsWith("/") || url.contains("uniloader.dpdns.org") || url.contains("192.168.")) {
                     return false
                 }
 
