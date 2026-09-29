@@ -15,7 +15,7 @@
 // @match        *://*.financeehelp.com/*
 // @match        *://*.techmags.net/*
 // @match        *://drive.olamovies.download/*
-// @connect      uniloader.dpdns.org
+// @connect      jav.nazuna.dpdns.org
 // @connect      192.168.0.10
 // @connect      *
 // @grant        GM_xmlhttpRequest
@@ -28,7 +28,7 @@
 (function() {
   'use strict';
 
-  const SAKURA_URL = 'https://uniloader.dpdns.org';
+  const SAKURA_URL = 'https://jav.nazuna.dpdns.org';
   const SAKURA_LOCAL_URL = 'http://192.168.0.10:3050';
 
   // Inject sleek HUD notification

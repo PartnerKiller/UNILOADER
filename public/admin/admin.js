@@ -543,7 +543,7 @@ function setupTools() {
   const slskdLink = document.getElementById('slskdWebUiLink');
   if (slskdLink) {
     const host = window.location.hostname;
-    if (host.includes('uniloader.dpdns.org')) {
+    if (host.includes('nazuna.dpdns.org') || host.includes('uniloader.dpdns.org')) {
       slskdLink.href = 'https://slskd.nazuna.dpdns.org';
     } else if (host === 'localhost' || host === '127.0.0.1') {
       slskdLink.href = 'http://127.0.0.1:5030';
