@@ -268,8 +268,55 @@ window.fetch = function (url, options = {}) {
       }
     }
   }
-  return originalFetch.call(this, url, options);
+
+  return originalFetch.call(this, url, options).then(async (response) => {
+    if (response.status === 503) {
+      try {
+        const clone = response.clone();
+        const data = await clone.json();
+        if (data && data.maintenance) {
+          maintenanceState = {
+            active: true,
+            message: data.message || maintenanceState.message
+          };
+          applyMaintenanceUI();
+        }
+      } catch (e) {}
+    }
+    return response;
+  });
 };
+
+// Work In Progress / Maintenance Mode State & UI Controller
+let maintenanceState = {
+  active: false,
+  message: 'We are currently performing scheduled maintenance and system upgrades. The site will be back online shortly. Thank you for your patience!'
+};
+
+function applyMaintenanceUI() {
+  const overlay = document.getElementById('maintenanceOverlay');
+  const banner = document.getElementById('ownerTestingBanner');
+  const msgText = document.getElementById('maintenanceMessageText');
+
+  if (msgText && maintenanceState.message) {
+    msgText.textContent = maintenanceState.message;
+  }
+
+  const isOwner = currentUser && (currentUser.isOwner || currentUser.role === 'owner');
+
+  if (maintenanceState.active) {
+    if (isOwner) {
+      if (overlay) overlay.style.display = 'none';
+      if (banner) banner.style.display = 'flex';
+    } else {
+      if (overlay) overlay.style.display = 'flex';
+      if (banner) banner.style.display = 'none';
+    }
+  } else {
+    if (overlay) overlay.style.display = 'none';
+    if (banner) banner.style.display = 'none';
+  }
+}
 
 function updateAuthUI(user, limits) {
   currentUser = user;
@@ -433,6 +480,7 @@ function updateAuthUI(user, limits) {
   }
 
   updateStorageTargetUI();
+  applyMaintenanceUI();
 }
 
 function updateStorageTargetUI() {
@@ -473,6 +521,12 @@ async function checkUserSession() {
     const res = await fetch('/api/auth/me');
     if (res.ok) {
       const data = await res.json();
+      if (data.maintenance && typeof data.maintenance.active === 'boolean') {
+        maintenanceState = {
+          active: data.maintenance.active,
+          message: data.maintenance.message || maintenanceState.message
+        };
+      }
       if (data.authenticated && data.user) {
         const u = Object.assign({}, data.user, { features: data.features || {} });
         updateAuthUI(u, data.limits);
@@ -486,6 +540,7 @@ async function checkUserSession() {
   } catch (e) {
     updateAuthUI({ role: 'guest', username: 'Guest', features: {} }, null);
   }
+  applyMaintenanceUI();
 }
 
 // Auth Modal Management
@@ -947,10 +1002,83 @@ function setupAuthModalEvents() {
   }
 }
 
+// Maintenance Mode Button Event Handlers
+function setupMaintenanceEvents() {
+  const btnUnlock = document.getElementById('btnOwnerTestingUnlock');
+  const btnRefresh = document.getElementById('btnRefreshMaintenance');
+  const btnDisable = document.getElementById('btnOwnerDisableMaintenance');
+
+  if (btnUnlock) {
+    btnUnlock.addEventListener('click', () => {
+      openAuthModal('login', 'Please sign in with Owner credentials to access testing mode.');
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', async () => {
+      btnRefresh.disabled = true;
+      try {
+        const res = await fetch('/api/maintenance/status');
+        if (res.ok) {
+          const data = await res.json();
+          maintenanceState = {
+            active: !!data.maintenance,
+            message: data.message || maintenanceState.message
+          };
+          applyMaintenanceUI();
+          if (typeof showToast === 'function') {
+            showToast(data.maintenance ? 'Site is still under maintenance' : 'Site is back online!', data.maintenance ? 'info' : 'success');
+          }
+        }
+      } catch (err) {
+        if (typeof showToast === 'function') showToast('Could not reach server', 'error');
+      } finally {
+        btnRefresh.disabled = false;
+      }
+    });
+  }
+
+  if (btnDisable) {
+    btnDisable.addEventListener('click', async () => {
+      if (!confirm('Disable Work In Progress mode and restore public access for all visitors?')) {
+        return;
+      }
+      btnDisable.disabled = true;
+      try {
+        const res = await fetch('/api/admin/maintenance', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            maintenanceMode: false
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          maintenanceState = {
+            active: false,
+            message: data.maintenanceMessage || maintenanceState.message
+          };
+          applyMaintenanceUI();
+          if (typeof showToast === 'function') showToast('Work In Progress mode deactivated — Public access restored', 'success');
+        } else {
+          if (typeof showToast === 'function') showToast(data.error || 'Failed to disable maintenance', 'error');
+        }
+      } catch (err) {
+        if (typeof showToast === 'function') showToast('Network error: ' + err.message, 'error');
+      } finally {
+        btnDisable.disabled = false;
+      }
+    });
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   setupAuthModalEvents();
+  setupMaintenanceEvents();
   checkUserSession();
   loadJobs();
   initGlobalSSEStream();
@@ -2365,6 +2493,24 @@ function initGlobalSSEStream() {
     // Heartbeat ping from server (prevents idle proxy timeouts)
     sseEventSource.addEventListener('ping', () => {
       markAlive();
+    });
+
+    // Real-time Work In Progress / Maintenance state event
+    sseEventSource.addEventListener('maintenance', (event) => {
+      markAlive();
+      if (!event.data || event.data.startsWith(':')) return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data && typeof data.active === 'boolean') {
+          maintenanceState = {
+            active: data.active,
+            message: data.message || maintenanceState.message
+          };
+          applyMaintenanceUI();
+        }
+      } catch (e) {
+        console.warn('SSE maintenance parse error:', e);
+      }
     });
 
     // Full queue synchronization event

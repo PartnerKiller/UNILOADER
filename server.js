@@ -58,6 +58,8 @@ const defaultEngineConfig = {
   bufferSize: '32M',
   httpChunkSize: '16M',
   retries: 10,
+  maintenanceMode: false,
+  maintenanceMessage: 'We are currently performing scheduled maintenance and system upgrades. The site will be back online shortly. Thank you for your patience!',
   features: {
     adultHub: true,
     movieHub: true,
@@ -81,6 +83,8 @@ function loadEngineConfig() {
       engineConfig = {
         ...defaultEngineConfig,
         ...parsed,
+        maintenanceMode: parsed.maintenanceMode !== undefined ? !!parsed.maintenanceMode : false,
+        maintenanceMessage: typeof parsed.maintenanceMessage === 'string' && parsed.maintenanceMessage.trim() ? parsed.maintenanceMessage.trim() : defaultEngineConfig.maintenanceMessage,
         features: {
           ...defaultEngineConfig.features,
           ...(parsed.features || {})
@@ -609,6 +613,13 @@ app.get('/api/jobs/stream', identifyUser, (req, res) => {
   clientResWriteSafe(res, `event: sync\ndata: ${initialPayload}\n\n`);
   clientResWriteSafe(res, `data: ${initialPayload}\n\n`);
 
+  // Send initial maintenance mode state
+  const maintPayload = JSON.stringify({
+    active: !!engineConfig.maintenanceMode,
+    message: engineConfig.maintenanceMessage || defaultEngineConfig.maintenanceMessage
+  });
+  clientResWriteSafe(res, `event: maintenance\ndata: ${maintPayload}\n\n`);
+
   req.on('close', () => {
     globalSseClients.delete(res);
   });
@@ -619,6 +630,16 @@ function clientResWriteSafe(res, chunk) {
     res.write(chunk);
     if (typeof res.flush === 'function') res.flush();
   } catch (e) {}
+}
+
+function broadcastMaintenanceUpdate() {
+  const payload = JSON.stringify({
+    active: !!engineConfig.maintenanceMode,
+    message: engineConfig.maintenanceMessage || defaultEngineConfig.maintenanceMessage
+  });
+  for (const client of globalSseClients.keys()) {
+    clientResWriteSafe(client, `event: maintenance\ndata: ${payload}\n\n`);
+  }
 }
 
 // SSE Heartbeat every 10 seconds to keep reverse-proxy & Cloudflare tunnel connections persistent
@@ -1831,6 +1852,53 @@ app.post('/api/ai/generate-subtitles', identifyUser, requireOwner, async (req, r
   }
 });
 
+// Work In Progress / Maintenance Mode Middleware
+function checkMaintenanceMode(req, res, next) {
+  if (!engineConfig.maintenanceMode) {
+    return next();
+  }
+
+  const p = (req.originalUrl || req.url || '').split('?')[0];
+
+  // Only intercept /api routes; static frontend files and pages are never blocked so visitors can view the notice
+  if (!p.startsWith('/api')) {
+    return next();
+  }
+
+  // Exempt specific endpoints required for login, admin operations, health monitoring, and real-time updates
+  if (
+    p.startsWith('/api/admin') ||
+    p.startsWith('/api/auth') ||
+    p === '/api/health' ||
+    p === '/api/maintenance/status' ||
+    p === '/api/jobs/stream'
+  ) {
+    return next();
+  }
+
+  // Check if current user is owner or has valid admin token
+  const sess = req.currentUser || resolveUserSession(req);
+  if (sess && (sess.isOwner || sess.role === 'owner')) {
+    return next();
+  }
+
+  return res.status(503).json({
+    error: 'Site is currently undergoing maintenance (Work In Progress).',
+    maintenance: true,
+    message: engineConfig.maintenanceMessage || defaultEngineConfig.maintenanceMessage
+  });
+}
+
+app.use(checkMaintenanceMode);
+
+// Public Maintenance Status Endpoint
+app.get('/api/maintenance/status', (req, res) => {
+  res.json({
+    maintenance: !!engineConfig.maintenanceMode,
+    message: engineConfig.maintenanceMessage || defaultEngineConfig.maintenanceMessage
+  });
+});
+
 // Auth API Routes
 // Auth API Routes - Registration is disabled for public guests
 app.post('/api/auth/register', (req, res) => {
@@ -1979,6 +2047,10 @@ app.get('/api/auth/me', identifyUser, (req, res) => {
   const userFolder = getUserDownloadFolder(u.userId);
   res.json({
     authenticated: u.role !== 'guest',
+    maintenance: {
+      active: !!engineConfig.maintenanceMode,
+      message: engineConfig.maintenanceMessage || defaultEngineConfig.maintenanceMessage
+    },
     user: {
       id: u.userId,
       username: u.username,
@@ -3527,6 +3599,12 @@ app.post('/api/admin/engine-config', requireAdmin, (req, res) => {
     if (typeof updates.retries === 'number') {
       engineConfig.retries = Math.max(1, Math.min(30, updates.retries));
     }
+    if (typeof updates.maintenanceMode === 'boolean') {
+      engineConfig.maintenanceMode = updates.maintenanceMode;
+    }
+    if (typeof updates.maintenanceMessage === 'string' && updates.maintenanceMessage.trim()) {
+      engineConfig.maintenanceMessage = updates.maintenanceMessage.trim();
+    }
     if (updates.features && typeof updates.features === 'object') {
       engineConfig.features = {
         ...engineConfig.features,
@@ -3534,7 +3612,40 @@ app.post('/api/admin/engine-config', requireAdmin, (req, res) => {
       };
     }
     saveEngineConfig();
+    broadcastMaintenanceUpdate();
     res.json({ success: true, config: engineConfig, message: 'Engine configuration updated and saved' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 12.1 Dedicated Maintenance Mode (Work In Progress) APIs
+app.get('/api/admin/maintenance', requireAdmin, (req, res) => {
+  res.json({
+    success: true,
+    maintenanceMode: !!engineConfig.maintenanceMode,
+    maintenanceMessage: engineConfig.maintenanceMessage || defaultEngineConfig.maintenanceMessage
+  });
+});
+
+app.post('/api/admin/maintenance', requireAdmin, (req, res) => {
+  try {
+    const { maintenanceMode, maintenanceMessage } = req.body || {};
+    if (typeof maintenanceMode === 'boolean') {
+      engineConfig.maintenanceMode = maintenanceMode;
+    }
+    if (typeof maintenanceMessage === 'string' && maintenanceMessage.trim()) {
+      engineConfig.maintenanceMessage = maintenanceMessage.trim();
+    }
+    saveEngineConfig();
+    broadcastMaintenanceUpdate();
+    console.log(`[Maintenance] Work In Progress toggled: ${engineConfig.maintenanceMode ? 'ACTIVE' : 'INACTIVE'}`);
+    res.json({
+      success: true,
+      maintenanceMode: !!engineConfig.maintenanceMode,
+      maintenanceMessage: engineConfig.maintenanceMessage,
+      message: `Work In Progress mode is now ${engineConfig.maintenanceMode ? 'ENABLED' : 'DISABLED'}`
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

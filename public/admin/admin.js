@@ -1343,12 +1343,83 @@ function setupEngineSettings() {
     });
   }
 
+  // Work In Progress / Maintenance Mode Controls
+  const switchMaintenance = document.getElementById('switchMaintenanceMode');
+  const inputMaintMsg = document.getElementById('inputMaintenanceMessage');
+  const btnSaveMaintMsg = document.getElementById('btnSaveMaintenanceMsg');
+
+  function updateAdminMaintenanceUI(active, msg) {
+    const pill = document.getElementById('adminMaintStatusPill');
+    const text = document.getElementById('adminMaintStatusText');
+    const hdrBadge = document.getElementById('headerMaintBadge');
+    if (switchMaintenance) switchMaintenance.checked = !!active;
+    if (inputMaintMsg && typeof msg === 'string' && msg.trim()) inputMaintMsg.value = msg.trim();
+    if (pill && text) {
+      if (active) {
+        pill.className = 'maint-status-pill pill-active';
+        text.textContent = 'ACTIVE (Public Blocked)';
+      } else {
+        pill.className = 'maint-status-pill pill-inactive';
+        text.textContent = 'INACTIVE (Public Live)';
+      }
+    }
+    if (hdrBadge) {
+      hdrBadge.style.display = active ? 'inline-flex' : 'none';
+    }
+  }
+
+  async function saveMaintenanceSettings(active, message, showFeedback = true) {
+    try {
+      const res = await fetch('/api/admin/maintenance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          maintenanceMode: !!active,
+          maintenanceMessage: message || (inputMaintMsg ? inputMaintMsg.value : '')
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        updateAdminMaintenanceUI(data.maintenanceMode, data.maintenanceMessage);
+        if (showFeedback) {
+          showToast(data.message || (data.maintenanceMode ? 'Work In Progress Mode Activated' : 'Work In Progress Mode Deactivated'));
+        }
+      } else {
+        showToast(data.error || 'Failed to update maintenance setting', 'error');
+        if (switchMaintenance) switchMaintenance.checked = !active;
+      }
+    } catch (err) {
+      showToast('Network error: ' + err.message, 'error');
+      if (switchMaintenance) switchMaintenance.checked = !active;
+    }
+  }
+
+  if (switchMaintenance) {
+    switchMaintenance.addEventListener('change', () => {
+      const isChecked = switchMaintenance.checked;
+      const msg = inputMaintMsg ? inputMaintMsg.value.trim() : '';
+      saveMaintenanceSettings(isChecked, msg);
+    });
+  }
+
+  if (btnSaveMaintMsg) {
+    btnSaveMaintMsg.addEventListener('click', () => {
+      const isChecked = switchMaintenance ? switchMaintenance.checked : false;
+      const msg = inputMaintMsg ? inputMaintMsg.value.trim() : '';
+      saveMaintenanceSettings(isChecked, msg);
+    });
+  }
+
   // Category Filter Dropdown
   const engineCategoryDropdown = document.getElementById('engineCategoryDropdown');
   if (engineCategoryDropdown) {
     engineCategoryDropdown.addEventListener('change', () => {
       const selected = engineCategoryDropdown.value;
       const cardMap = {
+        maintenance: document.getElementById('engineCardMaintenance'),
         concurrency: document.getElementById('engineCardConcurrency'),
         ddl: document.getElementById('engineCardDdl'),
         switches: document.getElementById('engineCardSwitches'),
@@ -1376,6 +1447,29 @@ async function loadEngineConfig() {
     if (!res.ok) return;
     const data = await res.json();
     const cfg = data.config || {};
+
+    // Work In Progress (Maintenance Mode) Status
+    const switchMaint = document.getElementById('switchMaintenanceMode');
+    const inputMsg = document.getElementById('inputMaintenanceMessage');
+    const pill = document.getElementById('adminMaintStatusPill');
+    const pillText = document.getElementById('adminMaintStatusText');
+    const hdrBadge = document.getElementById('headerMaintBadge');
+
+    const isMaintActive = !!cfg.maintenanceMode;
+    if (switchMaint) switchMaint.checked = isMaintActive;
+    if (inputMsg && cfg.maintenanceMessage) inputMsg.value = cfg.maintenanceMessage;
+    if (pill && pillText) {
+      if (isMaintActive) {
+        pill.className = 'maint-status-pill pill-active';
+        pillText.textContent = 'ACTIVE (Public Blocked)';
+      } else {
+        pill.className = 'maint-status-pill pill-inactive';
+        pillText.textContent = 'INACTIVE (Public Live)';
+      }
+    }
+    if (hdrBadge) {
+      hdrBadge.style.display = isMaintActive ? 'inline-flex' : 'none';
+    }
 
     if (cfg.maxConcurrentJobs) document.getElementById('cfgMaxConcurrent').value = cfg.maxConcurrentJobs;
     if (cfg.aria2cFragments) document.getElementById('cfgAriaFragments').value = cfg.aria2cFragments;

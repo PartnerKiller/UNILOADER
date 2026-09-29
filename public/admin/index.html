@@ -63,11 +63,15 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.19.1</span>
+          <span class="badge-tag">Sakura Suite v4.20.0</span>
         </div>
       </div>
 
       <div class="header-right">
+        <div class="header-maint-badge" id="headerMaintBadge" style="display: none;" title="Work In Progress mode active: public visitors blocked">
+          <span class="maint-pulse-dot"></span>
+          <span>WIP ACTIVE</span>
+        </div>
         <div class="status-indicator">
           <span class="status-dot active"></span>
           <span id="headerUptime">Online</span>
@@ -480,7 +484,8 @@
             <span>Filter Category:</span>
           </label>
           <select id="engineCategoryDropdown" class="admin-select engine-category-select" aria-label="Filter Engine Settings Category">
-            <option value="all">⚡ All Engine Settings (4 Modules)</option>
+            <option value="all">⚡ All Engine Settings (5 Modules)</option>
+            <option value="maintenance">🚧 Work In Progress &amp; Maintenance Mode</option>
             <option value="concurrency">⚡ Concurrency &amp; Throughput Acceleration</option>
             <option value="ddl">☁️ Native Direct DDL Movie Engine</option>
             <option value="switches">🛡️ Master Feature Switches &amp; Pipelines</option>
@@ -489,6 +494,52 @@
         </div>
 
         <div class="engine-settings-grid">
+          <!-- Work In Progress / Maintenance Mode Card -->
+          <div class="engine-config-card engine-card-maintenance" id="engineCardMaintenance" style="grid-column: 1 / -1;">
+            <div class="card-head maint-card-head">
+              <div class="maint-head-left">
+                <div class="maint-title-row">
+                  <span class="maint-title-icon">🚧</span>
+                  <div>
+                    <h3>Work In Progress (Maintenance Mode)</h3>
+                    <p>Toggle system maintenance to block public &amp; guest access while keeping unrestricted access for owner testing.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="maint-head-right">
+                <div class="maint-status-pill pill-inactive" id="adminMaintStatusPill">
+                  <span class="pill-dot"></span>
+                  <span id="adminMaintStatusText">INACTIVE (Public Live)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="maintenance-card-body">
+              <div class="switch-list">
+                <label class="engine-switch-row maint-switch-row">
+                  <div class="switch-info">
+                    <strong>Enable "Work In Progress" Mode</strong>
+                    <span>When switched ON, guest &amp; non-owner visitors are immediately blocked with a maintenance screen. Only the owner can use and test the site.</span>
+                  </div>
+                  <input type="checkbox" id="switchMaintenanceMode" class="admin-toggle">
+                </label>
+              </div>
+
+              <div class="maint-announcement-wrap">
+                <label for="inputMaintenanceMessage" class="maint-field-label">
+                  <span>📢 Public Maintenance Notice Message</span>
+                  <span class="field-hint">Displayed to visitors while maintenance mode is active</span>
+                </label>
+                <div class="maint-input-group">
+                  <textarea id="inputMaintenanceMessage" class="admin-textarea maint-textarea" rows="2" placeholder="Enter message shown to visitors on the maintenance screen...">We are currently performing scheduled maintenance and system upgrades. The site will be back online shortly. Thank you for your patience!</textarea>
+                  <button type="button" class="btn btn-outline btn-sm maint-save-btn" id="btnSaveMaintenanceMsg">
+                    <span>💾 Update Notice</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Concurrency & Network Performance -->
           <div class="engine-config-card" id="engineCardConcurrency">
             <div class="card-head">
