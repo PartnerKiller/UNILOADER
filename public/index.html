@@ -17,7 +17,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.19.0">
+  <link rel="stylesheet" href="styles.css?v=4.19.1">
 </head>
 <body>
   <div class="app-layout">
@@ -98,7 +98,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.19.0 &bull; Gemini AI Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.19.1 &bull; Gemini AI Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -258,7 +258,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.19.0 &bull; Gemini AI Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.19.1 &bull; Gemini AI Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -321,7 +321,7 @@
                   </button>
                   <button type="button" class="btn btn-icon-text btn-ai-trigger ai-owner-feature" id="btnAiCopilotTrigger" title="AI Media Copilot (Gemini) - Natural Language Downloader">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
-                    <span>✨ Copilot</span>
+                    <span>Copilot</span>
                   </button>
                 </div>
                 <button type="submit" class="btn btn-primary btn-fetch" id="fetchBtn">
@@ -335,17 +335,28 @@
             <div class="ai-copilot-container ai-owner-feature" id="aiCopilotContainer" style="display: none;">
               <div class="ai-copilot-header">
                 <div class="ai-badge-group">
-                  <span class="ai-sparkle-pill">✨ GEMINI COPILOT</span>
+                  <span class="ai-sparkle-pill">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+                    Gemini Copilot
+                  </span>
                   <span class="ai-sub-pill">Natural Language Media Resolver</span>
                 </div>
-                <button type="button" class="btn-close-copilot" id="btnCloseCopilot" title="Close AI Copilot">&times;</button>
+                <div class="ai-header-actions">
+                  <span class="ai-kbd-hint">Esc</span>
+                  <button type="button" class="btn-close-copilot" id="btnCloseCopilot" title="Close AI Copilot (Esc)">&times;</button>
+                </div>
               </div>
               <div class="ai-copilot-body">
                 <div class="ai-prompt-input-row">
-                  <input type="text" id="aiCopilotInput" class="ai-prompt-input" placeholder="e.g. 'Download Daft Punk Discovery in 24-bit FLAC' or 'Find Oppenheimer 4K'..." autocomplete="off" />
+                  <div class="ai-input-wrap">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ai-input-icon">
+                      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+                    </svg>
+                    <input type="text" id="aiCopilotInput" class="ai-prompt-input" placeholder="Ask Copilot: e.g. 'Download Daft Punk Discovery in 24-bit FLAC' or 'Find Oppenheimer 4K'..." autocomplete="off" />
+                  </div>
                   <button type="button" class="btn-ai-submit" id="btnAiCopilotSubmit">
                     <span>Ask AI</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                   </button>
                 </div>
                 <div class="ai-quick-examples">
@@ -888,7 +899,8 @@
                 </div>
                 <div class="spectrogram-header-actions" style="display: flex; gap: 8px; align-items: center;">
                   <button type="button" class="btn-ai-audit ai-owner-feature" id="btnFlacAiAudit" title="Run Gemini Vision Audiophile Authenticity Audit">
-                    <span>✨ AI Lossless Audit</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+                    <span>AI Lossless Audit</span>
                   </button>
                   <span class="spectrogram-tag">Visual Spectral Proof</span>
                 </div>
@@ -1002,7 +1014,10 @@
             <div class="ai-jav-assistant-box ai-owner-feature" id="aiJavAssistantBox" style="margin-top: 14px;">
               <div class="ai-jav-header">
                 <div class="ai-badge-group">
-                  <span class="ai-sparkle-pill">✨ GEMINI JAV INTELLIGENCE</span>
+                  <span class="ai-sparkle-pill">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+                    Gemini JAV Intelligence
+                  </span>
                   <span class="ai-sub-pill">Visual Actress Matcher & Japanese Title Cleaner</span>
                 </div>
                 <button type="button" class="btn-toggle-jav-ai" id="btnToggleJavAi">
@@ -1029,7 +1044,12 @@
                 <!-- Panel 2: Title Translation -->
                 <div class="ai-jav-tab-panel" id="panelJavTranslate" style="display: none;">
                   <div class="ai-translate-row">
-                    <input type="text" id="javRawTitleInput" class="ai-prompt-input" placeholder="Paste raw Japanese title (e.g. 【HD】専属 美人新妻 禁断の過ち...)" />
+                    <div class="ai-input-wrap">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ai-input-icon">
+                        <path d="m5 8 6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/>
+                      </svg>
+                      <input type="text" id="javRawTitleInput" class="ai-prompt-input" placeholder="Paste raw Japanese title (e.g. 【HD】専属 美人新妻 禁断の過ち...)" autocomplete="off" />
+                    </div>
                     <button type="button" class="btn-ai-submit" id="btnJavTranslateSubmit">
                       <span>Clean &amp; Translate</span>
                     </button>
@@ -1803,6 +1823,6 @@
 
   </div>
 
-  <script src="app.js?v=4.17.5"></script>
+  <script src="app.js?v=4.19.1"></script>
 </body>
 </html>

@@ -4837,18 +4837,19 @@ function initAiFeatures() {
   // 1. AI Media Copilot
   const btnAiCopilotTrigger = document.getElementById('btnAiCopilotTrigger');
   const aiCopilotContainer = document.getElementById('aiCopilotContainer');
-  const aiCopilotClose = document.getElementById('aiCopilotClose');
+  const aiCopilotClose = document.getElementById('btnCloseCopilot') || document.getElementById('aiCopilotClose');
   const aiCopilotInput = document.getElementById('aiCopilotInput');
   const btnAiCopilotSubmit = document.getElementById('btnAiCopilotSubmit');
   const aiCopilotFeedback = document.getElementById('aiCopilotFeedback');
   const aiFeedbackSpinner = document.getElementById('aiFeedbackSpinner');
   const aiFeedbackText = document.getElementById('aiFeedbackText');
-  const exampleChips = document.querySelectorAll('.ai-copilot-chip');
+  const exampleChips = document.querySelectorAll('.ai-example-chip, .ai-copilot-chip');
 
   if (btnAiCopilotTrigger && aiCopilotContainer) {
     btnAiCopilotTrigger.addEventListener('click', () => {
       const isHidden = aiCopilotContainer.style.display === 'none' || !aiCopilotContainer.style.display;
-      aiCopilotContainer.style.display = isHidden ? 'block' : 'none';
+      aiCopilotContainer.style.display = isHidden ? 'flex' : 'none';
+      btnAiCopilotTrigger.classList.toggle('active', isHidden);
       if (isHidden && aiCopilotInput) {
         aiCopilotInput.focus();
       }
@@ -4858,8 +4859,17 @@ function initAiFeatures() {
   if (aiCopilotClose && aiCopilotContainer) {
     aiCopilotClose.addEventListener('click', () => {
       aiCopilotContainer.style.display = 'none';
+      if (btnAiCopilotTrigger) btnAiCopilotTrigger.classList.remove('active');
     });
   }
+
+  // Keyboard shortcut: Esc closes AI Copilot
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && aiCopilotContainer && aiCopilotContainer.style.display !== 'none') {
+      aiCopilotContainer.style.display = 'none';
+      if (btnAiCopilotTrigger) btnAiCopilotTrigger.classList.remove('active');
+    }
+  });
 
   async function handleAiCopilotSubmit(promptText) {
     const prompt = (promptText || (aiCopilotInput ? aiCopilotInput.value : '')).trim();
@@ -4871,7 +4881,7 @@ function initAiFeatures() {
     if (btnAiCopilotSubmit) btnAiCopilotSubmit.disabled = true;
     if (aiCopilotFeedback) aiCopilotFeedback.style.display = 'flex';
     if (aiFeedbackSpinner) aiFeedbackSpinner.style.display = 'inline-block';
-    if (aiFeedbackText) aiFeedbackText.textContent = '✨ Consulting Google Gemini AI...';
+    if (aiFeedbackText) aiFeedbackText.textContent = 'Consulting Gemini AI...';
 
     try {
       const res = await fetch('/api/ai/copilot', {
@@ -4931,7 +4941,7 @@ function initAiFeatures() {
           }
         }
 
-        showToast(`✨ Copilot: ${intent.explanation || intent.query}`, 'success');
+        showToast(`Copilot: ${intent.explanation || intent.query}`, 'success');
       } else {
         if (data.ownerOnly) {
           showToast('AI features are strictly reserved for Owner account (Sakura)', 'error');
@@ -4964,7 +4974,7 @@ function initAiFeatures() {
 
   exampleChips.forEach(chip => {
     chip.addEventListener('click', () => {
-      const ex = chip.dataset.example || chip.textContent.trim();
+      const ex = chip.dataset.prompt || chip.dataset.example || chip.textContent.trim();
       if (aiCopilotInput) aiCopilotInput.value = ex;
       handleAiCopilotSubmit(ex);
     });
@@ -4988,7 +4998,7 @@ function initAiFeatures() {
       }
 
       btnFlacAiAudit.disabled = true;
-      btnFlacAiAudit.innerHTML = `<span>✨ Auditing Spectrogram...</span>`;
+      btnFlacAiAudit.innerHTML = `<div class="ai-feedback-spinner" style="width:12px;height:12px;display:inline-block;"></div><span>Auditing Spectrogram...</span>`;
 
       try {
         const res = await fetch('/api/ai/audit-spectrogram', {
@@ -5040,7 +5050,7 @@ function initAiFeatures() {
         showToast(`Audit failed: ${err.message}`, 'error');
       } finally {
         btnFlacAiAudit.disabled = false;
-        btnFlacAiAudit.innerHTML = `<span>✨ AI Lossless Audit</span>`;
+        btnFlacAiAudit.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg><span>AI Lossless Audit</span>`;
       }
     });
   }
@@ -5248,9 +5258,9 @@ function initAiFeatures() {
     if (triggerBtn) {
       triggerBtn.disabled = true;
       triggerBtn.setAttribute('data-original-html', triggerBtn.innerHTML);
-      triggerBtn.innerHTML = `<span>✨ Transcribing Audio with Gemini...</span>`;
+      triggerBtn.innerHTML = `<div class="ai-feedback-spinner" style="width:13px;height:13px;display:inline-block;margin-right:6px;"></div><span>Transcribing Audio with Gemini...</span>`;
     }
-    showToast('✨ Gemini Multimodal AI is transcribing audio & synchronizing SRT subtitles...', 'info');
+    showToast('Gemini Multimodal AI is transcribing audio & synchronizing SRT subtitles...', 'info');
 
     try {
       const res = await fetch('/api/ai/generate-subtitles', {

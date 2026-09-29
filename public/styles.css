@@ -376,6 +376,35 @@
   padding: 30px 16px;
 }
 
+[data-density="minimal"] .ai-copilot-container {
+  padding: 12px 16px;
+  border-radius: 4px;
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-density="minimal"] .ai-copilot-header {
+  margin-bottom: 10px !important;
+  padding-bottom: 8px !important;
+}
+
+[data-density="minimal"] .ai-input-wrap {
+  border-radius: 4px;
+  padding: 0 10px;
+}
+
+[data-density="minimal"] .btn-ai-submit {
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 0.8rem;
+}
+
+[data-density="minimal"] .ai-example-chip {
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -7692,55 +7721,52 @@ body.authenticated-user .guest-only-nav {
    AI ENGINE & MULTIMODAL COPILOT (OWNER EXCLUSIVE)
    ========================================================================== */
 
-/* 1. Owner-Only Security Enforcement: Hidden by default for everyone unless body has .user-is-owner */
-.ai-owner-feature {
+/* 1. Owner-Only Security Enforcement */
+body:not(.user-is-owner) .ai-owner-feature {
   display: none !important;
-}
-
-body.user-is-owner .ai-owner-feature {
-  display: inline-flex !important;
-}
-
-body.user-is-owner .ai-owner-feature.block-display {
-  display: block !important;
-}
-
-body.user-is-owner .ai-owner-feature.flex-display {
-  display: flex !important;
 }
 
 /* 2. AI Copilot Trigger Button (Search Bar) */
 .btn-ai-trigger {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.3) 100%) !important;
-  color: #c084fc !important;
-  border: 1px solid rgba(168, 85, 247, 0.45) !important;
+  background: rgba(99, 102, 241, 0.12) !important;
+  color: #a5b4fc !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
   font-weight: 600 !important;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: none !important;
+  transition: all var(--transition-fast) !important;
 }
 
 .btn-ai-trigger:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.45) 0%, rgba(168, 85, 247, 0.55) 100%) !important;
-  color: #f3e8ff !important;
-  border-color: #c084fc !important;
-  box-shadow: 0 0 16px rgba(168, 85, 247, 0.4) !important;
+  background: rgba(99, 102, 241, 0.22) !important;
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.25) !important;
   transform: translateY(-1px);
 }
 
-/* 3. AI Copilot Container */
+.btn-ai-trigger.active {
+  background: rgba(99, 102, 241, 0.28) !important;
+  border-color: #6366f1 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 14px rgba(99, 102, 241, 0.35) !important;
+}
+
+/* 3. AI Copilot Container (Command Palette / Enterprise Assistant) */
 .ai-copilot-container {
   margin-top: 14px;
-  padding: 16px 18px;
-  background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.12), transparent 50%),
-              radial-gradient(circle at bottom left, rgba(168, 85, 247, 0.1), transparent 50%),
-              rgba(15, 23, 42, 0.92);
-  border: 1px solid rgba(168, 85, 247, 0.35);
+  padding: 18px 22px;
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.96) 0%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.28);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 0 20px rgba(168, 85, 247, 0.08);
-  animation: copilotFadeIn 0.25s ease-out;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.12);
+  flex-direction: column;
+  width: 100%;
+  animation: copilotFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes copilotFadeIn {
-  from { opacity: 0; transform: translateY(-8px); }
+  from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -7748,91 +7774,162 @@ body.user-is-owner .ai-owner-feature.flex-display {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  width: 100%;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .ai-badge-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .ai-sparkle-pill {
   font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.4);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .ai-sub-pill {
-  font-size: 0.75rem;
+  font-size: 0.76rem;
   color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ai-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-kbd-hint {
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  line-height: 1.2;
 }
 
 .btn-close-copilot {
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--text-muted);
-  font-size: 1.3rem;
-  line-height: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  font-size: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  padding: 0 4px;
-  transition: color 0.2s;
+  transition: all var(--transition-fast);
+  padding: 0;
+  line-height: 1;
 }
 
 .btn-close-copilot:hover {
-  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.ai-copilot-body {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 12px;
 }
 
 .ai-prompt-input-row {
   display: flex;
   gap: 10px;
-  margin-bottom: 10px;
+  width: 100%;
+}
+
+.ai-input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: rgba(11, 15, 25, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 0 14px;
+  transition: all var(--transition-fast);
+}
+
+.ai-input-wrap:focus-within {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  background: rgba(11, 15, 25, 1);
+}
+
+.ai-input-icon {
+  color: #818cf8;
+  margin-right: 10px;
+  flex-shrink: 0;
 }
 
 .ai-prompt-input {
   flex: 1;
-  background: rgba(30, 41, 59, 0.85);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-  color: #fff;
-  font-size: 0.9rem;
+  background: transparent;
+  border: none;
   outline: none;
-  transition: all 0.2s;
+  color: #f8fafc;
+  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  padding: 11px 0;
+  width: 100%;
 }
 
-.ai-prompt-input:focus {
-  border-color: #a855f7;
-  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.25);
-  background: rgba(30, 41, 59, 1);
+.ai-prompt-input::placeholder {
+  color: var(--text-muted);
+  font-size: 0.86rem;
 }
 
 .btn-ai-submit {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 18px;
-  font-weight: 700;
-  font-size: 0.85rem;
+  padding: 11px 22px;
+  font-weight: 600;
+  font-size: 0.84rem;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  color: #fff;
-  border: none;
+  background: #4f46e5;
+  color: #ffffff;
+  border: 1px solid #6366f1;
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 3px 12px rgba(168, 85, 247, 0.35);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .btn-ai-submit:hover {
-  filter: brightness(1.1);
+  background: #4338ca;
+  border-color: #818cf8;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
   transform: translateY(-1px);
+}
+
+.btn-ai-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .ai-quick-examples {
@@ -7840,52 +7937,57 @@ body.user-is-owner .ai-owner-feature.flex-display {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 6px;
 }
 
 .ai-examples-label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
-  font-weight: 600;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 2px;
 }
 
 .ai-example-chip {
-  background: rgba(51, 65, 85, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--text-secondary);
-  font-size: 0.74rem;
-  padding: 3px 9px;
-  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 11px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .ai-example-chip:hover {
-  background: rgba(168, 85, 247, 0.2);
-  border-color: rgba(168, 85, 247, 0.45);
-  color: #f3e8ff;
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #e0e7ff;
+  transform: translateY(-1px);
 }
 
 .ai-copilot-feedback {
-  margin-top: 10px;
-  padding: 8px 12px;
+  margin-top: 4px;
+  padding: 10px 14px;
   border-radius: var(--radius-sm);
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  font-size: 0.82rem;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  font-size: 0.84rem;
   color: #c7d2fe;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .ai-feedback-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(199, 210, 254, 0.3);
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(199, 210, 254, 0.25);
   border-top-color: #818cf8;
   border-radius: 50%;
   animation: flacSpin 0.7s linear infinite;
+  flex-shrink: 0;
 }
 
 /* 4. FLAC AI Spectrogram Audit Button & Verdict Card */
@@ -7893,39 +7995,40 @@ body.user-is-owner .ai-owner-feature.flex-display {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   font-size: 0.76rem;
-  font-weight: 700;
+  font-weight: 600;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.35) 100%);
-  color: #e9d5ff;
-  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.3);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .btn-ai-audit:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.45) 0%, rgba(168, 85, 247, 0.55) 100%);
-  border-color: #c084fc;
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.35);
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
 }
 
 .flac-ai-verdict-card {
   margin-top: 12px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 27, 75, 0.85) 100%);
-  border: 1px solid rgba(168, 85, 247, 0.4);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  background: var(--bg-surface);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 .ai-verdict-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
-  padding-bottom: 8px;
-  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .ai-verdict-title-wrap {
@@ -7935,8 +8038,8 @@ body.user-is-owner .ai-owner-feature.flex-display {
 }
 
 .ai-verdict-badge {
-  font-size: 0.75rem;
-  font-weight: 800;
+  font-size: 0.74rem;
+  font-weight: 700;
   padding: 3px 8px;
   border-radius: 4px;
   background: #10b981;
@@ -7961,7 +8064,7 @@ body.user-is-owner .ai-owner-feature.flex-display {
 .ai-verdict-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .ai-verdict-row {
@@ -7976,17 +8079,18 @@ body.user-is-owner .ai-owner-feature.flex-display {
 
 .ai-metric-val {
   color: #e2e8f0;
+  font-weight: 600;
 }
 
 .ai-verdict-analysis {
   font-size: 0.82rem;
-  line-height: 1.45;
+  line-height: 1.5;
   color: #cbd5e1;
   background: rgba(15, 23, 42, 0.6);
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 4px;
-  margin: 4px 0 0 0;
-  border-left: 3px solid #a855f7;
+  margin: 6px 0 0 0;
+  border-left: 3px solid #6366f1;
 }
 
 .ai-verdict-badges {
@@ -7998,19 +8102,19 @@ body.user-is-owner .ai-owner-feature.flex-display {
 
 .ai-pill-chip {
   font-size: 0.72rem;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(168, 85, 247, 0.2);
-  color: #e9d5ff;
-  border: 1px solid rgba(168, 85, 247, 0.35);
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.28);
 }
 
 /* 5. JAV AI Assistant Box */
 .ai-jav-assistant-box {
-  background: rgba(23, 23, 37, 0.8);
-  border: 1px solid rgba(236, 72, 153, 0.3);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(236, 72, 153, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
 }
 
 .ai-jav-header {
@@ -8023,20 +8127,21 @@ body.user-is-owner .ai-owner-feature.flex-display {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 6px 14px;
   font-size: 0.78rem;
   font-weight: 600;
   border-radius: var(--radius-sm);
-  background: rgba(236, 72, 153, 0.15);
+  background: rgba(236, 72, 153, 0.12);
   color: #f472b6;
-  border: 1px solid rgba(236, 72, 153, 0.35);
+  border: 1px solid rgba(236, 72, 153, 0.3);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .btn-toggle-jav-ai:hover {
-  background: rgba(236, 72, 153, 0.3);
+  background: rgba(236, 72, 153, 0.22);
   color: #fff;
+  border-color: rgba(236, 72, 153, 0.5);
 }
 
 .ai-jav-content {
