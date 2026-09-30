@@ -25,6 +25,20 @@ if raw_users:
 else:
     ALLOWED_USERS = set()
 
+# Owner user configuration (Owner has exclusive access to AI Copilot & Neural tools)
+raw_owner = os.getenv("OWNER_ID", os.getenv("OWNER_IDS", "1331264249")).strip()
+OWNER_IDS = set()
+for part in raw_owner.split(","):
+    part = part.strip()
+    if part.isdigit():
+        OWNER_IDS.add(int(part))
+if not OWNER_IDS:
+    OWNER_IDS = {1331264249}
+
+# Ensure owner IDs are always included in ALLOWED_USERS
+ALLOWED_USERS.update(OWNER_IDS)
+
+
 # MTProto credentials (for uploading files up to 2GB via Telethon)
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
@@ -55,7 +69,11 @@ TEMP_DIR = Path(os.getenv("TEMP_DIR", "/home/sakura/jav/temp_media")).resolve()
 SESSION_DIR = BASE_DIR / "session"
 SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
+def is_user_owner(user_id: int) -> bool:
+    return user_id in OWNER_IDS
+
 def is_user_authorized(user_id: int) -> bool:
     if not ALLOWED_USERS:
         return True
-    return user_id in ALLOWED_USERS
+    return user_id in ALLOWED_USERS or user_id in OWNER_IDS
+

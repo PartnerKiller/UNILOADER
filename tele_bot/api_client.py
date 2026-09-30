@@ -210,6 +210,75 @@ class BackendClient:
         except Exception:
             return False
 
+    async def ai_status(self) -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        try:
+            async with session.get(f"{self.base_url}/api/ai/status", headers=self._headers(), timeout=15) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def ai_copilot(self, prompt: str) -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        try:
+            async with session.post(f"{self.base_url}/api/ai/copilot", json={"prompt": prompt}, headers=self._headers(), timeout=40) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def ai_chat(self, prompt: str, system_context: str = "") -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        payload = {"prompt": prompt}
+        if system_context:
+            payload["systemContext"] = system_context
+        try:
+            async with session.post(f"{self.base_url}/api/ai/chat", json=payload, headers=self._headers(), timeout=40) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def ai_audit_spectrogram(self, image_base64: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        payload = {"imageBase64": image_base64, "metadata": metadata or {}}
+        try:
+            async with session.post(f"{self.base_url}/api/ai/audit-spectrogram", json=payload, headers=self._headers(), timeout=45) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def ai_clean_filename(self, filename: str) -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        try:
+            async with session.post(f"{self.base_url}/api/ai/clean-filename", json={"filename": filename}, headers=self._headers(), timeout=35) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def ai_jav_recognize(self, image_base64: str, context_text: str = "") -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        payload = {"imageBase64": image_base64, "contextText": context_text}
+        try:
+            async with session.post(f"{self.base_url}/api/ai/jav-recognize", json=payload, headers=self._headers(), timeout=45) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def ai_jav_translate(self, title: str, synopsis: str = "") -> Dict[str, Any]:
+        await self.ensure_auth()
+        session = await self.get_session()
+        payload = {"title": title, "synopsis": synopsis}
+        try:
+            async with session.post(f"{self.base_url}/api/ai/jav-translate", json=payload, headers=self._headers(), timeout=35) as resp:
+                return await resp.json()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def resolve_local_media_file(self, job: Dict[str, Any]) -> Optional[Path]:
         """Locates the downloaded file on local disk across temp and permanent storage"""
         # 1. Direct filePath in job object

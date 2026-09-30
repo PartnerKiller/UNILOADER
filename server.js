@@ -1973,6 +1973,21 @@ app.post('/api/ai/generate-subtitles', identifyUser, requireAiAccess, async (req
   }
 });
 
+// 8. General AI Copilot Chat & Knowledge Assistance
+app.post('/api/ai/chat', identifyUser, requireAiAccess, async (req, res) => {
+  try {
+    const { prompt, systemContext } = req.body || {};
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ success: false, error: 'Prompt is required' });
+    }
+    const result = await aiService.askAi(prompt.trim(), systemContext || '');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 // Work In Progress / Maintenance Mode Middleware
 function checkMaintenanceMode(req, res, next) {
   if (!engineConfig.maintenanceMode) {

@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 from telethon import events, Button
 from telethon.tl.custom import Message
 
-from config import is_user_authorized
+from config import is_user_authorized, is_user_owner
 from api_client import backend_client
 from handlers.common import auth_required
 from handlers.links import track_job_and_deliver
@@ -151,7 +151,26 @@ async def plain_text_query_handler(event: events.NewMessage.Event):
     sender_id = event.sender_id
     pending = user_search_mode.get(sender_id)
 
-    # 1. User previously triggered /music, /movies, or /adult
+    # 1. Check AI pending modes for owner (from AI Hub menu)
+    try:
+        from handlers.ai import ai_pending_modes, execute_copilot, execute_clean_filename, execute_jav_translate
+        ai_pending = ai_pending_modes.get(sender_id)
+        if ai_pending and (time.time() - ai_pending.get("time", 0) < 300) and is_user_owner(sender_id):
+            ai_mode = ai_pending.get("mode")
+            ai_pending_modes.pop(sender_id, None)
+            if ai_mode == "copilot":
+                await execute_copilot(event, text)
+                return
+            elif ai_mode == "clean":
+                await execute_clean_filename(event, text)
+                return
+            elif ai_mode == "translate":
+                await execute_jav_translate(event, text)
+                return
+    except Exception:
+        pass
+
+    # 2. User previously triggered /music, /movies, or /adult
     if pending and (time.time() - pending.get("time", 0) < 300):
         mode = pending.get("mode")
         user_search_mode.pop(sender_id, None)
@@ -165,7 +184,7 @@ async def plain_text_query_handler(event: events.NewMessage.Event):
             await execute_adult_search(event, text)
             return
 
-    # 2. General plain text query without preceding command -> Quick Search Hub
+    # 3. General plain text query without preceding command -> Quick Search Hub
     qid = f"q_{int(time.time() * 1000) % 1000000}"
     quick_search_cache[qid] = text
 
@@ -173,12 +192,20 @@ async def plain_text_query_handler(event: events.NewMessage.Event):
         [
             Button.inline("🎵 Search Music", f"q_m:{qid}".encode()),
             Button.inline("🎬 Search Movies", f"q_mv:{qid}".encode()),
-        ],
-        [
-            Button.inline("🔞 Search Adult", f"q_ad:{qid}".encode()),
-            Button.inline("❌ Cancel", f"q_cancel:{qid}".encode())
         ]
     ]
+
+    if is_user_owner(sender_id):
+        buttons.append([
+            Button.inline("🔞 Search Adult", f"q_ad:{qid}".encode()),
+            Button.inline("🤖 Ask AI Copilot", f"q_ai:{qid}".encode())
+        ])
+    else:
+        buttons.append([
+            Button.inline("🔞 Search Adult", f"q_ad:{qid}".encode())
+        ])
+
+    buttons.append([Button.inline("❌ Cancel", f"q_cancel:{qid}".encode())])
 
     await event.reply(
         f"🔍 **What would you like to search for:** `{text}`?\n\n"
@@ -633,9 +660,21 @@ async def search_callback_handler(event: events.CallbackQuery.Event):
         if query:
             await execute_adult_search(event, query)
         return
+    elif data.startswith("q_ai:"):
+        qid = data.split(":", 1)[1]
+        query = quick_search_cache.pop(qid, None)
+        await event.answer()
+        if not is_user_owner(sender_id):
+            await event.reply("🔒 AI Copilot is strictly reserved for the server owner.")
+            return
+        if query:
+            from handlers.ai import execute_copilot
+            await execute_copilot(event, query)
+        return
     elif data.startswith("q_cancel:"):
         qid = data.split(":", 1)[1]
         quick_search_cache.pop(qid, None)
+
         await event.answer("Cancelled")
         await event.delete()
         return

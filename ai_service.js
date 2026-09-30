@@ -542,6 +542,41 @@ Do not add conversational commentary.
   };
 }
 
+/**
+ * Pillar 6: Conversational Media Assistant & Knowledge Copilot
+ */
+async function askAi(userPrompt, systemContext = '') {
+  if (!userPrompt || typeof userPrompt !== 'string' || !userPrompt.trim()) {
+    throw new Error('Prompt cannot be empty');
+  }
+
+  const defaultSystem = `You are the AI Assistant and Media Copilot for Universal Downloader.
+You assist the server owner (Sakura) with media finding, audio quality recommendations (strictly prioritizing 24-bit Hi-Res Studio Masters and genuine Lossless FLAC over lossy formats), movie & series releases, adult entertainment / JAV cataloging, codecs, and server tools.
+Provide concise, well-formatted, intelligent answers with Markdown styling.`;
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          { text: systemContext || defaultSystem },
+          { text: `User: ${userPrompt.trim()}` }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.3
+    }
+  };
+
+  const res = await callGemini(payload);
+  const text = extractResponseText(res);
+  return {
+    success: true,
+    modelUsed: res.model,
+    reply: text
+  };
+}
+
 module.exports = {
   getApiKey,
   isAiConfigured,
@@ -552,5 +587,7 @@ module.exports = {
   identifyJavFromImage,
   translateAndCleanJavTitle,
   cleanDirtyFilename,
-  generateSubtitlesFromAudio
+  generateSubtitlesFromAudio,
+  askAi
 };
+

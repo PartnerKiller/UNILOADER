@@ -33,6 +33,14 @@ from handlers.checker import (
     media_file_handler,
     checker_callback_handler
 )
+from handlers.ai import (
+    ai_hub_command,
+    clean_filename_command,
+    jav_translate_command,
+    ai_image_message_handler,
+    ai_callback_handler
+)
+
 
 logging.basicConfig(
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
@@ -68,6 +76,9 @@ async def setup_bot_commands():
         BotCommand(command="movies", description="Search Movies & TV Series"),
         BotCommand(command="adult", description="Search Adult & JAV Hub"),
         BotCommand(command="checkflac", description="Analyze FLAC audio authenticity & spectrum"),
+        BotCommand(command="ai", description="AI Copilot & Neural Tools (Owner only)"),
+        BotCommand(command="clean", description="AI Clean messy release filename (Owner only)"),
+        BotCommand(command="translate", description="AI Clean & translate JAV title (Owner only)"),
         BotCommand(command="queue", description="View active download queue"),
         BotCommand(command="help", description="Show help & documentation")
     ]
@@ -92,23 +103,36 @@ def register_handlers():
     client.add_event_handler(adult_search_command, events.NewMessage(pattern=r"^/adult"))
     client.add_event_handler(checkflac_command, events.NewMessage(pattern=r"^/checkflac"))
 
+    # AI Commands (Owner Exclusive)
+    client.add_event_handler(ai_hub_command, events.NewMessage(pattern=r"^/(ai|copilot)"))
+    client.add_event_handler(clean_filename_command, events.NewMessage(pattern=r"^/(clean|cleanfilename)"))
+    client.add_event_handler(jav_translate_command, events.NewMessage(pattern=r"^/(translate|javtrans)"))
+
     # Link pasting
     client.add_event_handler(
         link_message_handler,
-        events.NewMessage(pattern=r"(?i)^(?!\/(start|help|queue|status|music|movies|adult|checkflac)).*https?:\/\/")
+        events.NewMessage(pattern=r"(?i)^(?!\/(start|help|queue|status|music|movies|adult|checkflac|ai|copilot|clean|cleanfilename|translate|javtrans)).*https?:\/\/")
+    )
+
+    # Multimodal image & photo upload detection (Owner visual recognition)
+    client.add_event_handler(
+        ai_image_message_handler,
+        events.NewMessage(func=lambda e: bool(
+            e.photo or (e.file and e.file.name and e.file.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')))
+        ))
     )
 
     # Audio & FLAC file upload detection
     client.add_event_handler(
         media_file_handler,
-        events.NewMessage(func=lambda e: bool(e.audio or (e.document and not (e.text or '').startswith('/'))))
+        events.NewMessage(func=lambda e: bool(e.audio or (e.document and not (e.text or '').startswith('/') and not (e.file and e.file.name and e.file.name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp'))))))
     )
 
     # Plain-text conversational search & content query handler
     client.add_event_handler(
         plain_text_query_handler,
         events.NewMessage(func=lambda e: bool(
-            e.text and not e.text.startswith('/') and not ('http://' in e.text or 'https://' in e.text) and not e.audio and not e.document
+            e.text and not e.text.startswith('/') and not ('http://' in e.text or 'https://' in e.text) and not e.audio and not e.document and not e.photo
         ))
     )
 
@@ -118,13 +142,18 @@ def register_handlers():
         events.CallbackQuery(pattern=r"^dl_")
     )
     client.add_event_handler(
+        ai_callback_handler,
+        events.CallbackQuery(pattern=r"^(ai_|menu_ai|q_m_dir|q_mv_dir|q_ad_dir)")
+    )
+    client.add_event_handler(
         search_callback_handler,
-        events.CallbackQuery(pattern=r"^(m_|menu_|mv_|ad_|q_)")
+        events.CallbackQuery(pattern=r"^(m_|menu_(?!ai)|mv_|ad_|q_(?!m_dir|mv_dir|ad_dir))")
     )
     client.add_event_handler(
         checker_callback_handler,
         events.CallbackQuery(pattern=r"^check_flac:")
     )
+
 
 async def run_bot():
     logger.info("Initializing Universal Downloader Telegram Bot...")

@@ -10,7 +10,8 @@ from typing import Optional, Dict, Any
 from telethon import events, Button
 from telethon.tl.custom import Message
 
-from config import is_user_authorized
+from config import is_user_authorized, is_user_owner
+from api_client import backend_client
 from handlers.common import auth_required
 from uploader import format_size
 import FastTelethonhelper
@@ -44,13 +45,13 @@ async def checkflac_command(event: events.NewMessage.Event):
     if reply_to and (getattr(reply_to, "audio", None) or getattr(reply_to, "document", None)):
         # Media found in replied message
         status_msg = await event.reply("⏳ **Downloading audio for spectral authenticity analysis...**")
-        await process_media_for_flac_check(event.client, event.chat_id, reply_to, status_msg)
+        await process_media_for_flac_check(event.client, event.chat_id, reply_to, status_msg, sender_id=event.sender_id)
         return
 
     # Check if current message has media
     if getattr(event, "audio", None) or getattr(event, "document", None):
         status_msg = await event.reply("⏳ **Downloading audio for spectral authenticity analysis...**")
-        await process_media_for_flac_check(event.client, event.chat_id, getattr(event, "message", event), status_msg)
+        await process_media_for_flac_check(event.client, event.chat_id, getattr(event, "message", event), status_msg, sender_id=event.sender_id)
         return
 
     # No media attached or replied
@@ -87,7 +88,7 @@ async def media_file_handler(event: events.NewMessage.Event):
     caption = (message.text or "").strip()
     if "/checkflac" in caption.lower():
         status_msg = await event.reply("⏳ **Downloading audio for spectral authenticity analysis...**")
-        await process_media_for_flac_check(event.client, event.chat_id, message, status_msg)
+        await process_media_for_flac_check(event.client, event.chat_id, message, status_msg, sender_id=event.sender_id)
         return
 
     # Otherwise show button to analyze
@@ -119,9 +120,9 @@ async def checker_callback_handler(event: events.CallbackQuery.Event):
         return
 
     status_msg = await event.edit("⏳ **Downloading audio for spectral authenticity analysis...**")
-    await process_media_for_flac_check(event.client, event.chat_id, message, status_msg)
+    await process_media_for_flac_check(event.client, event.chat_id, message, status_msg, sender_id=sender_id)
 
-async def process_media_for_flac_check(client, chat_id: int, message: Message, status_msg):
+async def process_media_for_flac_check(client, chat_id: int, message: Message, status_msg, sender_id: int = 0):
     """
     Downloads media, runs analyze_flac, and outputs a rich diagnostic report + spectrogram image.
     """
@@ -216,6 +217,38 @@ async def process_media_for_flac_check(client, chat_id: int, message: Message, s
             lines.append("\n⚠️ **Analysis Notes:**")
             for w in warnings:
                 lines.append(f"  • {w}")
+
+        # Gemini AI Multimodal Spectrogram Audit
+        spec_base64 = report.get("spectrogram")
+        if spec_base64:
+            is_owner = is_user_owner(sender_id or chat_id)
+            if is_owner:
+                try:
+                    await status_msg.edit("🔬 **FFT complete! Gemini AI Sound Engineer auditing spectrogram...**")
+                    meta = {
+                        "filename": orig_filename,
+                        "score": score,
+                        "verdict": verdict,
+                        "bitDepth": bps,
+                        "sampleRate": sr
+                    }
+                    ai_audit_res = await backend_client.ai_audit_spectrogram(spec_base64, metadata=meta)
+                    if ai_audit_res.get("success") and ai_audit_res.get("audit"):
+                        aud = ai_audit_res["audit"]
+                        ai_model = ai_audit_res.get("modelUsed", "gemini")
+                        lines.append(f"\n🤖 **Gemini Audiophile Spectrogram Audit** `({ai_model})`:")
+                        lines.append(f"  🎯 **AI Verdict:** `{aud.get('verdict', '--')}` (Score: **{aud.get('fidelityScore', '--')}/100**)")
+                        lines.append(f"  ⚡ **Authentic Lossless:** `{'✅ Yes' if aud.get('isAuthenticLossless') else '❌ No'}`")
+                        lines.append(f"  📈 **Frequency Cutoff:** `{aud.get('cutoffFrequency', 'None detected')}`")
+                        lines.append(f"  📻 **Est. Source:** `{aud.get('estimatedOriginalSource', '--')}`")
+                        if aud.get("technicalAnalysis"):
+                            lines.append(f"  📝 **Analysis:** _{aud.get('technicalAnalysis')}_")
+                        if aud.get("badges"):
+                            lines.append(f"  🏷 **Badges:** `{' • '.join(aud.get('badges'))}`")
+                except Exception as e:
+                    print(f"[FLAC Checker] AI Spectrogram Audit error: {e}")
+            else:
+                lines.append("\n🔒 **Gemini AI Deep Spectrogram Audit:** _Reserved for Server Owner._")
 
         caption = "\n".join(lines)
 
