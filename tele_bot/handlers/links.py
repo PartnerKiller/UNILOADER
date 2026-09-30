@@ -141,7 +141,7 @@ async def track_job_and_deliver(
         eta = prog.get("eta", "--")
 
         now = time.time()
-        if now - last_update_ts >= 0.5:
+        if now - last_update_ts >= 2.0:
             bar_len = 10
             filled = int(bar_len * (pct / 100)) if pct else 0
             bar = "█" * filled + "░" * (bar_len - filled)

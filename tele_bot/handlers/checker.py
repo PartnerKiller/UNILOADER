@@ -134,7 +134,7 @@ async def process_media_for_flac_check(client, chat_id: int, message: Message, s
         last_up = [0]
         async def dl_progress(current, total):
             now = time.time()
-            if now - last_up[0] >= 0.5:
+            if now - last_up[0] >= 2.0:
                 last_up[0] = now
                 pct = int((current / total) * 100) if total > 0 else 0
                 bar_len = 10

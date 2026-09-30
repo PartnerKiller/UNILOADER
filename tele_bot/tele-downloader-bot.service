@@ -1,16 +1,16 @@
 [Unit]
 Description=Universal Downloader Telegram Bot Service
-After=network.target jav-downloader.service
-Wants=jav-downloader.service
+After=network-online.target jav-downloader.service
+Wants=network-online.target jav-downloader.service
 
 [Service]
 Type=simple
 User=sakura
 Group=sakura
-WorkingDirectory=/home/sakura/jav/tele_bot
-ExecStart=/usr/bin/python3 bot.py
+WorkingDirectory=/home/sakura/Uniloader/tele_bot
+ExecStart=/usr/bin/python3 -u bot.py
 Restart=always
-RestartSec=5
+RestartSec=15
 StandardOutput=journal
 StandardError=journal
 

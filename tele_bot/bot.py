@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from telethon import TelegramClient, events
+from telethon.errors import InvalidBufferError, FloodWaitError
 from telethon.tl.functions.bots import SetBotCommandsRequest
 from telethon.tl.types import BotCommand, BotCommandScopeDefault
 
@@ -48,7 +49,16 @@ if not API_ID or not API_HASH:
     sys.exit(1)
 
 session_path = SESSION_DIR / "bot_session"
-client = TelegramClient(str(session_path), API_ID, API_HASH)
+client = TelegramClient(
+    str(session_path),
+    API_ID,
+    API_HASH,
+    timeout=20,
+    connection_retries=10,
+    retry_delay=3,
+    auto_reconnect=True,
+    flood_sleep_threshold=120
+)
 
 async def setup_bot_commands():
     """Registers bot commands with Telegram so typing '/' displays the full autocomplete palette."""
@@ -116,31 +126,82 @@ def register_handlers():
         events.CallbackQuery(pattern=r"^check_flac:")
     )
 
-async def main():
+async def run_bot():
     logger.info("Initializing Universal Downloader Telegram Bot...")
     register_handlers()
 
-    await client.start(bot_token=BOT_TOKEN)
-    me = await client.get_me()
-    logger.info(f"Bot connected successfully as @{me.username} (ID: {me.id})")
-    logger.info(f"Authorized User IDs: {list(ALLOWED_USERS) if ALLOWED_USERS else 'ALL (open)'}")
-    logger.info(f"Backend Target: {BACKEND_URL}")
+    consecutive_failures = 0
+    while True:
+        try:
+            logger.info("Connecting to Telegram MTProto servers...")
+            # Enforce 30s timeout on start() to prevent indefinite socket hangs
+            await asyncio.wait_for(client.start(bot_token=BOT_TOKEN), timeout=30.0)
 
-    # Register '/' command palette with Telegram
-    await setup_bot_commands()
+            me = await asyncio.wait_for(client.get_me(), timeout=15.0)
+            logger.info(f"Bot connected successfully as @{me.username} (ID: {me.id})")
+            logger.info(f"Authorized User IDs: {list(ALLOWED_USERS) if ALLOWED_USERS else 'ALL (open)'}")
+            logger.info(f"Backend Target: {BACKEND_URL}")
 
-    # Authenticate to backend
-    auth_ok = await backend_client.ensure_auth()
-    if auth_ok:
-        logger.info("Universal Downloader backend authentication verified.")
-    else:
-        logger.warning("Could not authenticate with backend. Please verify BACKEND_URL and credentials.")
+            # Register '/' command palette with Telegram (non-critical)
+            try:
+                await asyncio.wait_for(setup_bot_commands(), timeout=15.0)
+            except Exception as e:
+                logger.warning(f"Could not setup bot commands: {e}")
 
-    logger.info("UniBot is now running and listening for events...")
-    await client.run_until_disconnected()
+            # Authenticate to backend
+            try:
+                auth_ok = await backend_client.ensure_auth()
+                if auth_ok:
+                    logger.info("Universal Downloader backend authentication verified.")
+                else:
+                    logger.warning("Could not authenticate with backend. Please verify BACKEND_URL and credentials.")
+            except Exception as e:
+                logger.warning(f"Backend auth check error: {e}")
+
+            consecutive_failures = 0
+            logger.info("UniBot is now running and listening for events...")
+            await client.run_until_disconnected()
+            logger.warning("Telegram client disconnected. Attempting reconnection in 5s...")
+            await asyncio.sleep(5)
+
+        except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+            logger.info("Bot execution terminating cleanly...")
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            break
+        except (InvalidBufferError, FloodWaitError) as e:
+            wait_sec = getattr(e, 'seconds', 60) or 60
+            consecutive_failures += 1
+            delay = min(wait_sec + (consecutive_failures * 5), 300)
+            logger.error(f"Telegram rate limited or buffer error: {e}. Backing off for {delay}s...")
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            await asyncio.sleep(delay)
+        except (ConnectionError, OSError, asyncio.TimeoutError) as e:
+            consecutive_failures += 1
+            delay = min(5 * consecutive_failures, 60)
+            logger.warning(f"Connection issue encountered: {e}. Reconnecting in {delay}s...")
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            await asyncio.sleep(delay)
+        except Exception as e:
+            consecutive_failures += 1
+            delay = min(10 * consecutive_failures, 60)
+            logger.exception(f"Unexpected error in bot lifecycle: {e}. Retrying in {delay}s...")
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            await asyncio.sleep(delay)
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(run_bot())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Shutting down bot...")
