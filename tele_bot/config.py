@@ -26,14 +26,15 @@ else:
     ALLOWED_USERS = set()
 
 # Owner user configuration (Owner has exclusive access to AI Copilot & Neural tools)
-raw_owner = os.getenv("OWNER_ID", os.getenv("OWNER_IDS", "1331264249")).strip()
+raw_owner = os.getenv("OWNER_ID", os.getenv("OWNER_IDS", "8204034347,1331264249")).strip()
 OWNER_IDS = set()
 for part in raw_owner.split(","):
     part = part.strip()
     if part.isdigit():
         OWNER_IDS.add(int(part))
 if not OWNER_IDS:
-    OWNER_IDS = {1331264249}
+    OWNER_IDS = {8204034347, 1331264249}
+
 
 # Ensure owner IDs are always included in ALLOWED_USERS
 ALLOWED_USERS.update(OWNER_IDS)
