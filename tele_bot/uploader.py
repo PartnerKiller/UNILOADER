@@ -86,8 +86,9 @@ async def upload_and_send_media(
             job_id = metadata.get("job_id")
             dl_hint = ""
             if job_id:
-                from config import BACKEND_URL
-                dl_hint = f"\n\n🔗 [Direct Browser Download]({BACKEND_URL}/api/download-file/{job_id})"
+                from config import get_public_url
+                pub_url = get_public_url()
+                dl_hint = f"\n\n🔗 [Direct Browser Download]({pub_url}/api/download-file/{job_id})"
             await status_message.edit(
                 f"✅ **Download Complete!**\n\n"
                 f"📁 **File:** `{filename}`\n"

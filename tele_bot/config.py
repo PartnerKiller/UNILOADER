@@ -66,6 +66,14 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:3050").rstrip("/")
 BACKEND_ADMIN_USER = os.getenv("BACKEND_ADMIN_USER", "sakura")
 BACKEND_ADMIN_PASS = os.getenv("BACKEND_ADMIN_PASS", "Sakura@002")
 
+PUBLIC_URL = os.getenv("PUBLIC_URL", os.getenv("EXTERNAL_URL", "https://uniloader.dpdns.org")).rstrip("/")
+
+def get_public_url() -> str:
+    url = os.getenv("PUBLIC_URL", os.getenv("EXTERNAL_URL", "")).strip().rstrip("/")
+    if not url or "127.0.0.1" in url or "localhost" in url:
+        return "https://uniloader.dpdns.org"
+    return url
+
 TEMP_DIR = Path(os.getenv("TEMP_DIR", "/home/sakura/jav/temp_media")).resolve()
 SESSION_DIR = BASE_DIR / "session"
 SESSION_DIR.mkdir(parents=True, exist_ok=True)

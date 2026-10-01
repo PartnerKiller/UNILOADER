@@ -305,63 +305,86 @@ const jobs = new Map();
 const sseClients = new Map(); // jobId -> Set(res)
 const globalSseClients = new Map(); // res -> currentUser
 
-const HISTORY_FILE = path.join(TEMP_DIR, '.jobs_history.json');
+const PRIMARY_HISTORY_FILE = path.join(__dirname, '.jobs_history.json');
+const TEMP_HISTORY_FILE = path.join(TEMP_DIR, '.jobs_history.json');
 
 function saveJobsHistory() {
   try {
     const records = [];
     for (const j of jobs.values()) {
-      if (j.status === 'completed' && j.filePath && fs.existsSync(j.filePath)) {
-        records.push({
-          id: j.id,
-          url: j.url || '',
-          title: j.title || '',
-          code: j.code || 'MEDIA',
-          poster: j.poster || '',
-          mode: j.mode || 'video',
-          ownerId: j.ownerId || 'owner',
-          downloadFolder: j.downloadFolder || '',
-          isPermanent: !!j.isPermanent,
-          filename: j.filename || path.basename(j.filePath),
-          filesize: j.filesize || '',
-          filePath: j.filePath,
-          status: 'completed',
-          progress: { percent: 100, eta: 'Ready' },
-          createdAt: j.createdAt || Date.now(),
-          completedTime: j.completedTime || Date.now()
-        });
+      if (j.status === 'completed' && j.filePath) {
+        let exists = fs.existsSync(j.filePath);
+        if (!exists) {
+          const zipCandidate = j.filePath.endsWith('.zip') ? j.filePath : `${j.filePath}.zip`;
+          if (fs.existsSync(zipCandidate)) exists = true;
+        }
+        if (exists) {
+          records.push({
+            id: j.id,
+            url: j.url || '',
+            title: j.title || '',
+            code: j.code || 'MEDIA',
+            poster: j.poster || '',
+            mode: j.mode || 'video',
+            ownerId: j.ownerId || 'owner',
+            downloadFolder: j.downloadFolder || '',
+            isPermanent: !!j.isPermanent,
+            filename: j.filename || path.basename(j.filePath),
+            filesize: j.filesize || '',
+            filePath: j.filePath,
+            status: 'completed',
+            progress: { percent: 100, eta: 'Ready' },
+            createdAt: j.createdAt || Date.now(),
+            completedTime: j.completedTime || Date.now()
+          });
+        }
       }
     }
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(records, null, 2), 'utf8');
+    const jsonStr = JSON.stringify(records, null, 2);
+    try { fs.writeFileSync(PRIMARY_HISTORY_FILE, jsonStr, 'utf8'); } catch (e) {}
+    try { fs.writeFileSync(TEMP_HISTORY_FILE, jsonStr, 'utf8'); } catch (e) {}
   } catch (e) {
     console.warn('[Server] Failed to save jobs history:', e.message);
   }
 }
 
 function loadJobsHistory() {
-  try {
-    if (fs.existsSync(HISTORY_FILE)) {
-      const content = fs.readFileSync(HISTORY_FILE, 'utf8');
-      const records = JSON.parse(content);
-      if (Array.isArray(records)) {
-        for (const r of records) {
-          if (r && r.id && r.filePath && fs.existsSync(r.filePath)) {
-            jobs.set(r.id, {
-              ...r,
-              ownerId: r.ownerId || 'owner',
-              downloadFolder: r.downloadFolder || '',
-              isPermanent: !!r.isPermanent,
-              logs: ['Processing completed! File ready in folder.'],
-              downloadUrl: `/api/download-file/${r.id}`,
-              streamUrl: `/api/stream/${r.id}`,
-              process: null
-            });
+  const historyFiles = [PRIMARY_HISTORY_FILE, TEMP_HISTORY_FILE];
+  for (const hf of historyFiles) {
+    try {
+      if (fs.existsSync(hf)) {
+        const content = fs.readFileSync(hf, 'utf8');
+        const records = JSON.parse(content);
+        if (Array.isArray(records)) {
+          for (const r of records) {
+            if (r && r.id && r.filePath) {
+              let targetPath = r.filePath;
+              if (!fs.existsSync(targetPath)) {
+                const zipVariant = targetPath.endsWith('.zip') ? targetPath : `${targetPath}.zip`;
+                if (fs.existsSync(zipVariant)) {
+                  targetPath = zipVariant;
+                }
+              }
+              if (fs.existsSync(targetPath) && !jobs.has(r.id)) {
+                jobs.set(r.id, {
+                  ...r,
+                  filePath: targetPath,
+                  ownerId: r.ownerId || 'owner',
+                  downloadFolder: r.downloadFolder || '',
+                  isPermanent: !!r.isPermanent,
+                  logs: ['Processing completed! File ready in folder.'],
+                  downloadUrl: `/api/download-file/${r.id}`,
+                  streamUrl: `/api/stream/${r.id}`,
+                  process: null
+                });
+              }
+            }
           }
         }
       }
+    } catch (e) {
+      console.warn(`[Server] Failed to load jobs history from ${hf}:`, e.message);
     }
-  } catch (e) {
-    console.warn('[Server] Failed to load jobs history:', e.message);
   }
 
   // Scan TEMP_DIR for any media files from previous runs
@@ -419,10 +442,26 @@ function loadJobsHistory() {
 }
 
 function findMediaFileByJobId(jobId) {
+  if (!jobId) return null;
+
   // 1. Check in-memory jobs Map
   const job = jobs.get(jobId);
-  if (job && job.filePath && fs.existsSync(job.filePath)) {
-    return { filePath: job.filePath, filename: job.filename || path.basename(job.filePath), job };
+  if (job && job.filePath) {
+    let resolvedPath = job.filePath;
+    if (fs.existsSync(resolvedPath)) {
+      if (fs.statSync(resolvedPath).isDirectory()) {
+        const zipVariant = `${resolvedPath.replace(/[/\\]+$/, '')}.zip`;
+        if (fs.existsSync(zipVariant)) {
+          return { filePath: zipVariant, filename: path.basename(zipVariant), job };
+        }
+      } else {
+        return { filePath: resolvedPath, filename: job.filename || path.basename(resolvedPath), job };
+      }
+    }
+    const zipCandidate = resolvedPath.endsWith('.zip') ? resolvedPath : `${resolvedPath}.zip`;
+    if (fs.existsSync(zipCandidate)) {
+      return { filePath: zipCandidate, filename: path.basename(zipCandidate), job };
+    }
   }
 
   // 2. Check dedicated job folder in TEMP_DIR (e.g. for torrents or isolated downloads)
@@ -441,7 +480,7 @@ function findMediaFileByJobId(jobId) {
               if (nested && (!largest || nested.size > largest.size)) largest = nested;
             } else if (entry.isFile()) {
               const ext = path.extname(entry.name).toLowerCase();
-              const isMedia = ['.mp4', '.mkv', '.avi', '.ts', '.wmv', '.flv', '.mov', '.webm', '.m4v', '.mp3', '.flac', '.m4a', '.wav'].includes(ext);
+              const isMedia = ['.mp4', '.mkv', '.avi', '.ts', '.wmv', '.flv', '.mov', '.webm', '.m4v', '.mp3', '.flac', '.m4a', '.wav', '.zip'].includes(ext);
               const st = fs.statSync(full);
               if (isMedia || !largest) {
                 if (!largest || st.size > largest.size) {
@@ -474,6 +513,64 @@ function findMediaFileByJobId(jobId) {
     if (matched) {
       const fullPath = path.join(TEMP_DIR, matched);
       return { filePath: fullPath, filename: matched, job };
+    }
+  } catch (e) {}
+
+  // 4. Check persistent job history files (.jobs_history.json)
+  const historyFiles = [
+    path.join(__dirname, '.jobs_history.json'),
+    path.join(TEMP_DIR, '.jobs_history.json')
+  ];
+  for (const hf of historyFiles) {
+    try {
+      if (fs.existsSync(hf)) {
+        const records = JSON.parse(fs.readFileSync(hf, 'utf8'));
+        if (Array.isArray(records)) {
+          const rec = records.find(r => r && r.id === jobId);
+          if (rec && rec.filePath) {
+            let targetPath = rec.filePath;
+            if (fs.existsSync(targetPath)) {
+              if (fs.statSync(targetPath).isDirectory()) {
+                const zipVariant = `${targetPath.replace(/[/\\]+$/, '')}.zip`;
+                if (fs.existsSync(zipVariant)) {
+                  return { filePath: zipVariant, filename: path.basename(zipVariant), job: rec };
+                }
+              } else {
+                return { filePath: targetPath, filename: rec.filename || path.basename(targetPath), job: rec };
+              }
+            }
+            const zipCandidate = targetPath.endsWith('.zip') ? targetPath : `${targetPath}.zip`;
+            if (fs.existsSync(zipCandidate)) {
+              return { filePath: zipCandidate, filename: path.basename(zipCandidate), job: rec };
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 5. Scan permanent storage directories for matching files
+  try {
+    const candidateRoots = [
+      '/home/sakura/Uni-Downloads',
+      'z:/Uni-Downloads',
+      'z:\\Uni-Downloads',
+      path.join(__dirname, '..', 'Uni-Downloads')
+    ].filter(d => fs.existsSync(d));
+
+    for (const root of candidateRoots) {
+      const subdirs = ['', 'Music', 'Movies', 'Adult', 'Links'];
+      for (const sub of subdirs) {
+        const folder = sub ? path.join(root, sub) : root;
+        if (!fs.existsSync(folder)) continue;
+        const entries = fs.readdirSync(folder);
+        for (const ent of entries) {
+          if (ent.startsWith(`${jobId}_`) || ent.startsWith(`${jobId}.`)) {
+            const p = path.join(folder, ent);
+            return { filePath: p, filename: ent.replace(`${jobId}_`, ''), job: { id: jobId } };
+          }
+        }
+      }
     }
   } catch (e) {}
 
@@ -8191,8 +8288,21 @@ app.get('/api/download-file/:id', (req, res) => {
     return res.status(404).send('File not found or expired');
   }
 
-  const clientFilename = match.filename || path.basename(match.filePath);
-  res.download(match.filePath, clientFilename, (err) => {
+  let finalPath = match.filePath;
+  let clientFilename = match.filename || path.basename(finalPath);
+
+  // If path is a directory, ensure we serve the companion .zip if available
+  if (fs.statSync(finalPath).isDirectory()) {
+    const zipVariant = `${finalPath.replace(/[/\\]+$/, '')}.zip`;
+    if (fs.existsSync(zipVariant)) {
+      finalPath = zipVariant;
+      clientFilename = path.basename(zipVariant);
+    } else {
+      return res.status(400).send('Requested media is a directory; please wait for archive packaging to finish.');
+    }
+  }
+
+  res.download(finalPath, clientFilename, (err) => {
     if (err && !res.headersSent) {
       console.warn('[Server] Download error:', err.message);
     }

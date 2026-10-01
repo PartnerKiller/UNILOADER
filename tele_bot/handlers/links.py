@@ -180,8 +180,9 @@ async def track_job_and_deliver(
                     metadata=meta,
                     status_message=status_msg
                 )
-            else:
-                download_url = f"{backend_client.base_url}/api/download-file/{job_id}"
+                from config import get_public_url
+                pub_url = get_public_url()
+                download_url = f"{pub_url}/api/download-file/{job_id}"
                 await status_msg.edit(
                     f"✅ **Download Complete!**\n"
                     f"⚠️ File could not be resolved locally for auto-upload.\n"
