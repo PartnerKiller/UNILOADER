@@ -1561,6 +1561,19 @@ def extract_all(url):
                     'Accept-Language': 'en-US,en;q=0.9',
                 }
 
+                # Query official broadcasts API for true real-time broadcast and show status
+                b_item = {}
+                try:
+                    b_headers = {'User-Agent': req_headers['User-Agent'], 'Accept': 'application/json', 'Referer': f'https://omg.sexy/{username}'}
+                    b_resp = session.get(f"https://omg.sexy/api/front/v1/broadcasts/{username}", headers=b_headers, timeout=8)
+                    if b_resp.status_code != 200:
+                        b_headers['Referer'] = f'https://stripchat.com/{username}'
+                        b_resp = session.get(f"https://stripchat.com/api/front/v1/broadcasts/{username}", headers=b_headers, timeout=8)
+                    if b_resp.status_code == 200:
+                        b_item = b_resp.json().get('item') or {}
+                except Exception:
+                    pass
+
                 resp = session.get(f"https://omg.sexy/{username}", headers=req_headers, timeout=12)
                 if resp.status_code != 200:
                     resp = session.get(f"https://stripchat.com/{username}", headers=req_headers, timeout=12)
@@ -1580,13 +1593,17 @@ def extract_all(url):
                         model_data = view_cam.get('model')
 
                         if model_data:
-                            model_id = model_data.get('id')
+                            model_id = str(b_item.get('streamName') or b_item.get('modelId') or model_data.get('id'))
                             user_display = model_data.get('username') or username
-                            is_live = model_data.get('isLive', False)
-                            status_label = model_data.get('status', 'live')
-
+                            
+                            # Real-time liveness and show status
+                            b_status = b_item.get('status') or model_data.get('status') or 'idle'
+                            b_is_live = b_item.get('isLive') if 'isLive' in b_item else model_data.get('isLive', False)
+                            
                             active_show = view_cam.get('show')
-                            is_in_active_private = active_show and not active_show.get('endedAt') and active_show.get('mode') in ['private', 'p2p', 'groupShow']
+                            has_active_show = bool(active_show and not active_show.get('endedAt') and active_show.get('mode') in ['private', 'p2p', 'groupShow', 'ticketShow'])
+                            is_in_active_private = has_active_show or (b_status in ['private', 'p2p', 'groupShow', 'ticketShow'])
+                            is_live = bool(b_is_live and b_status == 'public' and not is_in_active_private)
 
                             poster = model_data.get('previewUrl') or model_data.get('snapshotUrl') or model_data.get('avatarUrl') or f"https://img.strpst.com/thumbs/{model_id}/{model_id}.jpg"
                             tags = model_data.get('tags') or []
@@ -1604,6 +1621,7 @@ def extract_all(url):
                                     'downloadTargetUrl': '',
                                     'tags': tags or ['omg.sexy', 'Private Show'],
                                     'model': user_display,
+                                    'camStreamName': model_id,
                                     'duration': 'PRIVATE',
                                     'extractor': 'omg.sexy (Stripchat)',
                                     'sourceUrl': url,
@@ -1611,7 +1629,7 @@ def extract_all(url):
                                     'maxFps': 0,
                                     'qualityLabel': 'In Private Show',
                                     'isPrivate': True,
-                                    'statusMessage': f"Model {user_display} is currently in a private show."
+                                    'statusMessage': f"Model {user_display} is currently in a private show ({b_status}). Standby active..."
                                 }
 
                             if not is_live:
@@ -1623,6 +1641,7 @@ def extract_all(url):
                                     'downloadTargetUrl': '',
                                     'tags': tags or ['omg.sexy', 'Offline'],
                                     'model': user_display,
+                                    'camStreamName': model_id,
                                     'duration': 'OFFLINE',
                                     'extractor': 'omg.sexy (Stripchat)',
                                     'sourceUrl': url,
@@ -1659,6 +1678,7 @@ def extract_all(url):
                                 'poster': poster,
                                 'hlsUrl': master_hls,
                                 'downloadTargetUrl': master_hls,
+                                'camStreamName': model_id,
                                 'tags': tags,
                                 'model': user_display,
                                 'duration': 'LIVE',

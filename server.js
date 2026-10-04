@@ -957,6 +957,151 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// =========================================================================
+// Cam Stream Proxy & Mouflon v2 Decryption Engine (OMG.sexy & Stripchat)
+// =========================================================================
+const CAM_PDKEYS = {
+  'Ook7quaiNgiyuhai': 'EQueeGh2kaewa3ch',
+  'Zeechoej4aleeshi': 'ubahjae7goPoodi6'
+};
+
+const CAM_TOKEN_RE = /_(\d+)_([^_]+)_(\d+)/;
+
+function decryptMouflonSegmentUri(uri, pdkey) {
+  const m = uri.match(CAM_TOKEN_RE);
+  if (!m) return uri;
+  const encryptedPart = m[2];
+  const reversed = encryptedPart.split('').reverse().join('');
+  let padded = reversed;
+  const mod = reversed.length % 4;
+  if (mod === 2) padded += '==';
+  else if (mod === 3) padded += '=';
+  let decoded;
+  try {
+    decoded = Buffer.from(padded, 'base64');
+  } catch (e1) {
+    try {
+      decoded = Buffer.from(padded, 'base64url');
+    } catch (e2) {
+      return null;
+    }
+  }
+  const hash = crypto.createHash('sha256').update(pdkey).digest();
+  const out = Buffer.alloc(decoded.length);
+  for (let i = 0; i < decoded.length; i++) {
+    out[i] = decoded[i] ^ hash[i % 32];
+  }
+  const decStr = out.toString('utf8');
+  if (!/^[\x20-\x7e]+$/.test(decStr)) return null;
+  return uri.replace(m[2], decStr);
+}
+
+app.get('/api/cam-proxy/:streamName.m3u8', async (req, res) => {
+  const rawStream = req.params.streamName.replace(/\.m3u8$/i, '');
+  const masterUrl = `https://edge-hls.doppiocdn.org/hls/${rawStream}/master/${rawStream}_auto.m3u8`;
+
+  try {
+    const masterResp = await fetch(masterUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Referer': 'https://stripchat.com/',
+        'Origin': 'https://stripchat.com'
+      }
+    });
+
+    if (!masterResp.ok) {
+      return res.status(masterResp.status).send('Cam stream offline or master unavailable');
+    }
+
+    const masterBody = await masterResp.text();
+    let matchedPkey = null;
+    let matchedPdkey = null;
+    for (const line of masterBody.split('\n')) {
+      if (line.startsWith('#EXT-X-MOUFLON:PSCH:v2:')) {
+        const pk = line.split(':').pop().trim();
+        if (CAM_PDKEYS[pk]) {
+          matchedPkey = pk;
+          matchedPdkey = CAM_PDKEYS[pk];
+          break;
+        }
+      }
+    }
+
+    if (!matchedPkey) {
+      return res.status(404).send('No compatible mouflon key found in master manifest');
+    }
+
+    let subUrl = null;
+    for (const line of masterBody.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        subUrl = trimmed;
+        break;
+      }
+    }
+
+    if (!subUrl) {
+      return res.status(404).send('No variant stream found in master playlist');
+    }
+
+    const sep = subUrl.includes('?') ? '&' : '?';
+    const subUrlWithPkey = `${subUrl}${sep}psch=v2&pkey=${matchedPkey}`;
+
+    const subResp = await fetch(subUrlWithPkey, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Referer': 'https://stripchat.com/',
+        'Origin': 'https://stripchat.com'
+      },
+      redirect: 'manual'
+    });
+
+    if (subResp.status >= 300 && subResp.status < 400) {
+      return res.status(503).send('Stream temporarily redirected to promo teaser (model in private show or offline)');
+    }
+
+    const subBody = await subResp.text();
+    if (subBody.includes('#EXT-X-MOUFLON-ADVERT') || subBody.includes('cpa/v2/stream.m3u8')) {
+      return res.status(503).send('Advert stream detected (model in private show or offline)');
+    }
+
+    const lines = subBody.split('\n');
+    const outLines = [];
+    let pendingUri = null;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#EXT-X-MOUFLON:URI:')) {
+        const enc = trimmed.replace('#EXT-X-MOUFLON:URI:', '').trim();
+        const dec = decryptMouflonSegmentUri(enc, matchedPdkey);
+        pendingUri = dec || enc;
+        continue;
+      }
+      if (pendingUri && trimmed && !trimmed.startsWith('#')) {
+        outLines.push(pendingUri);
+        pendingUri = null;
+        continue;
+      }
+      if (trimmed.startsWith('#EXT-X-MOUFLON:PSCH:')) continue;
+      if (/^#EXT-X-(PART|PART-INF|PRELOAD-HINT|SERVER-CONTROL|RENDITION-REPORT):/.test(trimmed)) continue;
+      if (trimmed.startsWith('#EXTINF:') && !trimmed.endsWith(',')) {
+        outLines.push(trimmed + ',');
+        continue;
+      }
+      outLines.push(trimmed);
+    }
+
+    res.set({
+      'Content-Type': 'application/vnd.apple.mpegurl',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Access-Control-Allow-Origin': '*'
+    });
+    return res.send(outLines.join('\n'));
+  } catch (err) {
+    return res.status(500).send(`Cam proxy error: ${err.message}`);
+  }
+});
+
 // Download Directory Configuration
 app.get('/api/config/download-dir', (req, res) => {
   res.json({
@@ -7013,6 +7158,7 @@ function watchAndStartStream(job) {
         if (meta.poster) currentJob.poster = meta.poster;
         currentJob.opts.hlsUrl = meta.hlsUrl;
         currentJob.opts.downloadTargetUrl = meta.hlsUrl;
+        if (meta.camStreamName) currentJob.opts.camStreamName = meta.camStreamName;
         currentJob.opts.isOffline = false;
         currentJob.opts.isPrivate = false;
         currentJob.isStreamWatcher = false;
@@ -7440,7 +7586,13 @@ function startJobProcess(job) {
     if (hlsUrl && (isLiveStream || (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))))) {
       targetUrl = hlsUrl;
     }
-    if (targetUrl && targetUrl.includes('omg.sexy') && !targetUrl.includes('.m3u8')) {
+
+    const camStreamMatch = (targetUrl || '').match(/\/hls\/(\d+)\//) || (rawTarget || '').match(/\/hls\/(\d+)\//) || (hlsUrl || '').match(/\/hls\/(\d+)\//);
+    const resolvedCamStream = opts.camStreamName || (camStreamMatch ? camStreamMatch[1] : null);
+    if (resolvedCamStream && isCamNetwork) {
+      targetUrl = `http://127.0.0.1:${PORT}/api/cam-proxy/${resolvedCamStream}.m3u8`;
+      args.push('--add-header', 'Referer: https://stripchat.com/');
+    } else if (targetUrl && targetUrl.includes('omg.sexy') && !targetUrl.includes('.m3u8')) {
       targetUrl = targetUrl.replace(/omg\.sexy/i, 'stripchat.com');
     }
     if (opts.isMusicTrack && (!targetUrl || !targetUrl.startsWith('http'))) {
@@ -7680,6 +7832,24 @@ function attachProcessListeners(job, child) {
               return false;
             }
           });
+        }
+
+        if (matched && isCamNetwork) {
+          const matchedPath = path.join(TEMP_DIR, matched);
+          let st;
+          try { st = fs.statSync(matchedPath); } catch (e) {}
+          if (st && st.size < 1.5 * 1024 * 1024) {
+            job.logs.push(`[Stream Guard] Detected promotional teaser clip (${(st.size / 1024).toFixed(1)} KiB, ~20s promo ad).`);
+            job.logs.push(`[Stream Guard] Purged promotional ad file. Re-engaging Standby Watcher to record actual public broadcast...`);
+            try { fs.unlinkSync(matchedPath); } catch (e) {}
+            matched = null;
+            job.status = 'waiting_for_stream';
+            job.opts.isOffline = true;
+            watchAndStartStream(job);
+            scheduleJobUpdate(jobId, true);
+            processDownloadQueue();
+            return;
+          }
         }
 
         if (matched) {
