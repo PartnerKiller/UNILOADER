@@ -30,7 +30,11 @@ const aiService = require('./ai_service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-let TEMP_DIR = process.env.TEMP_DIR || path.join(__dirname, 'temp_media');
+let defaultTempDir = path.join(__dirname, 'temp_media');
+if (process.platform === 'linux' && fs.existsSync('/media/ssd/sakura')) {
+  defaultTempDir = '/media/ssd/sakura/temp';
+}
+let TEMP_DIR = process.env.TEMP_DIR || defaultTempDir;
 
 // High-Speed Public BitTorrent Trackers for maximum swarm connectivity & peer discovery
 const HIGH_SPEED_BT_TRACKERS = [
@@ -239,8 +243,15 @@ function getMaxConcurrentDownloads() {
   return engineConfig.maxConcurrentJobs || 4;
 }
 
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+  if (process.platform !== 'win32') {
+    try { fs.chmodSync(TEMP_DIR, 0o777); } catch (e) {}
+  }
+} catch (e) {
+  console.warn('[Server] Could not initialize TEMP_DIR:', e.message);
 }
 
 
@@ -1507,7 +1518,7 @@ function ensureCategorySubfolders(baseFolder) {
   if (!baseFolder || typeof baseFolder !== 'string') return;
   const resolved = path.resolve(baseFolder.trim());
   const baseName = path.basename(resolved);
-  if (Object.values(CATEGORY_SUBFOLDERS).includes(baseName)) {
+  if (Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase())) {
     return;
   }
   for (const sub of Object.values(CATEGORY_SUBFOLDERS)) {
@@ -1939,8 +1950,8 @@ function finalizeJobPermanentStorage(job) {
 
     const category = getJobCategory(job);
     const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
-    const baseName = path.basename(userFolder);
-    const targetFolder = Object.values(CATEGORY_SUBFOLDERS).includes(baseName)
+    const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
+    const targetFolder = isAlreadyTargetCategory
       ? userFolder
       : path.join(userFolder, subfolderName);
 
@@ -8036,8 +8047,10 @@ function createAndStartJob(opts) {
   }
   if (assignedFolder) {
     const category = getJobCategory(opts);
-    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
-    initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${path.join(assignedFolder, subfolderName)}`);
+    const baseName = path.basename(assignedFolder);
+    const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
+    const targetDest = isAlreadyTargetCategory ? assignedFolder : path.join(assignedFolder, subfolderName);
+    initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${targetDest}`);
   }
 
   const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (opts.downloadTargetUrl && (opts.downloadTargetUrl.includes('omg.sexy') || opts.downloadTargetUrl.includes('stripchat.com'))) || !!opts.camStreamName;
