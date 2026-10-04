@@ -8047,6 +8047,7 @@ function createAndStartJob(opts) {
   }
   if (assignedFolder) {
     const category = getJobCategory(opts);
+    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
     const baseName = path.basename(assignedFolder);
     const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
     const targetDest = isAlreadyTargetCategory ? assignedFolder : path.join(assignedFolder, subfolderName);
