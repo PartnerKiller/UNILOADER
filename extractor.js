@@ -135,7 +135,11 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
       args.push('--impersonate', 'chrome');
     }
 
-    args.push(url);
+    let targetUrl = url;
+    if (targetUrl.includes('omg.sexy')) {
+      targetUrl = targetUrl.replace(/omg\.sexy/i, 'stripchat.com');
+    }
+    args.push(targetUrl);
 
     const child = spawn(ytdlpPath, args, { windowsHide: true });
     let stdout = '';
@@ -259,7 +263,7 @@ async function extractMetadata(inputUrl) {
         return meta;
       }
     } catch (e) {
-      if (e.message && (e.message.includes('404') || e.message.toLowerCase().includes('not found'))) {
+      if (url.includes('omg.sexy') || url.includes('stripchat.com') || (e.message && (e.message.includes('404') || e.message.toLowerCase().includes('not found') || e.message.toLowerCase().includes('offline') || e.message.toLowerCase().includes('private')))) {
         throw e;
       }
       // Fallback silently to yt-dlp

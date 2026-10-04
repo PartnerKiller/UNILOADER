@@ -6991,6 +6991,16 @@ function startJobProcess(job) {
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
   const safeFileTitle = sanitizeAndTruncateFilename(job.title || 'media', 80);
 
+  const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com')));
+  if (isCamNetwork && (opts.isOffline || (job.title && job.title.includes('(Offline)')) || (!rawTarget && !hlsUrl))) {
+    job.status = 'failed';
+    job.error = `Model "${job.title}" is currently offline. Stream is not broadcasting.`;
+    job.logs.push(`⚠️ Cannot record stream: Model is currently offline. Please wait until they start broadcasting.`);
+    broadcastJobUpdate(job.id);
+    processDownloadQueue();
+    return;
+  }
+
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
   const isSpotify = url && url.includes('spotify.com');
   const isSpotifyPlaylistOrAlbum = url && (url.includes('spotify.com/playlist') || url.includes('spotify.com/album'));

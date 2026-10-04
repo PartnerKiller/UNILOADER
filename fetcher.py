@@ -1588,10 +1588,50 @@ def extract_all(url):
                             active_show = view_cam.get('show')
                             is_in_active_private = active_show and not active_show.get('endedAt') and active_show.get('mode') in ['private', 'p2p', 'groupShow']
 
+                            poster = model_data.get('previewUrl') or model_data.get('snapshotUrl') or model_data.get('avatarUrl') or f"https://img.strpst.com/thumbs/{model_id}/{model_id}.jpg"
+                            tags = model_data.get('tags') or []
+                            if isinstance(tags, list):
+                                tags = [str(t) for t in tags[:10]]
+                            else:
+                                tags = []
+
                             if is_in_active_private:
-                                raise Exception(f"Model {user_display} is currently in a private show.")
+                                return {
+                                    'title': f"omg.sexy - {user_display} (In Private Show)",
+                                    'code': f"OMG-{user_display.upper()}",
+                                    'poster': poster,
+                                    'hlsUrl': '',
+                                    'downloadTargetUrl': '',
+                                    'tags': tags or ['omg.sexy', 'Private Show'],
+                                    'model': user_display,
+                                    'duration': 'PRIVATE',
+                                    'extractor': 'omg.sexy (Stripchat)',
+                                    'sourceUrl': url,
+                                    'maxHeight': 0,
+                                    'maxFps': 0,
+                                    'qualityLabel': 'In Private Show',
+                                    'isPrivate': True,
+                                    'statusMessage': f"Model {user_display} is currently in a private show."
+                                }
+
                             if not is_live:
-                                raise Exception(f"Model {user_display} is currently offline.")
+                                return {
+                                    'title': f"omg.sexy - {user_display} (Offline)",
+                                    'code': f"OMG-{user_display.upper()}",
+                                    'poster': poster,
+                                    'hlsUrl': '',
+                                    'downloadTargetUrl': '',
+                                    'tags': tags or ['omg.sexy', 'Offline'],
+                                    'model': user_display,
+                                    'duration': 'OFFLINE',
+                                    'extractor': 'omg.sexy (Stripchat)',
+                                    'sourceUrl': url,
+                                    'maxHeight': 0,
+                                    'maxFps': 0,
+                                    'qualityLabel': 'Model Offline',
+                                    'isOffline': True,
+                                    'statusMessage': f"Model {user_display} is currently offline. Stream is not broadcasting."
+                                }
 
                             # Resolve HLS host
                             stream_host = None
@@ -1611,13 +1651,6 @@ def extract_all(url):
                                 stream_host = 'doppiocdn.org'
 
                             master_hls = f"https://edge-hls.{stream_host}/hls/{model_id}/master/{model_id}_auto.m3u8"
-                            poster = model_data.get('snapshotUrl') or model_data.get('avatarUrl') or f"https://img.strpst.com/thumbs/{model_id}/{model_id}.jpg"
-                            tags = model_data.get('tags') or []
-                            if isinstance(tags, list):
-                                tags = [str(t) for t in tags[:10]]
-                            else:
-                                tags = []
-
                             title = f"omg.sexy - {user_display} Live Stream"
 
                             return {
@@ -1635,9 +1668,7 @@ def extract_all(url):
                                 'maxFps': 30,
                                 'qualityLabel': 'Source HD'
                             }
-        except Exception as e:
-            if 'offline' in str(e).lower() or 'private show' in str(e).lower():
-                raise e
+        except Exception:
             pass
 
     # -------------------------------------------------------------

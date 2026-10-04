@@ -1495,6 +1495,26 @@ function renderPreviewCard(data) {
     if (chkEmbedThumbnail) chkEmbedThumbnail.checked = true;
   }
 
+  if (data.isOffline) {
+    if (downloadBtnText) downloadBtnText.textContent = 'Model Offline';
+    if (startDownloadBtn) {
+      startDownloadBtn.style.opacity = '0.7';
+      startDownloadBtn.title = 'Model is currently offline. Live recording requires an active broadcast.';
+    }
+  } else if (data.isPrivate) {
+    if (downloadBtnText) downloadBtnText.textContent = 'Private Show';
+    if (startDownloadBtn) {
+      startDownloadBtn.style.opacity = '0.7';
+      startDownloadBtn.title = 'Model is currently in a private show.';
+    }
+  } else {
+    if (downloadBtnText) downloadBtnText.textContent = currentMode === 'audio' ? 'Extract Audio' : 'Download Now';
+    if (startDownloadBtn) {
+      startDownloadBtn.style.opacity = '1';
+      startDownloadBtn.title = '';
+    }
+  }
+
   previewCard.style.display = 'block';
   updateStorageTargetUI();
   previewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1503,6 +1523,15 @@ function renderPreviewCard(data) {
 // 2. Start Single Download Job
 async function startDownload() {
   if (!currentExtractedData) return;
+
+  if (currentExtractedData.isOffline) {
+    showToast(`⚠️ ${currentExtractedData.model || 'Model'} is currently offline. Live stream is not broadcasting.`, 'warning');
+    return;
+  }
+  if (currentExtractedData.isPrivate) {
+    showToast(`⚠️ ${currentExtractedData.model || 'Model'} is currently in a private show.`, 'warning');
+    return;
+  }
 
   const storageSelect = document.getElementById('storageFolderSelect');
   const selectedFolder = (storageSelect && storageSelect.style.display !== 'none' && storageSelect.value)
