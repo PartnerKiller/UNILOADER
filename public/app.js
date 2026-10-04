@@ -1496,19 +1496,19 @@ function renderPreviewCard(data) {
   }
 
   if (data.isOffline) {
-    if (downloadBtnText) downloadBtnText.textContent = 'Model Offline';
+    if (downloadBtnText) downloadBtnText.textContent = 'Auto-Record Stream';
     if (startDownloadBtn) {
-      startDownloadBtn.style.opacity = '0.7';
-      startDownloadBtn.title = 'Model is currently offline. Live recording requires an active broadcast.';
+      startDownloadBtn.style.opacity = '1';
+      startDownloadBtn.title = 'Model is currently offline. UniLoader will monitor the room and immediately record once live!';
     }
   } else if (data.isPrivate) {
-    if (downloadBtnText) downloadBtnText.textContent = 'Private Show';
+    if (downloadBtnText) downloadBtnText.textContent = 'Auto-Record Stream';
     if (startDownloadBtn) {
-      startDownloadBtn.style.opacity = '0.7';
-      startDownloadBtn.title = 'Model is currently in a private show.';
+      startDownloadBtn.style.opacity = '1';
+      startDownloadBtn.title = 'Model is currently in a private show. UniLoader will monitor the room and immediately record once public broadcast starts!';
     }
   } else {
-    if (downloadBtnText) downloadBtnText.textContent = currentMode === 'audio' ? 'Extract Audio' : 'Download Now';
+    if (downloadBtnText) downloadBtnText.textContent = currentMode === 'audio' ? 'Extract Audio' : (data.duration === 'LIVE' ? 'Record Live Stream' : 'Download Now');
     if (startDownloadBtn) {
       startDownloadBtn.style.opacity = '1';
       startDownloadBtn.title = '';
@@ -1524,13 +1524,9 @@ function renderPreviewCard(data) {
 async function startDownload() {
   if (!currentExtractedData) return;
 
-  if (currentExtractedData.isOffline) {
-    showToast(`⚠️ ${currentExtractedData.model || 'Model'} is currently offline. Live stream is not broadcasting.`, 'warning');
-    return;
-  }
-  if (currentExtractedData.isPrivate) {
-    showToast(`⚠️ ${currentExtractedData.model || 'Model'} is currently in a private show.`, 'warning');
-    return;
+  const isStreamWatcher = Boolean(currentExtractedData.isOffline || currentExtractedData.isPrivate);
+  if (isStreamWatcher) {
+    showToast(`⏳ Stream Watcher engaged: Standby mode active for ${currentExtractedData.model || 'model'}. UniLoader will auto-record when broadcast starts!`, 'info');
   }
 
   const storageSelect = document.getElementById('storageFolderSelect');
@@ -1546,6 +1542,9 @@ async function startDownload() {
     title: currentExtractedData.title,
     code: currentExtractedData.code,
     poster: currentExtractedData.poster,
+    isOffline: currentExtractedData.isOffline || false,
+    isPrivate: currentExtractedData.isPrivate || false,
+    isStreamWatcher: isStreamWatcher,
     downloadFolder: selectedFolder || undefined,
     concurrentFragments: parseInt(concurrencySelect.value, 10) || 32,
     mode: currentMode,
@@ -1832,7 +1831,7 @@ function createJobCardElement(job) {
           <span class="job-code" id="job-code-${job.id}">${job.code || 'MEDIA'}</span>
         </div>
         <div class="job-header-right">
-          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase())}</span>
+          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : (job.status === 'waiting_for_stream' ? 'WAITING FOR STREAM' : job.status.toUpperCase()))}</span>
           <button type="button" class="btn-job-remove" onclick="removeJob('${job.id}')" title="Remove task">&times;</button>
         </div>
       </div>
@@ -1954,7 +1953,7 @@ function renderJobControls(job) {
         </button>
         <button class="btn btn-danger btn-sm" onclick="cancelJob('${safeJobId}')" title="Cancel download">Cancel</button>
       `;
-    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') {
+    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies' || job.status === 'waiting_for_stream') {
       return `
         <button class="btn btn-warning btn-sm" onclick="pauseJob('${safeJobId}')" title="Pause download">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
@@ -1980,6 +1979,7 @@ function renderJobControls(job) {
 function formatEtaDisplay(eta, status) {
   if (status === 'completed') return 'Ready';
   if (status === 'paused') return 'Paused';
+  if (status === 'waiting_for_stream') return eta || 'Waiting for stream...';
   if (status === 'resolving_ddl' || status === 'resolving_olamovies') return eta || 'Resolving DDL...';
   if (!eta || eta === '--' || eta === '0' || eta === '--:--') return '--:--';
   if (typeof eta === 'string' && /^\d+$/.test(eta.trim())) {
@@ -2001,7 +2001,7 @@ function updateJobCard(job) {
   const badge = document.getElementById(`job-badge-${job.id}`);
   if (badge) {
     badge.className = `job-status-badge status-${job.status}`;
-    badge.textContent = job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase());
+    badge.textContent = job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : (job.status === 'waiting_for_stream' ? 'WAITING FOR STREAM' : job.status.toUpperCase()));
   }
 
   const titleEl = document.getElementById(`job-title-${job.id}`);

@@ -337,6 +337,7 @@ console.log('Detected Tools:', tools);
 const jobs = new Map();
 const sseClients = new Map(); // jobId -> Set(res)
 const globalSseClients = new Map(); // res -> currentUser
+const activeStreamWatchers = new Map(); // jobId -> Timeout
 
 const PRIMARY_HISTORY_FILE = path.join(__dirname, '.jobs_history.json');
 const TEMP_HISTORY_FILE = path.join(TEMP_DIR, '.jobs_history.json');
@@ -6972,13 +6973,81 @@ app.post('/api/extract', async (req, res) => {
   }
 });
 
+// Helper to poll and automatically start recording when a livestream goes live
+function watchAndStartStream(job) {
+  const jobId = job.id;
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
+  }
+
+  job.status = 'waiting_for_stream';
+  job.isStreamWatcher = true;
+  job.progress.percent = 0;
+  job.progress.speed = 'Standby';
+  job.progress.eta = 'Waiting for stream...';
+  job.logs.push('📡 Stream Watcher engaged: Live broadcast is currently offline.');
+  job.logs.push('⏳ Standby monitoring active: Polling room every 15s. UniLoader will automatically start recording when the stream starts!');
+  broadcastJobUpdate(jobId);
+  processDownloadQueue();
+
+  const targetUrl = (job.opts && (job.opts.url || job.opts.sourceUrl)) || job.url;
+  let checkCount = 0;
+  const pollIntervalMs = 15000;
+
+  const poll = async () => {
+    const currentJob = jobs.get(jobId);
+    if (!currentJob || currentJob.status !== 'waiting_for_stream') {
+      activeStreamWatchers.delete(jobId);
+      return;
+    }
+
+    checkCount++;
+    try {
+      const meta = await extractMetadata(targetUrl, true);
+      if (meta && meta.hlsUrl && !meta.isOffline && !meta.isPrivate) {
+        currentJob.logs.push(`🔴 Stream broadcast started! Live master HLS stream detected: ${meta.hlsUrl}`);
+        currentJob.logs.push(`🚀 Engaging Universal Downloader live stream capture engine...`);
+
+        if (meta.title) currentJob.title = meta.title;
+        if (meta.poster) currentJob.poster = meta.poster;
+        currentJob.opts.hlsUrl = meta.hlsUrl;
+        currentJob.opts.downloadTargetUrl = meta.hlsUrl;
+        currentJob.opts.isOffline = false;
+        currentJob.opts.isPrivate = false;
+        currentJob.isStreamWatcher = false;
+        activeStreamWatchers.delete(jobId);
+
+        startJobProcess(currentJob);
+        return;
+      } else {
+        const stateDesc = (meta && meta.isPrivate) ? 'in private show' : 'offline';
+        if (checkCount % 4 === 0) {
+          currentJob.logs.push(`[Stream Watcher] Polled at ${new Date().toLocaleTimeString()} - Model still ${stateDesc}. Standby monitoring active...`);
+          broadcastJobUpdate(jobId);
+        }
+      }
+    } catch (err) {
+      if (checkCount % 8 === 0) {
+        currentJob.logs.push(`[Stream Watcher] Notice: ${err.message || 'Waiting for live connection...'}`);
+        broadcastJobUpdate(jobId);
+      }
+    }
+
+    if (jobs.has(jobId) && jobs.get(jobId).status === 'waiting_for_stream') {
+      const timer = setTimeout(poll, pollIntervalMs);
+      activeStreamWatchers.set(jobId, timer);
+    } else {
+      activeStreamWatchers.delete(jobId);
+    }
+  };
+
+  const timer = setTimeout(poll, pollIntervalMs);
+  activeStreamWatchers.set(jobId, timer);
+}
+
 // Helper to start the actual process
 function startJobProcess(job) {
-  job.status = 'downloading';
-  job.startTime = Date.now();
-  job.progress.eta = 'Starting...';
-  broadcastJobUpdate(job.id);
-
   const { opts } = job;
   let {
     url, hlsUrl, downloadTargetUrl, mode, videoQuality, videoFormat,
@@ -6992,14 +7061,17 @@ function startJobProcess(job) {
   const safeFileTitle = sanitizeAndTruncateFilename(job.title || 'media', 80);
 
   const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com')));
-  if (isCamNetwork && (opts.isOffline || (job.title && job.title.includes('(Offline)')) || (!rawTarget && !hlsUrl))) {
-    job.status = 'failed';
-    job.error = `Model "${job.title}" is currently offline. Stream is not broadcasting.`;
-    job.logs.push(`⚠️ Cannot record stream: Model is currently offline. Please wait until they start broadcasting.`);
-    broadcastJobUpdate(job.id);
-    processDownloadQueue();
+  const isOfflineStream = opts.isStreamWatcher || (isCamNetwork && (opts.isOffline || opts.isPrivate || (job.title && (job.title.includes('(Offline)') || job.title.includes('(In Private Show)'))) || (!rawTarget && !hlsUrl)));
+
+  if (isOfflineStream) {
+    watchAndStartStream(job);
     return;
   }
+
+  job.status = 'downloading';
+  job.startTime = Date.now();
+  job.progress.eta = 'Starting...';
+  broadcastJobUpdate(job.id);
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
   const isSpotify = url && url.includes('spotify.com');
@@ -7204,15 +7276,19 @@ function startJobProcess(job) {
       '--fragment-retries', String(isRateLimitedHost ? 50 : 30),
       '--retry-sleep', 'fragment:exp=1:20',
       '--retry-sleep', 'http:exp=1:20',
-      '--socket-timeout', isRateLimitedHost ? '30' : '20',
       '--hls-use-mpegts',
       '--newline',
-      '--no-skip-unavailable-fragments',
-      '--abort-on-unavailable-fragment',
       '--trim-filenames', '80',
       '--js-runtimes', process.platform === 'win32' ? 'node' : (fs.existsSync('/usr/bin/node') ? 'node:/usr/bin/node' : 'node'),
       '-o', outputTemplate
     ];
+
+    const isLiveStream = isCamNetwork || (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('edge-hls') || rawTarget.includes('stripchat') || rawTarget.includes('omg.sexy')));
+    if (!isLiveStream) {
+      args.push('--no-skip-unavailable-fragments', '--abort-on-unavailable-fragment');
+    } else {
+      args.push('--skip-unavailable-fragments');
+    }
 
     const effectiveChunk = (engineConfig.httpChunkSize && engineConfig.httpChunkSize !== 'default' && engineConfig.httpChunkSize !== 'none')
       ? engineConfig.httpChunkSize
@@ -7361,6 +7437,9 @@ function startJobProcess(job) {
 
     const isJable = url && url.includes('jable.tv');
     let targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
+    if (hlsUrl && (isLiveStream || (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))))) {
+      targetUrl = hlsUrl;
+    }
     if (targetUrl && targetUrl.includes('omg.sexy') && !targetUrl.includes('.m3u8')) {
       targetUrl = targetUrl.replace(/omg\.sexy/i, 'stripchat.com');
     }
@@ -8047,6 +8126,17 @@ function pauseJob(job) {
     broadcastJobUpdate(job.id);
     return true;
   }
+  if (job.status === 'waiting_for_stream') {
+    job.status = 'paused';
+    job.progress.eta = 'Paused';
+    job.logs.push('Stream watcher paused by user.');
+    if (activeStreamWatchers.has(job.id)) {
+      clearTimeout(activeStreamWatchers.get(job.id));
+      activeStreamWatchers.delete(job.id);
+    }
+    broadcastJobUpdate(job.id);
+    return true;
+  }
   if (job.status === 'downloading') {
     job.status = 'paused';
     job.progress.speed = '0 MB/s';
@@ -8082,6 +8172,13 @@ function resumeJob(job) {
   if (!job || job.status !== 'paused') return false;
 
   job.logs.push('Resuming download...');
+
+  if (job.isStreamWatcher || (job.opts && (job.opts.isStreamWatcher || job.opts.isOffline))) {
+    job.logs.push('Resuming stream watcher standby monitoring...');
+    watchAndStartStream(job);
+    return true;
+  }
+
   if (job.isSuspended && job.process && job.process.pid) {
     const pid = job.process.pid;
     if (process.platform !== 'win32') {
@@ -8164,7 +8261,7 @@ app.post('/api/jobs/pause-all', identifyUser, (req, res) => {
   let count = 0;
   for (const job of jobs.values()) {
     if ((job.ownerId || 'owner') === req.currentUser.userId || (req.query.all === '1' && req.currentUser.isOwner)) {
-      if (job.status === 'downloading' || job.status === 'queued') {
+      if (job.status === 'downloading' || job.status === 'queued' || job.status === 'waiting_for_stream') {
         if (pauseJob(job)) count++;
       }
     }
@@ -8199,6 +8296,11 @@ app.post('/api/jobs/:id/cancel', identifyUser, (req, res) => {
 
   job.status = 'cancelled';
   job.logs.push('Download cancelled by user.');
+
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
+  }
 
   if (job.process) {
     const pid = job.process.pid;
@@ -8241,6 +8343,11 @@ app.delete('/api/jobs/:id', identifyUser, (req, res) => {
 
   if (job && job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
     return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
+
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
   }
 
   if (job && job.process) {

@@ -1973,6 +1973,13 @@ body {
   animation: pulseGlow 2s infinite ease-in-out;
 }
 
+.status-waiting_for_stream {
+  background-color: hsla(280, 85%, 60%, 0.18);
+  color: hsl(280, 95%, 75%);
+  border: 1px solid hsla(280, 85%, 60%, 0.4);
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
 /* Progress Bar */
 .progress-container {
   width: 100%;

@@ -33,6 +33,8 @@ function getCachedMetadata(url) {
 
 function setCachedMetadata(url, data) {
   if (!data || !data.title) return;
+  // Never cache offline or private livestream states in long TTL cache
+  if (data.isOffline || data.isPrivate || data.duration === 'OFFLINE' || data.duration === 'PRIVATE') return;
   // Cap cache size to 500 items to prevent RAM growth
   if (metaCache.size > 500) {
     const firstKey = metaCache.keys().next().value;
@@ -227,7 +229,7 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
 /**
  * Extracts metadata and stream information with caching, non-blocking async execution, and robust fallbacks.
  */
-async function extractMetadata(inputUrl) {
+async function extractMetadata(inputUrl, bypassCache = false) {
   const url = inputUrl.trim();
 
   // 1. Direct stream links (.m3u8 or .mp4)
@@ -247,9 +249,11 @@ async function extractMetadata(inputUrl) {
   }
 
   // 2. Check in-memory cache
-  const cached = getCachedMetadata(url);
-  if (cached) {
-    return cached;
+  if (!bypassCache) {
+    const cached = getCachedMetadata(url);
+    if (cached) {
+      return cached;
+    }
   }
 
   // 3. Try Python fetcher first (non-blocking async)
