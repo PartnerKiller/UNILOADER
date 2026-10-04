@@ -83,6 +83,39 @@ const defaultEngineConfig = {
 };
 let engineConfig = { ...defaultEngineConfig };
 
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function sanitizeAndTruncateFilename(str, maxBytes = 80) {
+  if (!str || typeof str !== 'string') return 'media';
+  let clean = decodeHtmlEntities(str)
+    .replace(/[\\/:*?"<>|\r\n\t]/g, '_')
+    .replace(/_+/g, '_')
+    .trim();
+
+  // Truncate safely on UTF-8 byte boundary to prevent Linux [Errno 36] (NAME_MAX = 255 bytes)
+  const buf = Buffer.from(clean, 'utf8');
+  if (buf.length <= maxBytes) {
+    return clean || 'media';
+  }
+  let truncatedBuf = buf.subarray(0, maxBytes);
+  let res = truncatedBuf.toString('utf8');
+  res = res.replace(/\uFFFD+$/, '').trim();
+  res = res.replace(/[.\s_]+$/, '');
+  return res || 'media';
+}
+
 function normalizeBandwidthString(val) {
   if (val === undefined || val === null) return '0';
   const str = String(val).trim().toUpperCase();
@@ -1778,8 +1811,11 @@ function finalizeJobPermanentStorage(job) {
       targetName = targetName.slice(job.id.length + 1);
     }
     targetName = targetName.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
-    targetName = targetName.replace(/[\\/:*?"<>|]/g, '_').trim();
-    if (!targetName) targetName = `${job.title || 'media'}_${Date.now()}`;
+    const ext = path.extname(targetName);
+    const base = path.basename(targetName, ext);
+    const safeBase = sanitizeAndTruncateFilename(base, 80);
+    targetName = `${safeBase}${ext}`;
+    if (!safeBase) targetName = `media_${Date.now()}${ext}`;
 
     let destPath = path.join(targetFolder, targetName);
     if (fs.existsSync(destPath) && path.resolve(destPath) !== path.resolve(job.filePath)) {
@@ -6953,6 +6989,7 @@ function startJobProcess(job) {
   mode = mode || 'video';
   concurrentFragments = parseInt(concurrentFragments, 10) || 32;
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
+  const safeFileTitle = sanitizeAndTruncateFilename(job.title || 'media', 80);
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
   const isSpotify = url && url.includes('spotify.com');
@@ -6973,7 +7010,7 @@ function startJobProcess(job) {
     const saavnScript = path.join(__dirname, 'jiosaavn_engine.py');
     const isFlac = (mode === 'audio' && audioFormat === 'flac');
     const ext = isFlac ? 'flac' : (audioFormat || 'm4a');
-    const safeTitle = (job.title || 'jiosaavn_track').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const safeTitle = safeFileTitle;
     const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.${ext}`);
 
     job.logs.push(`Starting JioSaavn High-Fidelity Music Engine...`);
@@ -6993,7 +7030,7 @@ function startJobProcess(job) {
   } else if (isTikTok) {
     const pythonBin = getPythonBin();
     const ttScript = path.join(__dirname, 'tiktok_engine.py');
-    const safeTitle = (job.title || 'tiktok_media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const safeTitle = safeFileTitle;
     const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}`);
 
     job.logs.push(`Starting TikTok Watermark-Free HD Engine...`);
@@ -7015,7 +7052,7 @@ function startJobProcess(job) {
   } else if (isInstagram) {
     const pythonBin = getPythonBin();
     const igScript = path.join(__dirname, 'instagram_engine.py');
-    const safeTitle = (job.title || 'instagram_media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const safeTitle = safeFileTitle;
     const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}`);
 
     job.logs.push(`Starting Instagram FastCDN Video Engine...`);
@@ -7039,7 +7076,7 @@ function startJobProcess(job) {
     const spotifyScript = path.join(__dirname, 'spotify_downloader.py');
     const isFlac = (mode === 'audio' && audioFormat === 'flac');
     const ext = isFlac ? 'flac' : (audioFormat || 'mp3');
-    const safeTitle = (job.title || 'spotify_media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const safeTitle = safeFileTitle;
     const finalOutPath = isSpotifyPlaylistOrAlbum
       ? path.join(TEMP_DIR, `${job.id}_${safeTitle}.zip`)
       : path.join(TEMP_DIR, `${job.id}_${safeTitle}.${ext}`);
@@ -7062,7 +7099,7 @@ function startJobProcess(job) {
   } else if (isYouTubeFlac || isDeezerFlac || (isTidal && isAudioFlac) || mode === 'audiophile_flac' || (mode === 'audio' && audioFormat === 'flac')) {
     const pythonBin = getPythonBin();
     const audiophileScript = path.join(__dirname, 'audiophile_flac_engine.py');
-    const safeTitle = (job.title || 'audiophile_track').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const safeTitle = safeFileTitle;
     const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
 
     let artist = (opts && opts.artist) || '';
@@ -7124,7 +7161,7 @@ function startJobProcess(job) {
   } else if (isJavGuru) {
     const pythonBin = getPythonBin();
     const hlsScript = path.join(__dirname, 'hls_downloader.py');
-    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${job.title}.mp4`);
+    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeFileTitle}.mp4`);
 
     job.logs.push(`Starting JavGuru High-Speed Stream Engine...`);
     job.logs.push(`Target: ${url || rawTarget}`);
@@ -7148,7 +7185,7 @@ function startJobProcess(job) {
       concurrentFragments = Math.min(concurrentFragments, 6);
     }
 
-    const outputTemplate = path.join(TEMP_DIR, `${job.id}_${job.title}.%(ext)s`);
+    const outputTemplate = path.join(TEMP_DIR, `${job.id}_${safeFileTitle}.%(ext)s`);
     const args = [
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
@@ -7162,6 +7199,7 @@ function startJobProcess(job) {
       '--newline',
       '--no-skip-unavailable-fragments',
       '--abort-on-unavailable-fragment',
+      '--trim-filenames', '80',
       '--js-runtimes', process.platform === 'win32' ? 'node' : (fs.existsSync('/usr/bin/node') ? 'node:/usr/bin/node' : 'node'),
       '-o', outputTemplate
     ];
@@ -7313,6 +7351,9 @@ function startJobProcess(job) {
 
     const isJable = url && url.includes('jable.tv');
     let targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
+    if (targetUrl && targetUrl.includes('omg.sexy') && !targetUrl.includes('.m3u8')) {
+      targetUrl = targetUrl.replace(/omg\.sexy/i, 'stripchat.com');
+    }
     if (opts.isMusicTrack && (!targetUrl || !targetUrl.startsWith('http'))) {
       const qArtist = (opts.artist || '').trim();
       const qTitle = (opts.trackTitle || opts.title || '').trim();
@@ -7637,7 +7678,8 @@ function createAndStartJob(opts) {
   } = opts;
 
   mode = mode || 'video';
-  const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
+  const displayTitle = decodeHtmlEntities(title || customFilename || 'video_' + Date.now()).trim();
+  const safeTitle = sanitizeAndTruncateFilename(customFilename || title || 'video_' + Date.now(), 80);
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
   const ext = (mode === 'audio' || mode === 'audiophile_flac') ? (audioFormat || (mode === 'audiophile_flac' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
@@ -7673,7 +7715,7 @@ function createAndStartJob(opts) {
     id: jobId,
     url,
     opts,
-    title: safeTitle,
+    title: displayTitle,
     code: code || 'MEDIA',
     poster: poster || '',
     mode,

@@ -6,6 +6,20 @@ const path = require('path');
 const metaCache = new Map();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
 function getCachedMetadata(url) {
   const entry = metaCache.get(url);
   if (entry) {
@@ -143,7 +157,8 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
 
       try {
         const info = JSON.parse(stdout);
-        const title = info.fulltitle || info.title || 'video_' + Date.now();
+        const rawTitle = info.fulltitle || info.title || 'video_' + Date.now();
+        const title = decodeHtmlEntities(rawTitle).trim();
         const codeId = info.display_id || info.id || (url.includes('pornhub') ? (url.match(/viewkey=([^&]+)/) ? url.match(/viewkey=([^&]+)/)[1] : 'PORNHUB') : 'VIDEO');
 
         let poster = info.thumbnail || '';
