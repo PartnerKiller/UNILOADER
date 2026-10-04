@@ -7745,13 +7745,38 @@ function attachProcessListeners(job, child) {
       job.progress.currentFrag = parseInt(fragMatch[1], 10);
       job.progress.totalFrag = parseInt(fragMatch[2], 10);
     }
+
+    // Parse ffmpeg live recording progress: frame= 1129 fps= 36 size= 9984KiB time=00:00:37.99 bitrate=2152.6kbits/s speed=1.17x
+    const ffmpegStatMatch = line.match(/frame=\s*(\d+).*?size=\s*([\d.]+\s*(?:KiB|MiB|GiB|KB|MB|GB)).*?time=\s*([\d:.]+).*?(?:bitrate=\s*([\d.]+\s*(?:kbits|mbits)\/s))?.*?speed=\s*([\d.]+x)?/i);
+    if (ffmpegStatMatch) {
+      job.progress.downloadedSize = ffmpegStatMatch[2];
+      job.progress.totalSize = ffmpegStatMatch[2];
+      job.filesize = ffmpegStatMatch[2];
+      if (ffmpegStatMatch[4]) job.progress.speed = ffmpegStatMatch[4];
+      else if (ffmpegStatMatch[5]) job.progress.speed = ffmpegStatMatch[5];
+      job.progress.eta = `Recording (${ffmpegStatMatch[3]})`;
+      job.progress.percent = 100;
+    }
   };
 
+  let lastFfmpegLogTime = 0;
   const handleLogLine = (rawLine, isErr = false) => {
     const clean = stripAnsi(rawLine).trim();
     if (!clean) return;
-    const finalLine = isErr && !clean.startsWith('[ERR]') ? `[ERR] ${clean}` : clean;
+
+    // Detect normal ffmpeg livestream status lines that should not be marked as [ERR]
+    const isFfmpegProgress = clean.startsWith('frame=') || clean.startsWith('[hls @') || clean.startsWith('[https @') || clean.startsWith('[http @') || clean.startsWith('Opening \'') || clean.startsWith('Input #') || clean.startsWith('Output #') || clean.startsWith('Stream #') || clean.startsWith('Metadata:') || clean.startsWith('Program ') || clean.startsWith('Duration:') || clean.startsWith('Press [q]') || clean.includes('Found duplicated MOOV') || clean.startsWith('video:') || clean.startsWith('Stream mapping:');
+
     parseProgress(clean);
+
+    // Throttle repetitive frame= logs so log view isn't overwhelmed
+    if (clean.startsWith('frame=')) {
+      const now = Date.now();
+      if (now - lastFfmpegLogTime < 3000) return;
+      lastFfmpegLogTime = now;
+    }
+
+    const finalLine = (isErr && !isFfmpegProgress && !clean.startsWith('[ERR]')) ? `[ERR] ${clean}` : clean;
     appendJobLog(job, finalLine);
   };
 
