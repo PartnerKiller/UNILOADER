@@ -7749,12 +7749,15 @@ function attachProcessListeners(job, child) {
     // Parse ffmpeg live recording progress: frame= 1129 fps= 36 size= 9984KiB time=00:00:37.99 bitrate=2152.6kbits/s speed=1.17x
     const ffmpegStatMatch = line.match(/frame=\s*(\d+).*?size=\s*([\d.]+\s*(?:KiB|MiB|GiB|KB|MB|GB)).*?time=\s*([\d:.]+).*?(?:bitrate=\s*([\d.]+\s*(?:kbits|mbits)\/s))?.*?speed=\s*([\d.]+x)?/i);
     if (ffmpegStatMatch) {
+      job.isLiveCapture = true;
       job.progress.downloadedSize = ffmpegStatMatch[2];
       job.progress.totalSize = ffmpegStatMatch[2];
       job.filesize = ffmpegStatMatch[2];
       if (ffmpegStatMatch[4]) job.progress.speed = ffmpegStatMatch[4];
       else if (ffmpegStatMatch[5]) job.progress.speed = ffmpegStatMatch[5];
-      job.progress.eta = `Recording (${ffmpegStatMatch[3]})`;
+      job.progress.eta = `REC ${ffmpegStatMatch[3]}`;
+      job.progress.isLive = true;
+      job.progress.recordedDuration = ffmpegStatMatch[3];
       job.progress.percent = 100;
     }
   };
@@ -7765,7 +7768,7 @@ function attachProcessListeners(job, child) {
     if (!clean) return;
 
     // Detect normal ffmpeg livestream status lines that should not be marked as [ERR]
-    const isFfmpegProgress = clean.startsWith('frame=') || clean.startsWith('[hls @') || clean.startsWith('[https @') || clean.startsWith('[http @') || clean.startsWith('Opening \'') || clean.startsWith('Input #') || clean.startsWith('Output #') || clean.startsWith('Stream #') || clean.startsWith('Metadata:') || clean.startsWith('Program ') || clean.startsWith('Duration:') || clean.startsWith('Press [q]') || clean.includes('Found duplicated MOOV') || clean.startsWith('video:') || clean.startsWith('Stream mapping:');
+    const isFfmpegProgress = clean.startsWith('frame=') || clean.startsWith('[hls @') || clean.startsWith('[https @') || clean.startsWith('[http @') || clean.startsWith('Opening \'') || clean.startsWith('Opening ') || clean.startsWith('Input #') || clean.startsWith('Output #') || clean.startsWith('Stream #') || clean.startsWith('Metadata:') || clean.startsWith('Program ') || clean.startsWith('Duration:') || clean.startsWith('Press [q]') || clean.includes('Found duplicated MOOV') || clean.startsWith('video:') || clean.startsWith('audio:') || clean.startsWith('headers:') || clean.startsWith('Stream mapping:') || clean.startsWith('[tcp @') || clean.startsWith('[tls @') || clean.startsWith('[mp4 @') || clean.startsWith('[mpegts @') || clean.includes('fps=') || clean.includes('time=') || clean.includes('bitrate=') || clean.includes('speed=');
 
     parseProgress(clean);
 
@@ -7815,140 +7818,182 @@ function attachProcessListeners(job, child) {
       return;
     }
 
-    if (code === 0) {
-      try {
-        const files = fs.readdirSync(TEMP_DIR);
-        // Find actual completed media file (strictly regular files, exclude directories and temporary artifacts)
-        let matched = files.find(f => {
-          if (!f.startsWith(`${jobId}_`)) return false;
-          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.includes('_playlist_dir')) return false;
+    const targetUrl = (job.opts && (job.opts.url || job.opts.sourceUrl)) || job.url || '';
+    const rawTarget = (job.opts && (job.opts.downloadTargetUrl || job.opts.hlsUrl)) || '';
+    const isCamNetwork = (targetUrl && (targetUrl.includes('omg.sexy') || targetUrl.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com'))) || (job.opts && !!job.opts.camStreamName);
+    const isLiveCapture = job.isLiveCapture || isCamNetwork || (targetUrl && (targetUrl.includes('/live/') || targetUrl.includes('chaturbate.com'))) || (rawTarget && (rawTarget.includes('edge-hls') || rawTarget.includes('cam-proxy')));
+
+    try {
+      const files = fs.readdirSync(TEMP_DIR);
+
+      // 1. Check for live capture buffer (.part or .ytdl) to remux into clean MP4
+      const partFile = files.find(f => {
+        if (!f.startsWith(`${jobId}_`)) return false;
+        return f.endsWith('.part') || f.endsWith('.ytdl');
+      });
+
+      if (partFile) {
+        const partPath = path.join(TEMP_DIR, partFile);
+        let partStat = null;
+        try { partStat = fs.statSync(partPath); } catch (e) {}
+        if (partStat && partStat.size >= 1.5 * 1024 * 1024) {
+          const targetCleanPath = partPath.replace(/\.(part|ytdl)$/, '');
+          const ffmpegBin = tools.ffmpegDir ? path.join(tools.ffmpegDir, 'ffmpeg') : 'ffmpeg';
+          try {
+            job.logs.push(`[Finalizer] Remuxing live capture buffer (${(partStat.size / (1024 * 1024)).toFixed(1)} MB) into standard MP4...`);
+            execSync(`"${ffmpegBin}" -y -i "${partPath}" -c copy -movflags +faststart "${targetCleanPath}"`, { stdio: 'ignore', timeout: 30000 });
+            try { fs.unlinkSync(partPath); } catch (e) {}
+          } catch (remuxErr) {
+            job.logs.push(`[Finalizer] Remux note: ${remuxErr.message}. Renaming buffer directly...`);
+            try {
+              if (fs.existsSync(targetCleanPath)) fs.unlinkSync(targetCleanPath);
+              fs.renameSync(partPath, targetCleanPath);
+            } catch (renErr) {}
+          }
+        }
+      }
+
+      // 2. Locate completed media file
+      const refreshedFiles = fs.readdirSync(TEMP_DIR);
+      let matched = refreshedFiles.find(f => {
+        if (!f.startsWith(`${jobId}_`)) return false;
+        if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.includes('_playlist_dir')) return false;
+        try {
+          const p = path.join(TEMP_DIR, f);
+          const st = fs.statSync(p);
+          return st.isFile() && st.size > 0;
+        } catch (e) {
+          return false;
+        }
+      });
+
+      // If freyr downloaded without prefix, find recent audio file
+      if (!matched && job.isFreyr) {
+        const musicFiles = refreshedFiles
+          .filter(f => f.endsWith('.m4a') || f.endsWith('.mp3') || f.endsWith('.flac'))
+          .map(f => ({ name: f, time: fs.statSync(path.join(TEMP_DIR, f)).mtimeMs }))
+          .sort((a, b) => b.time - a.time);
+        if (musicFiles.length > 0) {
+          const src = path.join(TEMP_DIR, musicFiles[0].name);
+          const dst = path.join(TEMP_DIR, `${jobId}_${musicFiles[0].name}`);
+          fs.renameSync(src, dst);
+          matched = `${jobId}_${musicFiles[0].name}`;
+        }
+      }
+
+      // Secondary fallback search if extension differed slightly
+      if (!matched) {
+        matched = refreshedFiles.find(f => {
+          if (!f.includes(jobId)) return false;
+          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl')) return false;
           try {
             const p = path.join(TEMP_DIR, f);
-            const st = fs.statSync(p);
-            return st.isFile() && st.size > 0;
+            return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
           } catch (e) {
             return false;
           }
         });
+      }
 
-        // If freyr downloaded without prefix, find recent audio file
-        if (!matched && job.isFreyr) {
-          const musicFiles = files
-            .filter(f => f.endsWith('.m4a') || f.endsWith('.mp3') || f.endsWith('.flac'))
-            .map(f => ({ name: f, time: fs.statSync(path.join(TEMP_DIR, f)).mtimeMs }))
-            .sort((a, b) => b.time - a.time);
-          if (musicFiles.length > 0) {
-            const src = path.join(TEMP_DIR, musicFiles[0].name);
-            const dst = path.join(TEMP_DIR, `${jobId}_${musicFiles[0].name}`);
-            fs.renameSync(src, dst);
-            matched = `${jobId}_${musicFiles[0].name}`;
-          }
+      // 3. Cam promo ad teaser guard: detect 20s promo clip (< 1.5 MB)
+      if (matched && isCamNetwork) {
+        const matchedPath = path.join(TEMP_DIR, matched);
+        let st;
+        try { st = fs.statSync(matchedPath); } catch (e) {}
+        if (st && st.size < 1.5 * 1024 * 1024) {
+          job.logs.push(`[Stream Guard] Detected promotional teaser clip (${(st.size / 1024).toFixed(1)} KiB, ~20s promo ad).`);
+          job.logs.push(`[Stream Guard] Purged promotional ad file. Re-engaging Standby Watcher to record actual public broadcast...`);
+          try { fs.unlinkSync(matchedPath); } catch (e) {}
+          matched = null;
+          job.status = 'waiting_for_stream';
+          job.opts.isOffline = true;
+          watchAndStartStream(job);
+          scheduleJobUpdate(jobId, true);
+          processDownloadQueue();
+          return;
         }
+      }
 
-        // Secondary fallback search if extension differed slightly
-        if (!matched) {
-          matched = files.find(f => {
-            if (!f.includes(jobId)) return false;
-            if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl')) return false;
-            try {
-              const p = path.join(TEMP_DIR, f);
-              return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
-            } catch (e) {
-              return false;
-            }
-          });
-        }
+      // 4. File acceptance:
+      let fileStat = null;
+      if (matched) {
+        try { fileStat = fs.statSync(path.join(TEMP_DIR, matched)); } catch (e) {}
+      }
 
-        if (matched && isCamNetwork) {
-          const matchedPath = path.join(TEMP_DIR, matched);
-          let st;
-          try { st = fs.statSync(matchedPath); } catch (e) {}
-          if (st && st.size < 1.5 * 1024 * 1024) {
-            job.logs.push(`[Stream Guard] Detected promotional teaser clip (${(st.size / 1024).toFixed(1)} KiB, ~20s promo ad).`);
-            job.logs.push(`[Stream Guard] Purged promotional ad file. Re-engaging Standby Watcher to record actual public broadcast...`);
-            try { fs.unlinkSync(matchedPath); } catch (e) {}
-            matched = null;
-            job.status = 'waiting_for_stream';
-            job.opts.isOffline = true;
-            watchAndStartStream(job);
-            scheduleJobUpdate(jobId, true);
-            processDownloadQueue();
-            return;
-          }
-        }
+      const isLiveAccepted = matched && fileStat && fileStat.size >= 1.5 * 1024 * 1024;
+      const isCleanSuccess = code === 0 && matched && fileStat && fileStat.size > 0;
+      const isStopAccepted = (job.isStopping || isLiveCapture) && matched && fileStat && fileStat.size > 0;
 
-        if (matched) {
-          const originalExt = path.extname(matched);
-          const rawBase = matched.replace(`${jobId}_`, '');
-          let cleanBase = rawBase.replace(/\.[^.]+$/, '');
-          cleanBase = cleanBase.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
-          const cleanFilename = `${cleanBase}${originalExt}`;
-          
-          let cleanFilePath = path.join(TEMP_DIR, cleanFilename);
-          const rawFilePath = path.join(TEMP_DIR, matched);
-          
-          // Rename on disk to remove machine jobId prefix
-          if (rawFilePath !== cleanFilePath) {
-            try {
-              if (fs.existsSync(cleanFilePath)) {
-                try { fs.unlinkSync(cleanFilePath); } catch (e) {}
-              }
-              fs.renameSync(rawFilePath, cleanFilePath);
-              matched = cleanFilename;
-            } catch (renErr) {
-              console.warn('[Server] Notice renaming file:', renErr.message);
-              cleanFilePath = rawFilePath;
-            }
-          }
-
-          job.filePath = cleanFilePath;
-          job.filename = cleanFilename;
-
-          // Purge any stray loose images from temp directory so only the single clean media file remains
+      if (isCleanSuccess || isLiveAccepted || isStopAccepted) {
+        const originalExt = path.extname(matched);
+        const rawBase = matched.replace(`${jobId}_`, '');
+        let cleanBase = rawBase.replace(/\.[^.]+$/, '');
+        cleanBase = cleanBase.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
+        const cleanFilename = `${cleanBase}${originalExt}`;
+        
+        let cleanFilePath = path.join(TEMP_DIR, cleanFilename);
+        const rawFilePath = path.join(TEMP_DIR, matched);
+        
+        // Rename on disk to remove machine jobId prefix
+        if (rawFilePath !== cleanFilePath) {
           try {
-            const allDirFiles = fs.readdirSync(TEMP_DIR);
-            for (const f of allDirFiles) {
-              if ((f.startsWith(`${jobId}_`) || f.startsWith(cleanBase) || f === 'cover.jpg') &&
-                  (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg') || f.endsWith('.webp') || f.endsWith('.part'))) {
-                try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
-              }
+            if (fs.existsSync(cleanFilePath)) {
+              try { fs.unlinkSync(cleanFilePath); } catch (e) {}
             }
-          } catch (e) {}
-
-          job.coverUrl = `/api/download-cover/${job.id}`;
-
-          const stat = fs.statSync(job.filePath);
-          if (stat.size > 0) {
-            finalizeJobPermanentStorage(job);
-            job.status = 'completed';
-            job.progress.percent = 100;
-            job.progress.eta = 'Ready';
-            job.logs.push('Processing completed! File ready in folder.');
-            job.filesize = stat.size > (1024 ** 3)
-              ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
-              : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
-            job.progress.totalSize = job.filesize;
-            saveJobsHistory();
-          } else {
-            job.status = 'failed';
-            job.error = 'Downloaded file was 0 bytes.';
-            job.logs.push('[ERR] Media file was empty (0 bytes).');
+            fs.renameSync(rawFilePath, cleanFilePath);
+            matched = cleanFilename;
+          } catch (renErr) {
+            console.warn('[Server] Notice renaming file:', renErr.message);
+            cleanFilePath = rawFilePath;
           }
+        }
+
+        job.filePath = cleanFilePath;
+        job.filename = cleanFilename;
+
+        // Purge loose leftover images/parts from temp directory
+        try {
+          const allDirFiles = fs.readdirSync(TEMP_DIR);
+          for (const f of allDirFiles) {
+            if ((f.startsWith(`${jobId}_`) || f.startsWith(cleanBase) || f === 'cover.jpg') &&
+                (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg') || f.endsWith('.webp') || f.endsWith('.part') || f.endsWith('.ytdl'))) {
+              try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
+            }
+          }
+        } catch (e) {}
+
+        job.coverUrl = `/api/download-cover/${job.id}`;
+
+        const stat = fs.statSync(job.filePath);
+        if (stat.size > 0) {
+          finalizeJobPermanentStorage(job);
+          job.status = 'completed';
+          job.isStopping = false;
+          job.progress.percent = 100;
+          job.progress.eta = 'Ready';
+          job.logs.push(`Processing completed! File ready in folder (${(stat.size / (1024 * 1024)).toFixed(1)} MB).`);
+          job.filesize = stat.size > (1024 ** 3)
+            ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
+            : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+          job.progress.totalSize = job.filesize;
+          saveJobsHistory();
         } else {
           job.status = 'failed';
-          job.error = 'No output media file was generated.';
-          job.logs.push('[ERR] Media file was not found in temp directory.');
+          job.error = 'Downloaded file was 0 bytes.';
+          job.logs.push('[ERR] Media file was empty (0 bytes).');
         }
-      } catch (e) {
+      } else {
+        if (job.status !== 'cancelled' && job.status !== 'paused' && job.status !== 'waiting_for_stream') {
+          job.status = 'failed';
+          job.error = matched ? `Recording file below threshold (${fileStat ? (fileStat.size/1024).toFixed(0)+' KB' : 'empty'})` : `Engine exited with code ${code}`;
+          job.logs.push(`Process exited with code ${code}${matched ? ' (insufficient media size)' : ' (no output file)'}`);
+        }
+      }
+    } catch (e) {
+      if (job.status !== 'cancelled' && job.status !== 'paused' && job.status !== 'waiting_for_stream') {
         job.status = 'failed';
         job.error = e.message;
         job.logs.push(`[ERR] File verification error: ${e.message}`);
-      }
-    } else {
-      if (job.status !== 'cancelled' && job.status !== 'paused') {
-        job.status = 'failed';
-        job.error = `Engine exited with code ${code}`;
-        job.logs.push(`Process failed with exit code ${code}`);
       }
     }
     scheduleJobUpdate(jobId, true);
@@ -7995,6 +8040,9 @@ function createAndStartJob(opts) {
     initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${path.join(assignedFolder, subfolderName)}`);
   }
 
+  const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (opts.downloadTargetUrl && (opts.downloadTargetUrl.includes('omg.sexy') || opts.downloadTargetUrl.includes('stripchat.com'))) || !!opts.camStreamName;
+  const isLiveStream = isCamNetwork || opts.isLiveCapture || (url && (url.includes('/live/') || url.includes('chaturbate.com'))) || (opts.hlsUrl && (opts.hlsUrl.includes('edge-hls') || opts.hlsUrl.includes('cam-proxy')));
+
   const job = {
     id: jobId,
     url,
@@ -8008,6 +8056,8 @@ function createAndStartJob(opts) {
     role,
     isOwner,
     isPremium,
+    isLiveCapture: !!isLiveStream,
+    isLiveStream: !!isLiveStream,
     downloadFolder: assignedFolder || '',
     isPermanent: !!assignedFolder,
     filePath,
@@ -8152,6 +8202,10 @@ app.post('/api/download', identifyUser, async (req, res) => {
         payload.poster = meta.poster;
         payload.downloadTargetUrl = meta.downloadTargetUrl;
         if (meta.referer) payload.referer = meta.referer;
+        if (meta.camStreamName) payload.camStreamName = meta.camStreamName;
+        if (meta.isOffline) payload.isOffline = meta.isOffline;
+        if (meta.isPrivate) payload.isPrivate = meta.isPrivate;
+        if (meta.isOffline || meta.isPrivate) payload.isStreamWatcher = true;
       } catch (e) {}
     }
 
@@ -8477,6 +8531,57 @@ app.post('/api/jobs/resume-all', identifyUser, (req, res) => {
   }
   if (count > 0) broadcastGlobalJobSync();
   res.json({ success: true, resumedCount: count });
+});
+
+// 8.5. Stop & Finalize Livestream Job
+app.post('/api/jobs/:id/stop', identifyUser, (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  if (job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
+
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
+  }
+
+  job.isStopping = true;
+  job.isLiveCapture = true;
+  job.logs.push('⏹️ [Stream] Stop requested by user. Finalizing and saving recorded stream...');
+  broadcastJobUpdate(jobId);
+
+  if (job.process) {
+    const pid = job.process.pid;
+    try {
+      if (job.process.stdin && job.process.stdin.writable) {
+        job.process.stdin.write('q\n');
+      }
+    } catch (e) {}
+
+    try {
+      job.process.kill('SIGINT');
+    } catch (e) {
+      try { job.process.kill('SIGTERM'); } catch (err) {}
+    }
+
+    // Failsafe: if process has not closed within 4 seconds, force close
+    setTimeout(() => {
+      if (job.process) {
+        try {
+          if (process.platform === 'win32') {
+            execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+          } else {
+            execSync(`kill -TERM ${pid} 2>/dev/null || kill -9 ${pid} 2>/dev/null`, { stdio: 'ignore' });
+          }
+        } catch (e) {}
+      }
+    }, 4000);
+  }
+
+  res.json({ success: true, message: 'Stopping recording and saving file...' });
 });
 
 // 9. Cancel Job (Tree termination & partial cleanup)
