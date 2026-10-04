@@ -3317,6 +3317,7 @@ function initFolderAllocationModal() {
         }
       });
       renderAllocatedBadges();
+      renderDriveFolderList(allocFolderItems);
       showToast(`Added ${added} folder(s) to allocation list`, 'success');
     });
   }
@@ -3372,6 +3373,7 @@ function initFolderAllocationModal() {
       if (confirm(`Remove all ${allocGrantedFolders.size} allocated folders for this user?`)) {
         allocGrantedFolders.clear();
         renderAllocatedBadges();
+        renderDriveFolderList(allocFolderItems);
       }
     });
   }
@@ -3431,20 +3433,24 @@ window.openFolderAllocationModal = async function(userId, username, role) {
   const modal = document.getElementById('allocateFoldersModal');
   const userEl = document.getElementById('allocTargetUsername');
   const roleEl = document.getElementById('allocTargetRoleBadge');
+  const titleEl = document.getElementById('allocModalTitle');
+
+  if (titleEl) {
+    if (role === 'owner' || username.toLowerCase() === 'sakura') {
+      titleEl.textContent = 'Owner Storage Allocation';
+    } else if (role === 'premium') {
+      titleEl.textContent = 'Premium Member Storage Allocation';
+    } else {
+      titleEl.textContent = 'Member Storage Allocation';
+    }
+  }
 
   if (userEl) userEl.textContent = username;
   if (roleEl) {
-    roleEl.textContent = (role || 'user').toUpperCase();
-    if (role === 'owner') {
-      roleEl.className = 'badge-tag';
-      roleEl.style.cssText = 'background: rgba(245,158,11,0.3); color: #fef08a; border: 1px solid rgba(245,158,11,0.6); margin-left: 6px;';
-    } else if (role === 'premium') {
-      roleEl.className = 'badge-tag';
-      roleEl.style.cssText = 'background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); margin-left: 6px;';
-    } else {
-      roleEl.className = 'badge-tag';
-      roleEl.style.cssText = 'background: rgba(255,255,255,0.08); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12); margin-left: 6px;';
-    }
+    const isOwner = role === 'owner' || username.toLowerCase() === 'sakura';
+    const isPrem = role === 'premium';
+    roleEl.textContent = isOwner ? 'OWNER' : (isPrem ? 'PREMIUM' : 'MEMBER');
+    roleEl.className = `tier-pill ${isOwner ? 'tier-owner' : (isPrem ? 'tier-prem' : 'tier-user')}`;
   }
 
   if (modal) modal.style.display = 'flex';
@@ -3478,7 +3484,7 @@ function closeFolderAllocationModal() {
 async function loadSystemDrives() {
   const select = document.getElementById('allocDriveSelect');
   if (!select) return;
-  select.innerHTML = '<option value="">Detecting drives...</option>';
+  select.innerHTML = '<option value="">Detecting storage volumes...</option>';
 
   try {
     const res = await fetch('/api/admin/system-drives', {
@@ -3488,11 +3494,13 @@ async function loadSystemDrives() {
     if (res.ok && data.success && Array.isArray(data.drives)) {
       allocDrives = data.drives;
       if (allocDrives.length === 0) {
-        select.innerHTML = '<option value="">No drives detected</option>';
+        select.innerHTML = '<option value="">No storage volumes detected</option>';
         return;
       }
-      select.innerHTML = '<option value="">-- Select a Drive / Storage Mount --</option>' + allocDrives.map(d => {
-        return `<option value="${escapeHtml(d.path)}">${escapeHtml(d.label)} [${escapeHtml(d.path)}] - Free: ${escapeHtml(d.free)} / Total: ${escapeHtml(d.total)}</option>`;
+      select.innerHTML = '<option value="">-- Choose Storage Volume --</option>' + allocDrives.map(d => {
+        const cleanName = (d.name || d.path || '').replace(/^Drive:\s*/i, '').replace(/^Mount:\s*/i, '');
+        const freeText = d.free ? ` • ${d.free} free` : '';
+        return `<option value="${escapeHtml(d.path)}">${escapeHtml(cleanName)}${escapeHtml(freeText)}</option>`;
       }).join('');
 
       // Auto-select preferred storage drive if available, e.g. /media/storage or first drive
@@ -3512,13 +3520,87 @@ async function loadSystemDrives() {
   }
 }
 
+function updateDriveCapacityBadge() {
+  const badge = document.getElementById('allocDriveCapacityBadge');
+  const fill = document.getElementById('allocDriveGaugeFill');
+  if (!allocCurrentDrive) {
+    if (badge) badge.textContent = '';
+    if (fill) fill.style.width = '0%';
+    return;
+  }
+  const drive = allocDrives.find(d => d.path === allocCurrentDrive);
+  if (drive) {
+    if (badge) {
+      badge.textContent = `${drive.free || '0B'} free of ${drive.total || '0B'}${drive.percentUsed ? ` (${drive.percentUsed} utilized)` : ''}`;
+    }
+    if (fill) {
+      const pct = parseInt(drive.percentUsed || '0', 10);
+      fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+      if (pct > 90) {
+        fill.style.background = 'linear-gradient(90deg, #f87171, #ef4444)';
+      } else if (pct > 75) {
+        fill.style.background = 'linear-gradient(90deg, #fbbf24, #f59e0b)';
+      } else {
+        fill.style.background = 'linear-gradient(90deg, #38bdf8, #818cf8)';
+      }
+    }
+  } else {
+    if (badge) badge.textContent = '';
+    if (fill) fill.style.width = '0%';
+  }
+}
+
+function renderAllocBreadcrumbs() {
+  const container = document.getElementById('allocPathBreadcrumb');
+  const btnUp = document.getElementById('btnAllocUpFolder');
+  if (!container) return;
+
+  if (btnUp) {
+    btnUp.style.display = allocCurrentSubDir ? 'inline-flex' : 'none';
+  }
+
+  const driveBaseName = allocCurrentDrive ? (allocCurrentDrive.split(/[/\\]/).filter(Boolean).pop() || allocCurrentDrive) : 'Volume';
+  let html = `
+    <button type="button" class="breadcrumb-chip ${!allocCurrentSubDir ? 'active' : ''}" onclick="navigateAllocBreadcrumb(-1)" title="Root of ${escapeHtml(allocCurrentDrive)}">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+      <span>${escapeHtml(driveBaseName)}</span>
+    </button>
+  `;
+
+  if (allocCurrentSubDir) {
+    const parts = allocCurrentSubDir.split(/[/\\]/).filter(Boolean);
+    parts.forEach((p, idx) => {
+      const isLast = idx === parts.length - 1;
+      html += `
+        <span class="breadcrumb-sep">/</span>
+        <button type="button" class="breadcrumb-chip ${isLast ? 'active' : ''}" onclick="navigateAllocBreadcrumb(${idx})" title="Go to ${escapeHtml(p)}">
+          <span>${escapeHtml(p)}</span>
+        </button>
+      `;
+    });
+  }
+
+  container.innerHTML = html;
+}
+
+window.navigateAllocBreadcrumb = function(partIndex) {
+  if (!allocCurrentDrive) return;
+  if (partIndex === -1) {
+    allocCurrentSubDir = '';
+  } else {
+    const parts = allocCurrentSubDir.split(/[/\\]/).filter(Boolean);
+    allocCurrentSubDir = parts.slice(0, partIndex + 1).join('/');
+  }
+  loadDriveFolders(allocCurrentDrive, allocCurrentSubDir);
+};
+
 async function loadDriveFolders(drive, subDir) {
   const container = document.getElementById('allocFolderListContainer');
-  const pathText = document.getElementById('allocCurrentPathText');
-  const btnUp = document.getElementById('btnAllocUpFolder');
+
+  renderAllocBreadcrumbs();
 
   if (container) {
-    container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 14px; font-size: 0.82rem;">Scanning folders...</div>';
+    container.innerHTML = '<div style="text-align: center; color: var(--admin-text-muted); padding: 24px; font-size: 0.82rem;">Scanning directory contents...</div>';
   }
 
   try {
@@ -3530,44 +3612,59 @@ async function loadDriveFolders(drive, subDir) {
     if (res.ok && data.success) {
       allocCurrentPath = data.currentPath || drive;
       allocParentPath = data.parentPath;
-      if (pathText) pathText.textContent = allocCurrentPath;
-      if (btnUp) btnUp.style.display = allocCurrentSubDir ? 'inline-flex' : 'none';
+      renderAllocBreadcrumbs();
 
       allocFolderItems = data.folders || [];
       renderDriveFolderList(allocFolderItems);
     } else {
       if (container) {
-        container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 14px; font-size: 0.82rem;">${escapeHtml(data.error || 'Failed to list folders')}</div>`;
+        container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 20px; font-size: 0.82rem;">${escapeHtml(data.error || 'Failed to list folders')}</div>`;
       }
     }
   } catch (err) {
     if (container) {
-      container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 14px; font-size: 0.82rem;">Network error scanning folders</div>`;
+      container.innerHTML = `<div style="text-align: center; color: #f87171; padding: 20px; font-size: 0.82rem;">Network error scanning directories</div>`;
     }
   }
 }
 
 function renderDriveFolderList(folders) {
   const container = document.getElementById('allocFolderListContainer');
+  const countBadge = document.getElementById('allocFolderCountBadge');
+  if (countBadge) countBadge.textContent = `${(folders || []).length} Folders`;
   if (!container) return;
 
   if (!folders || folders.length === 0) {
-    container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.82rem;">No subdirectories found in current folder. You can create one below.</div>`;
+    container.innerHTML = `
+      <div style="text-align: center; color: var(--admin-text-muted); padding: 24px 16px; font-size: 0.82rem;">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="margin-bottom: 8px; opacity: 0.6;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <div>No subdirectories found in current folder.</div>
+        <div style="font-size: 0.74rem; color: #64748b; margin-top: 4px;">You can create a new subfolder using the input below.</div>
+      </div>
+    `;
     return;
   }
 
   container.innerHTML = folders.map(f => {
     const isGranted = allocGrantedFolders.has(f.path);
     return `
-      <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 4px; margin-bottom: 3px; background: rgba(255,255,255,0.03); transition: background 0.15s ease;" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
-        <label style="display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; flex: 1; min-width: 0; font-size: 0.82rem;">
-          <input type="checkbox" class="alloc-folder-chk" data-path="${escapeHtml(f.path)}" ${isGranted ? 'checked' : ''} style="cursor: pointer;">
-          <span style="font-size: 1rem;">📁</span>
-          <span style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; ${isGranted ? 'color: #93c5fd;' : ''}">${escapeHtml(f.name)}</span>
-          ${isGranted ? '<span style="font-size: 0.7rem; color: #34d399; margin-left: 4px;">(Granted)</span>' : ''}
+      <div class="alloc-folder-row ${isGranted ? 'is-granted' : ''}">
+        <label class="alloc-folder-left">
+          <input type="checkbox" class="alloc-folder-chk" data-path="${escapeHtml(f.path)}" ${isGranted ? 'checked' : ''}>
+          <svg class="alloc-folder-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span class="alloc-folder-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+          ${isGranted ? `
+            <span class="alloc-tag-granted">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              Granted
+            </span>
+          ` : ''}
         </label>
-        <button type="button" class="btn btn-outline btn-xs" style="padding: 2px 7px; font-size: 0.72rem; margin-left: 6px;" onclick="navigateAllocSubFolder('${escapeHtml(f.name)}')">
-          Open ➡
+        <button type="button" class="btn-folder-browse" onclick="navigateAllocSubFolder('${escapeHtml(f.name)}')" title="Browse inside ${escapeHtml(f.name)}">
+          <span>Browse</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
         </button>
       </div>
     `;
@@ -3587,16 +3684,23 @@ function renderAllocatedBadges() {
   if (!container) return;
 
   if (allocGrantedFolders.size === 0) {
-    container.innerHTML = `<span style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No folders granted yet. Select folders above to give access.</span>`;
+    container.innerHTML = `
+      <div style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--admin-text-muted); font-size: 0.78rem; font-style: italic; padding: 12px 0;">
+        <span>No dedicated storage folders granted yet. Downloads use temporary cache.</span>
+      </div>
+    `;
     return;
   }
 
   container.innerHTML = Array.from(allocGrantedFolders).map(folderPath => {
     return `
-      <span style="display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.18); border: 1px solid rgba(59, 130, 246, 0.4); color: #93c5fd; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; font-family: monospace;">
-        <span>📁 ${escapeHtml(folderPath)}</span>
-        <button type="button" onclick="removeAllocatedFolder('${escapeHtml(folderPath)}')" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 0.9rem; padding: 0 2px; line-height: 1;" title="Revoke folder access">&times;</button>
-      </span>
+      <div class="granted-folder-chip" title="${escapeHtml(folderPath)}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <span class="granted-chip-path">${escapeHtml(folderPath)}</span>
+        <button type="button" class="btn-revoke-chip" onclick="removeAllocatedFolder('${escapeHtml(folderPath)}')" title="Revoke folder access">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
     `;
   }).join('');
 }
@@ -3608,6 +3712,7 @@ window.removeAllocatedFolder = function(folderPath) {
   cbs.forEach(cb => {
     if (cb.dataset.path === folderPath) cb.checked = false;
   });
+  renderDriveFolderList(allocFolderItems);
 };
 
 // Dynamic Role Permissions & Feature Access Matrix Logic
