@@ -8046,8 +8046,7 @@ function attachProcessListeners(job, child) {
           if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.endsWith('.aria2') || f.includes('_playlist_dir')) return false;
           try {
             const p = path.join(TEMP_DIR, f);
-            const st = fs.statSync(p);
-            return st.isFile() && st.size > 0;
+            return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
           } catch (e) {
             return false;
           }
