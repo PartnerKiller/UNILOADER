@@ -28,62 +28,10 @@ const { spawn, exec, execSync } = require('child_process');
 const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
 const aiService = require('./ai_service');
 
-function safeReaddir(dir, options) {
-  try {
-    if (!dir) return [];
-    if (!fs.existsSync(dir)) {
-      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return []; }
-    }
-    return fs.readdirSync(dir, options);
-  } catch (err) {
-    console.warn(`[Server] safeReaddir warning for ${dir}:`, err.message);
-    return [];
-  }
-}
-
-function resolveValidTempDir() {
-  const candidates = [];
-  if (process.env.TEMP_DIR) {
-    candidates.push(process.env.TEMP_DIR);
-  }
-  if (process.platform === 'linux') {
-    candidates.push('/media/ssd/sakura/temp');
-    candidates.push('/media/hdd/sakura/temp');
-    candidates.push('/media/storage/temp');
-  }
-  candidates.push(path.join(__dirname, 'temp_media'));
-
-  for (const candidate of candidates) {
-    try {
-      const parentDir = path.dirname(candidate);
-      if (fs.existsSync(parentDir)) {
-        if (!fs.existsSync(candidate)) {
-          fs.mkdirSync(candidate, { recursive: true });
-        }
-        const testFile = path.join(candidate, `.write_test_${process.pid}_${Date.now()}`);
-        fs.writeFileSync(testFile, 'ok');
-        fs.unlinkSync(testFile);
-        if (process.platform !== 'win32') {
-          try { fs.chmodSync(candidate, 0o777); } catch (e) {}
-        }
-        return candidate;
-      }
-    } catch (e) {
-      // Continue to next candidate
-    }
-  }
-
-  const fallback = path.join(__dirname, 'temp_media');
-  try {
-    if (!fs.existsSync(fallback)) fs.mkdirSync(fallback, { recursive: true });
-    if (process.platform !== 'win32') fs.chmodSync(fallback, 0o777);
-  } catch (e) {}
-  return fallback;
-}
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-let TEMP_DIR = resolveValidTempDir();
+let defaultDownloadDir = path.join(__dirname, 'downloads');
+let TEMP_DIR = process.env.TEMP_DIR || defaultDownloadDir;
 
 // High-Speed Public BitTorrent Trackers for maximum swarm connectivity & peer discovery
 const HIGH_SPEED_BT_TRACKERS = [
@@ -400,7 +348,82 @@ const globalSseClients = new Map(); // res -> currentUser
 const activeStreamWatchers = new Map(); // jobId -> Timeout
 
 const PRIMARY_HISTORY_FILE = path.join(__dirname, '.jobs_history.json');
-const TEMP_HISTORY_FILE = path.join(TEMP_DIR, '.jobs_history.json');
+const JOBS_STATE_FILE = path.join(__dirname, '.jobs_state.json');
+let isShuttingDown = false;
+
+function serializeJobForState(j) {
+  if (!j) return null;
+  return {
+    id: j.id,
+    url: j.url || '',
+    opts: j.opts || {},
+    title: j.title || '',
+    code: j.code || 'MEDIA',
+    poster: j.poster || '',
+    mode: j.mode || 'video',
+    ownerId: j.ownerId || 'owner',
+    username: j.username || 'sakura',
+    role: j.role || 'owner',
+    isOwner: !!j.isOwner,
+    isPremium: !!j.isPremium,
+    isLiveCapture: !!j.isLiveCapture,
+    isLiveStream: !!j.isLiveStream,
+    isStreamWatcher: !!j.isStreamWatcher,
+    targetFolder: j.targetFolder || j.downloadFolder || '',
+    downloadFolder: j.downloadFolder || '',
+    isPermanent: !!j.isPermanent,
+    filePath: j.filePath || '',
+    filename: j.filename || '',
+    filesize: j.filesize || '',
+    status: j.status || 'queued',
+    progress: j.progress ? {
+      percent: j.progress.percent || 0,
+      speed: j.progress.speed || '0 MB/s',
+      eta: j.progress.eta || 'Ready',
+      downloadedSize: j.progress.downloadedSize || '',
+      totalSize: j.progress.totalSize || '',
+      currentFrag: j.progress.currentFrag || 0,
+      totalFrag: j.progress.totalFrag || 0
+    } : { percent: 0, eta: 'Starting...' },
+    logs: Array.isArray(j.logs) ? j.logs.slice(-100) : [],
+    error: j.error || null,
+    startTime: j.startTime || Date.now(),
+    completedTime: j.completedTime || null
+  };
+}
+
+function saveAllJobsStateSync() {
+  try {
+    const list = [];
+    for (const j of jobs.values()) {
+      const s = serializeJobForState(j);
+      if (s) list.push(s);
+    }
+    fs.writeFileSync(JOBS_STATE_FILE, JSON.stringify(list, null, 2), 'utf8');
+    saveJobsHistory();
+  } catch (err) {
+    console.error('[State] Failed to save jobs state synchronously:', err.message);
+  }
+}
+
+let saveStateDebounceTimer = null;
+function saveAllJobsState() {
+  if (saveStateDebounceTimer) return;
+  saveStateDebounceTimer = setTimeout(() => {
+    saveStateDebounceTimer = null;
+    try {
+      const list = [];
+      for (const j of jobs.values()) {
+        const s = serializeJobForState(j);
+        if (s) list.push(s);
+      }
+      fs.writeFile(JOBS_STATE_FILE, JSON.stringify(list, null, 2), 'utf8', () => {});
+      saveJobsHistory();
+    } catch (err) {
+      console.warn('[State] Failed to save jobs state asynchronously:', err.message);
+    }
+  }, 800);
+}
 
 function saveJobsHistory() {
   try {
@@ -422,6 +445,7 @@ function saveJobsHistory() {
             mode: j.mode || 'video',
             ownerId: j.ownerId || 'owner',
             downloadFolder: j.downloadFolder || '',
+            targetFolder: j.targetFolder || j.downloadFolder || '',
             isPermanent: !!j.isPermanent,
             filename: j.filename || path.basename(j.filePath),
             filesize: j.filesize || '',
@@ -434,105 +458,141 @@ function saveJobsHistory() {
         }
       }
     }
-    const jsonStr = JSON.stringify(records, null, 2);
-    try { fs.writeFileSync(PRIMARY_HISTORY_FILE, jsonStr, 'utf8'); } catch (e) {}
-    try { fs.writeFileSync(TEMP_HISTORY_FILE, jsonStr, 'utf8'); } catch (e) {}
+    fs.writeFileSync(PRIMARY_HISTORY_FILE, JSON.stringify(records, null, 2), 'utf8');
   } catch (e) {
     console.warn('[Server] Failed to save jobs history:', e.message);
   }
 }
 
 function loadJobsHistory() {
-  const historyFiles = [PRIMARY_HISTORY_FILE, TEMP_HISTORY_FILE];
-  for (const hf of historyFiles) {
-    try {
-      if (fs.existsSync(hf)) {
-        const content = fs.readFileSync(hf, 'utf8');
-        const records = JSON.parse(content);
-        if (Array.isArray(records)) {
-          for (const r of records) {
-            if (r && r.id && r.filePath) {
-              let targetPath = r.filePath;
-              if (!fs.existsSync(targetPath)) {
-                const zipVariant = targetPath.endsWith('.zip') ? targetPath : `${targetPath}.zip`;
-                if (fs.existsSync(zipVariant)) {
-                  targetPath = zipVariant;
-                }
+  try {
+    if (fs.existsSync(PRIMARY_HISTORY_FILE)) {
+      const content = fs.readFileSync(PRIMARY_HISTORY_FILE, 'utf8');
+      const records = JSON.parse(content);
+      if (Array.isArray(records)) {
+        for (const r of records) {
+          if (r && r.id && r.filePath) {
+            let targetPath = r.filePath;
+            if (!fs.existsSync(targetPath)) {
+              const zipVariant = targetPath.endsWith('.zip') ? targetPath : `${targetPath}.zip`;
+              if (fs.existsSync(zipVariant)) {
+                targetPath = zipVariant;
               }
-              if (fs.existsSync(targetPath) && !jobs.has(r.id)) {
-                jobs.set(r.id, {
-                  ...r,
-                  filePath: targetPath,
-                  ownerId: r.ownerId || 'owner',
-                  downloadFolder: r.downloadFolder || '',
-                  isPermanent: !!r.isPermanent,
-                  logs: ['Processing completed! File ready in folder.'],
-                  downloadUrl: `/api/download-file/${r.id}`,
-                  streamUrl: `/api/stream/${r.id}`,
-                  process: null
-                });
-              }
+            }
+            if (fs.existsSync(targetPath) && !jobs.has(r.id)) {
+              jobs.set(r.id, {
+                ...r,
+                filePath: targetPath,
+                ownerId: r.ownerId || 'owner',
+                downloadFolder: r.downloadFolder || path.dirname(targetPath),
+                targetFolder: r.targetFolder || r.downloadFolder || path.dirname(targetPath),
+                isPermanent: !!r.isPermanent,
+                logs: ['Processing completed! File ready in folder.'],
+                downloadUrl: `/api/download-file/${r.id}`,
+                streamUrl: `/api/stream/${r.id}`,
+                process: null
+              });
             }
           }
         }
       }
-    } catch (e) {
-      console.warn(`[Server] Failed to load jobs history from ${hf}:`, e.message);
+    }
+  } catch (e) {
+    console.warn(`[Server] Failed to load jobs history:`, e.message);
+  }
+}
+
+function restoreAllJobsState() {
+  let records = [];
+  if (fs.existsSync(JOBS_STATE_FILE)) {
+    try {
+      const raw = fs.readFileSync(JOBS_STATE_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) records = parsed;
+    } catch (err) {
+      console.warn('[State] Could not parse .jobs_state.json:', err.message);
     }
   }
 
-  // Scan TEMP_DIR for any media files from previous runs
-  try {
-    const files = safeReaddir(TEMP_DIR);
-    const mediaExtensions = new Set(['.mp4', '.mkv', '.webm', '.mp3', '.flac', '.m4a', '.wav', '.opus']);
-    const knownPaths = new Set(Array.from(jobs.values()).map(j => path.normalize(j.filePath || '')));
+  // Also read legacy history if state is empty
+  if (records.length === 0 && fs.existsSync(PRIMARY_HISTORY_FILE)) {
+    try {
+      const raw = fs.readFileSync(PRIMARY_HISTORY_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) records = parsed;
+    } catch (e) {}
+  }
 
-    for (const f of files) {
-      if (f.startsWith('.') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl')) continue;
-      const fullPath = path.join(TEMP_DIR, f);
-      const ext = path.extname(f).toLowerCase();
-      if (!mediaExtensions.has(ext)) continue;
+  const streamWatchersToResume = [];
+  const downloadsToResume = [];
 
-      if (!knownPaths.has(path.normalize(fullPath))) {
-        try {
-          const stat = fs.statSync(fullPath);
-          if (stat.isFile() && stat.size > 0) {
-            const match = f.match(/^(job_\d+_[a-z0-9]+)_(.*)$/i);
-            const id = match ? match[1] : `job_${Math.floor(stat.mtimeMs)}_${Math.random().toString(36).substring(2, 7)}`;
-            const cleanName = match ? match[2] : f;
-            const title = cleanName.replace(/\.[^.]+$/, '');
-            const isAudio = ['.mp3', '.flac', '.m4a', '.wav', '.opus'].includes(ext);
-            const sizeStr = stat.size > (1024 ** 3)
-              ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
-              : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+  for (const r of records) {
+    if (!r || !r.id) continue;
+    const targetFolder = r.targetFolder || r.downloadFolder || (typeof getJobDesignatedFolder === 'function' ? getJobDesignatedFolder(r) : '');
+    const job = {
+      ...r,
+      targetFolder,
+      downloadFolder: targetFolder,
+      downloadUrl: `/api/download-file/${r.id}`,
+      streamUrl: `/api/stream/${r.id}`,
+      process: null
+    };
 
-            jobs.set(id, {
-              id,
-              url: '',
-              title,
-              code: title.substring(0, 15).toUpperCase(),
-              poster: '',
-              mode: isAudio ? 'audio' : 'video',
-              ownerId: 'owner',
-              filename: cleanName,
-              filesize: sizeStr,
-              filePath: fullPath,
-              status: 'completed',
-              progress: { percent: 100, eta: 'Ready' },
-              logs: ['Processing completed! File ready in folder.'],
-              createdAt: stat.mtimeMs,
-              completedTime: stat.mtimeMs,
-              downloadUrl: `/api/download-file/${id}`,
-              streamUrl: `/api/stream/${id}`,
-              process: null
-            });
-            knownPaths.add(path.normalize(fullPath));
-          }
-        } catch (e) {}
+    if (r.status === 'completed') {
+      let resolvedFile = job.filePath;
+      let exists = false;
+      if (resolvedFile && fs.existsSync(resolvedFile)) {
+        exists = true;
+      } else if (job.targetFolder && job.filename) {
+        const cand = path.join(job.targetFolder, job.filename);
+        if (fs.existsSync(cand)) {
+          job.filePath = cand;
+          exists = true;
+        }
       }
+      if (exists) {
+        jobs.set(job.id, job);
+      }
+    } else if (r.status === 'waiting_for_stream') {
+      job.logs = Array.isArray(job.logs) ? job.logs : [];
+      job.logs.push('[System Restart] Server rebooted. Resuming 24/7 Standby Watcher automatically...');
+      jobs.set(job.id, job);
+      streamWatchersToResume.push(job);
+    } else if (r.status === 'downloading' || r.status === 'queued') {
+      job.status = 'queued';
+      job.logs = Array.isArray(job.logs) ? job.logs : [];
+      job.logs.push('[System Restart] Server rebooted. Resuming download from saved progress...');
+      jobs.set(job.id, job);
+      downloadsToResume.push(job);
+    } else if (r.status === 'paused' || r.status === 'failed' || r.status === 'cancelled') {
+      jobs.set(job.id, job);
     }
-    saveJobsHistory();
-  } catch (e) {}
+  }
+
+  // Also merge any history files if not already in jobs
+  loadJobsHistory();
+
+  console.log(`[State] Restored ${jobs.size} jobs from disk (${downloadsToResume.length} downloads to resume, ${streamWatchersToResume.length} stream watchers to re-engage).`);
+
+  // Re-engage stream watchers
+  for (const wJob of streamWatchersToResume) {
+    try {
+      if (typeof watchAndStartStream === 'function') {
+        watchAndStartStream(wJob);
+      }
+    } catch (err) {
+      console.warn(`[State] Failed to re-engage watcher for job ${wJob.id}:`, err.message);
+    }
+  }
+
+  // Auto-resume interrupted downloads via queue
+  if (downloadsToResume.length > 0) {
+    setTimeout(() => {
+      if (typeof processDownloadQueue === 'function') {
+        processDownloadQueue();
+      }
+    }, 1500);
+  }
 }
 
 function findMediaFileByJobId(jobId) {
@@ -556,6 +616,56 @@ function findMediaFileByJobId(jobId) {
     if (fs.existsSync(zipCandidate)) {
       return { filePath: zipCandidate, filename: path.basename(zipCandidate), job };
     }
+  }
+
+  // 1.5. Check job targetFolder / designated folder
+  if (job && (job.targetFolder || job.downloadFolder)) {
+    const tDir = job.targetFolder || job.downloadFolder;
+    try {
+      if (fs.existsSync(tDir)) {
+        // Dedicated torrent / nested job directory inside targetFolder
+        const nestedJobDir = path.join(tDir, jobId);
+        if (fs.existsSync(nestedJobDir) && fs.statSync(nestedJobDir).isDirectory()) {
+          function scanNestedDir(dir) {
+            let largest = null;
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.name.startsWith('.') || entry.name.endsWith('.aria2') || entry.name.endsWith('.txt') || entry.name.endsWith('.nfo')) continue;
+              const full = path.join(dir, entry.name);
+              try {
+                if (entry.isDirectory()) {
+                  const nested = scanNestedDir(full);
+                  if (nested && (!largest || nested.size > largest.size)) largest = nested;
+                } else if (entry.isFile()) {
+                  const ext = path.extname(entry.name).toLowerCase();
+                  const isMedia = ['.mp4', '.mkv', '.avi', '.ts', '.wmv', '.flv', '.mov', '.webm', '.m4v', '.mp3', '.flac', '.m4a', '.wav', '.zip'].includes(ext);
+                  const st = fs.statSync(full);
+                  if (isMedia || !largest) {
+                    if (!largest || st.size > largest.size) {
+                      largest = { path: full, name: entry.name, size: st.size };
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
+            return largest;
+          }
+          const found = scanNestedDir(nestedJobDir);
+          if (found) {
+            return { filePath: found.path, filename: (job && job.filename) || found.name, job };
+          }
+        }
+
+        const files = fs.readdirSync(tDir);
+        const match = files.find(f => f.startsWith(`${jobId}_`) || (job.filename && f === job.filename));
+        if (match) {
+          const fullPath = path.join(tDir, match);
+          if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+            return { filePath: fullPath, filename: match.replace(`${jobId}_`, ''), job };
+          }
+        }
+      }
+    } catch (e) {}
   }
 
   // 2. Check dedicated job folder in TEMP_DIR (e.g. for torrents or isolated downloads)
@@ -593,24 +703,9 @@ function findMediaFileByJobId(jobId) {
     }
   } catch (e) {}
 
-  // 3. Check job designatedFolder or downloadFolder if set
-  if (job && (job.designatedFolder || job.downloadFolder)) {
-    const targetFolder = job.designatedFolder || job.downloadFolder;
-    try {
-      if (fs.existsSync(targetFolder)) {
-        const dfFiles = safeReaddir(targetFolder).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl') && !f.endsWith('.aria2'));
-        let matched = dfFiles.find(f => f.startsWith(`${jobId}_`) || (job.filename && f === job.filename));
-        if (matched) {
-          const fullPath = path.join(targetFolder, matched);
-          return { filePath: fullPath, filename: matched.replace(`${jobId}_`, ''), job };
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 4. Scan TEMP_DIR for prefixed files
+  // 3. Scan TEMP_DIR for prefixed files
   try {
-    const files = safeReaddir(TEMP_DIR).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl') && !f.endsWith('.aria2'));
+    const files = fs.readdirSync(TEMP_DIR).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl'));
 
     let matched = files.find(f => f.startsWith(`${jobId}_`));
     if (matched) {
@@ -991,11 +1086,9 @@ function processDownloadQueue() {
 
   for (const job of jobs.values()) {
     if (job.status === 'queued') {
-      const isRule34 = (job.url && job.url.includes('rule34video.com')) ||
-                       (job.opts && (job.opts.extractor === 'Rule34Video' || (job.opts.downloadTargetUrl && job.opts.downloadTargetUrl.includes('rule34video.com'))));
       if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
         startTorrentJob(job);
-      } else if (job.mode === 'direct_http' || isRule34 || (job.url && job.url.includes('workers.dev'))) {
+      } else if (job.url && (job.url.includes('workers.dev') || job.mode === 'direct_http')) {
         startDirectHttpJob(job);
       } else if (job.mode === 'ddl_direct') {
         startDdlMovieResolver(job, job.opts || {});
@@ -1856,12 +1949,9 @@ function isPermanentUserFile(filePath) {
     }
   }
 
-  // 2. Shield /media/storage, /media/*, /mnt/* dedicated mounts (excluding TEMP_DIR)
-  const tempResolved = path.resolve(TEMP_DIR);
-  if (!isPathInside(resolved, tempResolved)) {
-    if (resolved.startsWith('/media/storage') || resolved.startsWith('/mnt/storage') || resolved.startsWith('/media/') || resolved.startsWith('/mnt/')) {
-      return true;
-    }
+  // 2. Shield /media/storage, /media/*, /mnt/* dedicated mounts
+  if (resolved.startsWith('/media/') || resolved.startsWith('/mnt/') || resolved.startsWith('/media') || resolved.startsWith('/mnt')) {
+    return true;
   }
 
   // 3. Check if file is located inside any user's assigned permanent downloadFolder or allowedFolders
@@ -1894,11 +1984,8 @@ function isPermanentUserDirectory(dirPath) {
   // Protect system roots
   if (resolved === '/' || resolved === path.parse(resolved).root) return true;
 
-  // Protect /media and /mnt storage mounts (excluding TEMP_DIR)
-  const tempResolved = path.resolve(TEMP_DIR);
-  if (!isPathInside(resolved, tempResolved)) {
-    if (resolved.startsWith('/media') || resolved.startsWith('/mnt')) return true;
-  }
+  // Protect /media and /mnt storage mounts
+  if (resolved.startsWith('/media') || resolved.startsWith('/mnt')) return true;
 
   // Protect any user's assigned permanent downloadFolder, allowedFolders, and parent/sub directories
   for (const u of users.values()) {
@@ -2000,27 +2087,65 @@ function getJobCategory(jobOrOpts) {
   return 'links';
 }
 
-function finalizeJobPermanentStorage(job) {
-  if (!job || !job.filePath || !fs.existsSync(job.filePath)) return;
+function getJobDesignatedFolder(jobOrOpts) {
+  let userFolder = null;
+  const ownerId = (jobOrOpts && (jobOrOpts.ownerId || (jobOrOpts.opts && jobOrOpts.opts.ownerId))) || 'owner';
 
-  const userFolder = (job.downloadFolder && typeof job.downloadFolder === 'string' && job.downloadFolder.trim() && job.downloadFolder.trim() !== '*')
-    ? path.resolve(job.downloadFolder.trim())
-    : getUserDownloadFolder(job.ownerId);
+  if (jobOrOpts && jobOrOpts.targetFolder && typeof jobOrOpts.targetFolder === 'string' && jobOrOpts.targetFolder.trim() && jobOrOpts.targetFolder.trim() !== '*') {
+    return path.resolve(jobOrOpts.targetFolder.trim());
+  }
+
+  if (jobOrOpts && jobOrOpts.downloadFolder && typeof jobOrOpts.downloadFolder === 'string' && jobOrOpts.downloadFolder.trim() && jobOrOpts.downloadFolder.trim() !== '*') {
+    userFolder = path.resolve(jobOrOpts.downloadFolder.trim());
+  } else if (jobOrOpts && jobOrOpts.opts && jobOrOpts.opts.downloadFolder && typeof jobOrOpts.opts.downloadFolder === 'string' && jobOrOpts.opts.downloadFolder.trim() && jobOrOpts.opts.downloadFolder.trim() !== '*') {
+    userFolder = path.resolve(jobOrOpts.opts.downloadFolder.trim());
+  } else {
+    userFolder = getUserDownloadFolder(ownerId);
+  }
 
   if (!userFolder) {
-    return;
+    if (process.platform === 'linux' && fs.existsSync('/media/hdd/sakura')) {
+      userFolder = '/media/hdd/sakura';
+    } else {
+      userFolder = path.join(__dirname, 'downloads');
+    }
   }
 
   try {
     ensureCategorySubfolders(userFolder);
+  } catch (e) {}
 
+  const category = getJobCategory(jobOrOpts);
+  const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
+  const baseName = path.basename(userFolder);
+  const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
+
+  const targetFolder = isAlreadyTargetCategory ? userFolder : path.join(userFolder, subfolderName);
+
+  try {
+    if (!fs.existsSync(targetFolder)) {
+      fs.mkdirSync(targetFolder, { recursive: true });
+      if (process.platform !== 'win32') {
+        try { fs.chmodSync(targetFolder, 0o775); } catch (e) {}
+      }
+    }
+  } catch (e) {
+    console.warn(`[Storage] Failed to ensure targetFolder "${targetFolder}":`, e.message);
+  }
+
+  return targetFolder;
+}
+
+function finalizeJobPermanentStorage(job) {
+  if (!job || !job.filePath || !fs.existsSync(job.filePath)) return;
+
+  const targetFolder = job.targetFolder || getJobDesignatedFolder(job);
+  if (!targetFolder) return;
+
+  try {
+    const currentPath = path.resolve(job.filePath);
     const category = getJobCategory(job);
     const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
-    const baseName = path.basename(userFolder);
-    const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
-    const targetFolder = isAlreadyTargetCategory
-      ? userFolder
-      : path.join(userFolder, subfolderName);
 
     if (!fs.existsSync(targetFolder)) {
       fs.mkdirSync(targetFolder, { recursive: true });
@@ -2029,47 +2154,27 @@ function finalizeJobPermanentStorage(job) {
       }
     }
 
-    const currentName = path.basename(job.filePath);
-    let targetName = job.filename || currentName;
-    if (targetName.startsWith(`${job.id}_`)) {
-      targetName = targetName.slice(job.id.length + 1);
-    }
-    targetName = targetName.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
-    const ext = path.extname(targetName);
-    const base = path.basename(targetName, ext);
-    const safeBase = sanitizeAndTruncateFilename(base, 80);
-    targetName = `${safeBase}${ext}`;
-    if (!safeBase) targetName = `media_${Date.now()}${ext}`;
-
-    let destPath = path.join(targetFolder, targetName);
-    if (fs.existsSync(destPath) && path.resolve(destPath) !== path.resolve(job.filePath)) {
-      const parsed = path.parse(targetName);
-      let count = 1;
-      while (fs.existsSync(path.join(targetFolder, `${parsed.name} (${count})${parsed.ext}`))) {
-        count++;
-      }
-      targetName = `${parsed.name} (${count})${parsed.ext}`;
-      destPath = path.join(targetFolder, targetName);
-    }
-
-    if (path.resolve(job.filePath) !== path.resolve(destPath)) {
-      fs.copyFileSync(job.filePath, destPath);
-      try { fs.unlinkSync(job.filePath); } catch (e) {}
-      job.filePath = destPath;
-      job.filename = targetName;
+    let finalPath = currentPath;
+    if (path.dirname(currentPath) !== path.resolve(targetFolder)) {
+      const destPath = path.join(targetFolder, path.basename(currentPath));
+      fs.copyFileSync(currentPath, destPath);
+      try { fs.unlinkSync(currentPath); } catch (e) {}
+      finalPath = destPath;
     }
 
     if (process.platform !== 'win32') {
-      try { fs.chmodSync(destPath, 0o664); } catch (e) {}
+      try { fs.chmodSync(finalPath, 0o664); } catch (e) {}
     }
 
+    job.filePath = finalPath;
+    job.filename = path.basename(finalPath);
     job.downloadFolder = targetFolder;
+    job.targetFolder = targetFolder;
     job.isPermanent = true;
-    job.logs.push(`📁 Permanent Storage [${subfolderName}]: File saved to assigned user folder: ${destPath}`);
-    console.log(`[PermanentStorage] Job ${job.id} (${job.ownerId}) [${subfolderName}] saved to: ${destPath}`);
+    job.logs.push(`📁 Permanent Storage [${subfolderName}]: File saved to assigned user folder: ${finalPath}`);
+    console.log(`[PermanentStorage] Job ${job.id} (${job.ownerId}) [${subfolderName}] verified at: ${finalPath}`);
   } catch (err) {
-    console.error(`[PermanentStorage] Error moving job ${job.id} to ${userFolder}:`, err.message);
-    job.logs.push(`⚠️ Could not save to permanent user folder (${err.message}). Stored in temp media.`);
+    console.error(`[PermanentStorage] Error finalizing job ${job.id}:`, err.message);
   }
 }
 
@@ -3665,7 +3770,7 @@ app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
 
     try {
       if (fs.existsSync(TEMP_DIR)) {
-        const files = safeReaddir(TEMP_DIR);
+        const files = fs.readdirSync(TEMP_DIR);
         tempFileCount = files.length;
         for (const f of files) {
           try {
@@ -4513,7 +4618,7 @@ app.post('/api/admin/storage/delete-bulk', requireAdmin, (req, res) => {
     // Clean up empty directories in TEMP_DIR
     try {
       if (fs.existsSync(TEMP_DIR)) {
-        const subdirs = safeReaddir(TEMP_DIR, { withFileTypes: true }).filter(e => e.isDirectory());
+        const subdirs = fs.readdirSync(TEMP_DIR, { withFileTypes: true }).filter(e => e.isDirectory());
         for (const sub of subdirs) {
           const subPath = path.join(TEMP_DIR, sub.name);
           try {
@@ -6697,7 +6802,10 @@ function startTorrentJob(job) {
   }
 
   const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
-  const outDir = path.join(TEMP_DIR, job.id);
+  const targetDir = job.targetFolder || getJobDesignatedFolder(job);
+  job.targetFolder = targetDir;
+  job.downloadFolder = targetDir;
+  const outDir = path.join(targetDir, job.id);
   if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
   }
@@ -6793,6 +6901,7 @@ function startTorrentJob(job) {
     });
 
     child.on('close', code => {
+      if (isShuttingDown) return;
       job.process = null;
       job.pid = null;
       if (code === 0) {
@@ -6894,7 +7003,7 @@ function startTorrentJob(job) {
   }
 }
 
-async function startDirectHttpJob(job) {
+function startDirectHttpJob(job) {
   job.status = 'downloading';
   job.startTime = Date.now();
   job.progress.eta = 'Connecting to high-speed cloud stream...';
@@ -6902,72 +7011,16 @@ async function startDirectHttpJob(job) {
   job.logs.push('Starting Direct Cloud stream acceleration via aria2c (32 connections)...');
   broadcastJobUpdate(job.id);
 
-  // If downloadTargetUrl is not present and url is rule34video, extract it first
-  if ((!job.opts || !job.opts.downloadTargetUrl) && job.url && job.url.includes('rule34video.com')) {
-    try {
-      job.logs.push('Resolving Rule34 direct high-speed video streams...');
-      const meta = await extractMetadata(job.url);
-      if (meta) {
-        job.opts = job.opts || {};
-        job.opts.downloadTargetUrl = meta.downloadTargetUrl;
-        job.opts.directUrl = meta.directUrl;
-        job.opts.referer = meta.referer || 'https://rule34video.com/';
-        if (meta.title && !job.title) job.title = meta.title;
-        if (meta.poster && !job.poster) job.poster = meta.poster;
-        if (meta.streams) job.opts.streams = meta.streams;
-      }
-    } catch (e) {
-      job.logs.push(`Warning resolving Rule34 streams: ${e.message}`);
-    }
-  }
-
   const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
-  const activeDir = (job.designatedFolder && fs.existsSync(job.designatedFolder)) ? job.designatedFolder : TEMP_DIR;
-  const outDir = activeDir;
-
-  let streamUrl = (job.opts && (job.opts.downloadTargetUrl || job.opts.directUrl)) || job.url;
-  if (job.opts && job.opts.streams && job.opts.videoQuality) {
-    const q = String(job.opts.videoQuality).toLowerCase();
-    const s = job.opts.streams;
-    if (q.includes('2160') || q.includes('4k')) {
-      streamUrl = s.video_alt_url4 || streamUrl;
-    } else if (q.includes('1080')) {
-      streamUrl = s.video_alt_url3 || streamUrl;
-    } else if (q.includes('720')) {
-      streamUrl = s.video_alt_url2 || streamUrl;
-    } else if (q.includes('480')) {
-      streamUrl = s.video_alt_url || streamUrl;
-    } else if (q.includes('360')) {
-      streamUrl = s.video_url || streamUrl;
-    }
+  const targetDir = job.targetFolder || getJobDesignatedFolder(job);
+  job.targetFolder = targetDir;
+  job.downloadFolder = targetDir;
+  const outDir = targetDir;
+  let rawBase = (job.filename || `${job.title}.mkv`).replace(/[\\/:*?"<>|]/g, '_');
+  if (!rawBase.endsWith('.mkv') && !rawBase.endsWith('.mp4') && !rawBase.endsWith('.webm')) {
+    rawBase += '.mkv';
   }
-
-  let ext = '.mp4';
-  const cleanStreamUrl = (streamUrl || '').split('?')[0].toLowerCase();
-  if (cleanStreamUrl.endsWith('.mp4') || (streamUrl && streamUrl.includes('.mp4'))) {
-    ext = '.mp4';
-  } else if (cleanStreamUrl.endsWith('.mkv') || (streamUrl && streamUrl.includes('.mkv'))) {
-    ext = '.mkv';
-  } else if (cleanStreamUrl.endsWith('.webm') || (streamUrl && streamUrl.includes('.webm'))) {
-    ext = '.webm';
-  } else if (job.opts && job.opts.audioFormat) {
-    ext = `.${job.opts.audioFormat.toLowerCase().replace(/^\./, '')}`;
-  }
-
-  let titleBase = job.filename || job.title || 'media';
-  titleBase = titleBase.replace(/\.[^.]+$/, '');
-  const safeBase = sanitizeAndTruncateFilename(titleBase, 100);
-  const finalFileName = `${safeBase}${ext}`;
-  const targetFilename = `${job.id}_${finalFileName}`;
-
-  if (streamUrl && streamUrl.includes('rule34video.com/get_file/')) {
-    try {
-      const loc = execSync(`curl -sI -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" -e "https://rule34video.com/" "${streamUrl}" | grep -i "^location:" | awk '{print $2}'`, { timeout: 8000 }).toString().trim();
-      if (loc && (loc.startsWith('http://') || loc.startsWith('https://'))) {
-        streamUrl = loc;
-      }
-    } catch (e) {}
-  }
+  const targetFilename = `${job.id}_${rawBase}`;
 
   const args = [
     '--dir=' + outDir,
@@ -6987,20 +7040,16 @@ async function startDirectHttpJob(job) {
     '--auto-file-renaming=false',
     '--file-allocation=none',
     '--check-certificate=false',
-    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     `--max-download-limit=${resolveUserBandwidthCap(job) || '0'}`,
     `--max-overall-download-limit=${resolveUserBandwidthCap(job) || '0'}`
   ];
 
-  if (job.opts && job.opts.referer) {
-    args.push(`--header=Referer: ${job.opts.referer}`);
-  } else if ((streamUrl && (streamUrl.includes('rule34video.com') || streamUrl.includes('boomio-cdn.com'))) || (job.url && job.url.includes('rule34video.com'))) {
-    args.push('--header=Referer: https://rule34video.com/');
-  } else if (streamUrl && (streamUrl.includes('workers.dev') || streamUrl.includes('omd-'))) {
+  if (job.url && (job.url.includes('workers.dev') || job.url.includes('omd-'))) {
     args.push('--header=Referer: https://drive.google.com/');
   }
 
-  args.push(streamUrl);
+  args.push(job.url);
 
   try {
     const child = spawn(ariaBin, args, { windowsHide: true });
@@ -7346,7 +7395,6 @@ function startJobProcess(job) {
   concurrentFragments = parseInt(concurrentFragments, 10) || 32;
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
   const safeFileTitle = sanitizeAndTruncateFilename(job.title || 'media', 80);
-  const activeDir = (job.designatedFolder && fs.existsSync(job.designatedFolder)) ? job.designatedFolder : TEMP_DIR;
 
   const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com')));
   const isOfflineStream = opts.isStreamWatcher || (isCamNetwork && (opts.isOffline || opts.isPrivate || (job.title && (job.title.includes('(Offline)') || job.title.includes('(In Private Show)'))) || (!rawTarget && !hlsUrl)));
@@ -7356,10 +7404,15 @@ function startJobProcess(job) {
     return;
   }
 
+  const targetDir = job.targetFolder || getJobDesignatedFolder(job);
+  job.targetFolder = targetDir;
+  job.downloadFolder = targetDir;
+
   job.status = 'downloading';
   job.startTime = Date.now();
   job.progress.eta = 'Starting...';
   broadcastJobUpdate(job.id);
+  saveAllJobsState();
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
   const isSpotify = url && url.includes('spotify.com');
@@ -7381,7 +7434,7 @@ function startJobProcess(job) {
     const isFlac = (mode === 'audio' && audioFormat === 'flac');
     const ext = isFlac ? 'flac' : (audioFormat || 'm4a');
     const safeTitle = safeFileTitle;
-    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}.${ext}`);
+    const finalOutPath = path.join(targetDir, `${job.id}_${safeTitle}.${ext}`);
 
     job.logs.push(`Starting JioSaavn High-Fidelity Music Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -7401,7 +7454,7 @@ function startJobProcess(job) {
     const pythonBin = getPythonBin();
     const ttScript = path.join(__dirname, 'tiktok_engine.py');
     const safeTitle = safeFileTitle;
-    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}`);
+    const finalOutPath = path.join(targetDir, `${job.id}_${safeTitle}`);
 
     job.logs.push(`Starting TikTok Watermark-Free HD Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -7423,7 +7476,7 @@ function startJobProcess(job) {
     const pythonBin = getPythonBin();
     const igScript = path.join(__dirname, 'instagram_engine.py');
     const safeTitle = safeFileTitle;
-    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}`);
+    const finalOutPath = path.join(targetDir, `${job.id}_${safeTitle}`);
 
     job.logs.push(`Starting Instagram FastCDN Video Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -7448,8 +7501,8 @@ function startJobProcess(job) {
     const ext = isFlac ? 'flac' : (audioFormat || 'mp3');
     const safeTitle = safeFileTitle;
     const finalOutPath = isSpotifyPlaylistOrAlbum
-      ? path.join(activeDir, `${job.id}_${safeTitle}.zip`)
-      : path.join(activeDir, `${job.id}_${safeTitle}.${ext}`);
+      ? path.join(targetDir, `${job.id}_${safeTitle}.zip`)
+      : path.join(targetDir, `${job.id}_${safeTitle}.${ext}`);
 
     job.logs.push(`Starting SpotiFLAC-Next ${isFlac ? 'True Lossless FLAC' : (audioFormat || 'mp3').toUpperCase()} Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -7470,7 +7523,7 @@ function startJobProcess(job) {
     const pythonBin = getPythonBin();
     const audiophileScript = path.join(__dirname, 'audiophile_flac_engine.py');
     const safeTitle = safeFileTitle;
-    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}.flac`);
+    const finalOutPath = path.join(targetDir, `${job.id}_${safeTitle}.flac`);
 
     let artist = (opts && opts.artist) || '';
     let trackTitle = (opts && opts.trackTitle) || '';
@@ -7518,7 +7571,7 @@ function startJobProcess(job) {
       '--no-auth',
       '--no-net-check',
       '-b', '320',
-      '-d', TEMP_DIR,
+      '-d', targetDir,
       url
     ];
 
@@ -7531,7 +7584,7 @@ function startJobProcess(job) {
   } else if (isJavGuru) {
     const pythonBin = getPythonBin();
     const hlsScript = path.join(__dirname, 'hls_downloader.py');
-    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeFileTitle}.mp4`);
+    const finalOutPath = path.join(targetDir, `${job.id}_${safeFileTitle}.mp4`);
 
     job.logs.push(`Starting JavGuru High-Speed Stream Engine...`);
     job.logs.push(`Target: ${url || rawTarget}`);
@@ -7555,7 +7608,7 @@ function startJobProcess(job) {
       concurrentFragments = Math.min(concurrentFragments, 6);
     }
 
-    const outputTemplate = path.join(activeDir, `${job.id}_${safeFileTitle}.%(ext)s`);
+    const outputTemplate = path.join(targetDir, `${job.id}_${safeFileTitle}.%(ext)s`);
     const args = [
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
@@ -7942,6 +7995,11 @@ function attachProcessListeners(job, child) {
   });
 
   child.on('close', (code) => {
+    if (isShuttingDown) {
+      // Server is shutting down or restarting. Do NOT fail jobs, do NOT delete files.
+      return;
+    }
+
     job.completedTime = Date.now();
     job.process = null;
 
@@ -7964,10 +8022,10 @@ function attachProcessListeners(job, child) {
     const rawTarget = (job.opts && (job.opts.downloadTargetUrl || job.opts.hlsUrl)) || '';
     const isCamNetwork = (targetUrl && (targetUrl.includes('omg.sexy') || targetUrl.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com'))) || (job.opts && !!job.opts.camStreamName);
     const isLiveCapture = job.isLiveCapture || isCamNetwork || (targetUrl && (targetUrl.includes('/live/') || targetUrl.includes('chaturbate.com'))) || (rawTarget && (rawTarget.includes('edge-hls') || rawTarget.includes('cam-proxy')));
+    const targetDir = job.targetFolder || getJobDesignatedFolder(job);
 
-    let activeScanDir = (job.designatedFolder && fs.existsSync(job.designatedFolder)) ? job.designatedFolder : TEMP_DIR;
     try {
-      const files = safeReaddir(activeScanDir);
+      const files = fs.existsSync(targetDir) ? fs.readdirSync(targetDir) : [];
 
       // 1. Check for live capture buffer (.part or .ytdl) to remux into clean MP4
       const partFile = files.find(f => {
@@ -7976,7 +8034,7 @@ function attachProcessListeners(job, child) {
       });
 
       if (partFile) {
-        const partPath = path.join(activeScanDir, partFile);
+        const partPath = path.join(targetDir, partFile);
         let partStat = null;
         try { partStat = fs.statSync(partPath); } catch (e) {}
         if (partStat && partStat.size >= 1.5 * 1024 * 1024) {
@@ -7997,12 +8055,12 @@ function attachProcessListeners(job, child) {
       }
 
       // 2. Locate completed media file
-      const refreshedFiles = safeReaddir(activeScanDir);
+      const refreshedFiles = fs.existsSync(targetDir) ? fs.readdirSync(targetDir) : [];
       let matched = refreshedFiles.find(f => {
         if (!f.startsWith(`${jobId}_`)) return false;
-        if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.endsWith('.aria2') || f.includes('_playlist_dir')) return false;
+        if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.includes('_playlist_dir')) return false;
         try {
-          const p = path.join(activeScanDir, f);
+          const p = path.join(targetDir, f);
           const st = fs.statSync(p);
           return st.isFile() && st.size > 0;
         } catch (e) {
@@ -8014,51 +8072,33 @@ function attachProcessListeners(job, child) {
       if (!matched && job.isFreyr) {
         const musicFiles = refreshedFiles
           .filter(f => f.endsWith('.m4a') || f.endsWith('.mp3') || f.endsWith('.flac'))
-          .map(f => ({ name: f, time: fs.statSync(path.join(activeScanDir, f)).mtimeMs }))
+          .map(f => ({ name: f, time: fs.statSync(path.join(targetDir, f)).mtimeMs }))
           .sort((a, b) => b.time - a.time);
         if (musicFiles.length > 0) {
-          const src = path.join(activeScanDir, musicFiles[0].name);
-          const dst = path.join(activeScanDir, `${jobId}_${musicFiles[0].name}`);
+          const src = path.join(targetDir, musicFiles[0].name);
+          const dst = path.join(targetDir, `${jobId}_${musicFiles[0].name}`);
           fs.renameSync(src, dst);
           matched = `${jobId}_${musicFiles[0].name}`;
         }
       }
 
-      // Secondary fallback search if extension differed slightly in activeScanDir
+      // Secondary fallback search if extension differed slightly
       if (!matched) {
         matched = refreshedFiles.find(f => {
           if (!f.includes(jobId)) return false;
-          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.aria2')) return false;
+          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl')) return false;
           try {
-            const p = path.join(activeScanDir, f);
+            const p = path.join(targetDir, f);
             return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
           } catch (e) {
             return false;
           }
         });
-      }
-
-      // If still not matched and activeScanDir is not TEMP_DIR, fallback scan TEMP_DIR
-      if (!matched && activeScanDir !== TEMP_DIR) {
-        const tempFiles = safeReaddir(TEMP_DIR);
-        matched = tempFiles.find(f => {
-          if (!f.startsWith(`${jobId}_`)) return false;
-          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.endsWith('.aria2') || f.includes('_playlist_dir')) return false;
-          try {
-            const p = path.join(TEMP_DIR, f);
-            return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
-          } catch (e) {
-            return false;
-          }
-        });
-        if (matched) {
-          activeScanDir = TEMP_DIR;
-        }
       }
 
       // 3. Cam promo ad teaser guard: detect 20s promo clip (< 1.5 MB)
       if (matched && isCamNetwork) {
-        const matchedPath = path.join(activeScanDir, matched);
+        const matchedPath = path.join(targetDir, matched);
         let st;
         try { st = fs.statSync(matchedPath); } catch (e) {}
         if (st && st.size < 1.5 * 1024 * 1024) {
@@ -8078,7 +8118,7 @@ function attachProcessListeners(job, child) {
       // 4. File acceptance:
       let fileStat = null;
       if (matched) {
-        try { fileStat = fs.statSync(path.join(activeScanDir, matched)); } catch (e) {}
+        try { fileStat = fs.statSync(path.join(targetDir, matched)); } catch (e) {}
       }
 
       const isLiveAccepted = matched && fileStat && fileStat.size >= 1.5 * 1024 * 1024;
@@ -8090,17 +8130,25 @@ function attachProcessListeners(job, child) {
         const rawBase = matched.replace(`${jobId}_`, '');
         let cleanBase = rawBase.replace(/\.[^.]+$/, '');
         cleanBase = cleanBase.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
-        const cleanFilename = `${cleanBase}${originalExt}`;
+        cleanBase = sanitizeAndTruncateFilename(cleanBase, 80);
+        let cleanFilename = `${cleanBase}${originalExt}`;
         
-        let cleanFilePath = path.join(activeScanDir, cleanFilename);
-        const rawFilePath = path.join(activeScanDir, matched);
+        let cleanFilePath = path.join(targetDir, cleanFilename);
+        const rawFilePath = path.join(targetDir, matched);
         
+        // Handle name collision in targetDir
+        if (fs.existsSync(cleanFilePath) && path.resolve(cleanFilePath) !== path.resolve(rawFilePath)) {
+          let count = 1;
+          while (fs.existsSync(path.join(targetDir, `${cleanBase} (${count})${originalExt}`))) {
+            count++;
+          }
+          cleanFilename = `${cleanBase} (${count})${originalExt}`;
+          cleanFilePath = path.join(targetDir, cleanFilename);
+        }
+
         // Rename on disk to remove machine jobId prefix
         if (rawFilePath !== cleanFilePath) {
           try {
-            if (fs.existsSync(cleanFilePath)) {
-              try { fs.unlinkSync(cleanFilePath); } catch (e) {}
-            }
             fs.renameSync(rawFilePath, cleanFilePath);
             matched = cleanFilename;
           } catch (renErr) {
@@ -8109,19 +8157,23 @@ function attachProcessListeners(job, child) {
           }
         }
 
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(cleanFilePath, 0o664); } catch (e) {}
+        }
+
         job.filePath = cleanFilePath;
         job.filename = cleanFilename;
+        job.downloadFolder = targetDir;
+        job.targetFolder = targetDir;
+        job.isPermanent = true;
 
-        // Purge loose leftover images/parts from activeScanDir and TEMP_DIR
+        // Purge loose leftover images/parts from targetDir
         try {
-          const dirsToClean = new Set([activeScanDir, TEMP_DIR]);
-          for (const d of dirsToClean) {
-            const allDirFiles = safeReaddir(d);
-            for (const f of allDirFiles) {
-              if ((f.startsWith(`${jobId}_`) || f.startsWith(cleanBase) || f === 'cover.jpg') &&
-                  (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg') || f.endsWith('.webp') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.aria2'))) {
-                try { fs.unlinkSync(path.join(d, f)); } catch (e) {}
-              }
+          const allDirFiles = fs.readdirSync(targetDir);
+          for (const f of allDirFiles) {
+            if ((f.startsWith(`${jobId}_`) || f === 'cover.jpg') &&
+                (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg') || f.endsWith('.webp') || f.endsWith('.part') || f.endsWith('.ytdl'))) {
+              try { fs.unlinkSync(path.join(targetDir, f)); } catch (e) {}
             }
           }
         } catch (e) {}
@@ -8140,7 +8192,7 @@ function attachProcessListeners(job, child) {
             ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
             : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
           job.progress.totalSize = job.filesize;
-          saveJobsHistory();
+          saveAllJobsState();
         } else {
           job.status = 'failed';
           job.error = 'Downloaded file was 0 bytes.';
@@ -8160,6 +8212,7 @@ function attachProcessListeners(job, child) {
         job.logs.push(`[ERR] File verification error: ${e.message}`);
       }
     }
+    saveAllJobsState();
     scheduleJobUpdate(jobId, true);
     processDownloadQueue();
   });
@@ -8177,15 +8230,16 @@ function createAndStartJob(opts) {
 
   const ext = (mode === 'audio' || mode === 'audiophile_flac') ? (audioFormat || (mode === 'audiophile_flac' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
   const finalFilename = `${safeTitle}.${ext}`;
-  const filePath = path.join(TEMP_DIR, `${jobId}_${finalFilename}`);
   const isPremium = !!opts.isPremium;
   const isOwner = !!(opts.isOwner || opts.role === 'owner' || opts.ownerId === 'owner' || opts.username === 'sakura');
   const role = opts.role || (isOwner ? 'owner' : (isPremium ? 'premium' : 'user'));
   const username = opts.username || (isOwner ? 'sakura' : 'User');
   const ownerId = opts.ownerId || 'guest';
-  const assignedFolder = (opts.downloadFolder && typeof opts.downloadFolder === 'string' && opts.downloadFolder.trim() && opts.downloadFolder.trim() !== '*')
-    ? path.resolve(opts.downloadFolder.trim())
-    : getUserDownloadFolder(ownerId);
+
+  // Determine designated target folder directly (No temp folder)
+  const targetFolder = getJobDesignatedFolder({ ...opts, ownerId, username, role, isOwner, isPremium, mode, title: displayTitle, filename: finalFilename });
+  const inProgressFilename = `${jobId}_${finalFilename}`;
+  const filePath = path.join(targetFolder, inProgressFilename);
 
   const initialLogs = [];
   if (isOwner) {
@@ -8198,29 +8252,10 @@ function createAndStartJob(opts) {
       initialLogs.push('⚡ Bandwidth Allocation: Uncapped (Full Pipe Speed)');
     }
   }
-  let designatedFolder = null;
-  if (assignedFolder) {
-    const category = getJobCategory(opts);
-    const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
-    const baseName = path.basename(assignedFolder);
-    const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
-    designatedFolder = isAlreadyTargetCategory ? assignedFolder : path.join(assignedFolder, subfolderName);
-    try {
-      if (!fs.existsSync(designatedFolder)) {
-        fs.mkdirSync(designatedFolder, { recursive: true });
-        if (process.platform !== 'win32') {
-          try { fs.chmodSync(designatedFolder, 0o775); } catch (e) {}
-        }
-      }
-    } catch (e) {}
-    initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${designatedFolder}`);
-  }
 
-  const isRule34 = (url && url.includes('rule34video.com')) ||
-                   (opts && (opts.extractor === 'Rule34Video' || (opts.downloadTargetUrl && opts.downloadTargetUrl.includes('rule34video.com'))));
-  if (isRule34) {
-    mode = 'direct_http';
-  }
+  const category = getJobCategory({ ...opts, mode, title: displayTitle });
+  const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
+  initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${targetFolder}`);
 
   const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (opts.downloadTargetUrl && (opts.downloadTargetUrl.includes('omg.sexy') || opts.downloadTargetUrl.includes('stripchat.com'))) || !!opts.camStreamName;
   const isLiveStream = isCamNetwork || opts.isLiveCapture || (url && (url.includes('/live/') || url.includes('chaturbate.com'))) || (opts.hlsUrl && (opts.hlsUrl.includes('edge-hls') || opts.hlsUrl.includes('cam-proxy')));
@@ -8240,9 +8275,9 @@ function createAndStartJob(opts) {
     isPremium,
     isLiveCapture: !!isLiveStream,
     isLiveStream: !!isLiveStream,
-    downloadFolder: designatedFolder || assignedFolder || '',
-    designatedFolder: designatedFolder || null,
-    isPermanent: !!designatedFolder,
+    targetFolder,
+    downloadFolder: targetFolder,
+    isPermanent: true,
     filePath,
     filename: finalFilename,
     filesize: '',
@@ -8264,13 +8299,14 @@ function createAndStartJob(opts) {
   };
 
   jobs.set(jobId, job);
+  saveAllJobsState();
   broadcastGlobalJobSync();
 
   // Check if we can start immediately or queue
   if (getActiveDownloadCount() < getMaxConcurrentDownloads()) {
     if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
       startTorrentJob(job);
-    } else if (job.mode === 'direct_http' || isRule34 || (job.url && job.url.includes('workers.dev'))) {
+    } else if (job.url && (job.url.includes('workers.dev') || job.mode === 'direct_http')) {
       startDirectHttpJob(job);
     } else if (job.mode === 'ddl_direct' || job.status === 'resolving_ddl') {
       startDdlMovieResolver(job);
@@ -8376,7 +8412,7 @@ app.post('/api/download', identifyUser, async (req, res) => {
       payload.type = 'direct_http';
     }
 
-    if ((!title || !payload.downloadTargetUrl) && !isDirectStream) {
+    if (!title && !isDirectStream) {
       try {
         const meta = await extractMetadata(url);
         payload.hlsUrl = meta.hlsUrl;
@@ -8384,21 +8420,12 @@ app.post('/api/download', identifyUser, async (req, res) => {
         payload.code = meta.code;
         payload.poster = meta.poster;
         payload.downloadTargetUrl = meta.downloadTargetUrl;
-        if (meta.directUrl) payload.directUrl = meta.directUrl;
         if (meta.referer) payload.referer = meta.referer;
-        if (meta.extractor) payload.extractor = meta.extractor;
-        if (meta.streams) payload.streams = meta.streams;
         if (meta.camStreamName) payload.camStreamName = meta.camStreamName;
         if (meta.isOffline) payload.isOffline = meta.isOffline;
         if (meta.isPrivate) payload.isPrivate = meta.isPrivate;
         if (meta.isOffline || meta.isPrivate) payload.isStreamWatcher = true;
       } catch (e) {}
-    }
-
-    if (payload.extractor === 'Rule34Video' || url.includes('rule34video.com') || (payload.downloadTargetUrl && payload.downloadTargetUrl.includes('rule34video.com'))) {
-      payload.mode = 'direct_http';
-      payload.type = 'direct_http';
-      if (!payload.referer) payload.referer = 'https://rule34video.com/';
     }
 
     const job = createAndStartJob(payload);
@@ -8471,21 +8498,13 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
         code: meta ? meta.code : '',
         poster: meta ? meta.poster : '',
         downloadTargetUrl: meta ? meta.downloadTargetUrl : '',
-        directUrl: (meta && meta.directUrl) ? meta.directUrl : '',
         referer: (meta && meta.referer) ? meta.referer : '',
-        extractor: (meta && meta.extractor) ? meta.extractor : '',
-        streams: (meta && meta.streams) ? meta.streams : undefined,
         ownerId: req.currentUser.userId,
         username: req.currentUser.username,
         role: req.currentUser.role,
         isOwner: req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura',
         isPremium: req.currentUser.isPremium
       };
-
-      if (meta && (meta.extractor === 'Rule34Video' || trimmed.includes('rule34video.com'))) {
-        jobOpts.mode = 'direct_http';
-        jobOpts.type = 'direct_http';
-      }
 
       const job = createAndStartJob(jobOpts);
       createdJobs.push({
@@ -8816,21 +8835,27 @@ app.post('/api/jobs/:id/cancel', identifyUser, (req, res) => {
     job.process = null;
   }
 
-  // Clean temp files & parts folders
+  // Clean unfinalized partials for this jobId in its targetFolder
   try {
-    const files = safeReaddir(TEMP_DIR);
-    for (const f of files) {
-      if (f.startsWith(`${jobId}_`)) {
-        const fullPath = path.join(TEMP_DIR, f);
-        if (fs.lstatSync(fullPath).isDirectory()) {
-          fs.rmSync(fullPath, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(fullPath);
+    const targetFolder = job.targetFolder || (typeof getJobDesignatedFolder === 'function' ? getJobDesignatedFolder(job) : null);
+    if (targetFolder && fs.existsSync(targetFolder)) {
+      const files = fs.readdirSync(targetFolder);
+      for (const f of files) {
+        if (f.startsWith(`${jobId}_`)) {
+          const fullPath = path.join(targetFolder, f);
+          try {
+            if (fs.lstatSync(fullPath).isDirectory()) {
+              fs.rmSync(fullPath, { recursive: true, force: true });
+            } else {
+              fs.unlinkSync(fullPath);
+            }
+          } catch (e) {}
         }
       }
     }
   } catch (e) {}
 
+  saveAllJobsState();
   broadcastJobUpdate(jobId);
   processDownloadQueue();
   res.json({ success: true, message: 'Download cancelled and cleaned up' });
@@ -8865,9 +8890,25 @@ app.delete('/api/jobs/:id', identifyUser, (req, res) => {
 
   // 1. Remove isolated job directory if exists
   try {
-    const jobDir = path.join(TEMP_DIR, jobId);
-    if (fs.existsSync(jobDir)) {
-      fs.rmSync(jobDir, { recursive: true, force: true });
+    const targetFolder = job?.targetFolder || (job && typeof getJobDesignatedFolder === 'function' ? getJobDesignatedFolder(job) : null);
+    if (targetFolder && fs.existsSync(targetFolder)) {
+      const jobDir = path.join(targetFolder, jobId);
+      if (fs.existsSync(jobDir)) {
+        fs.rmSync(jobDir, { recursive: true, force: true });
+      }
+      const files = fs.readdirSync(targetFolder);
+      for (const f of files) {
+        if (f.startsWith(`${jobId}_`) || f.startsWith(`${jobId}.`)) {
+          const fullPath = path.join(targetFolder, f);
+          try {
+            if (fs.lstatSync(fullPath).isDirectory()) {
+              fs.rmSync(fullPath, { recursive: true, force: true });
+            } else {
+              fs.unlinkSync(fullPath);
+            }
+          } catch (e) {}
+        }
+      }
     }
   } catch (e) {}
 
@@ -8878,23 +8919,8 @@ app.delete('/api/jobs/:id', identifyUser, (req, res) => {
     }
   } catch (e) {}
 
-  // 3. Remove any prefixed files in TEMP_DIR
-  try {
-    const files = safeReaddir(TEMP_DIR);
-    for (const f of files) {
-      if (f.startsWith(`${jobId}_`) || f.startsWith(`${jobId}.`) || f === jobId) {
-        const fullPath = path.join(TEMP_DIR, f);
-        if (fs.lstatSync(fullPath).isDirectory()) {
-          fs.rmSync(fullPath, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(fullPath);
-        }
-      }
-    }
-  } catch (e) {}
-
   jobs.delete(jobId);
-  saveJobsHistory();
+  saveAllJobsState();
   broadcastGlobalJobSync();
   processDownloadQueue();
   res.json({ success: true, message: 'Job deleted' });
@@ -8911,21 +8937,23 @@ app.delete('/api/jobs', identifyUser, (req, res) => {
 
     if (job.status !== 'downloading' && job.status !== 'queued' && job.status !== 'paused') {
       try {
-        const jobDir = path.join(TEMP_DIR, id);
-        if (fs.existsSync(jobDir)) {
-          fs.rmSync(jobDir, { recursive: true, force: true });
-        }
-        if (job.filePath && !job.isPermanent && !isPermanentUserFile(job.filePath) && fs.existsSync(job.filePath)) {
-          fs.rmSync(job.filePath, { recursive: true, force: true });
-        }
-        const files = safeReaddir(TEMP_DIR);
-        for (const f of files) {
-          if (f.startsWith(`${id}_`) || f.startsWith(`${id}.`) || f === id) {
-            const fullPath = path.join(TEMP_DIR, f);
-            if (fs.lstatSync(fullPath).isDirectory()) {
-              fs.rmSync(fullPath, { recursive: true, force: true });
-            } else {
-              fs.unlinkSync(fullPath);
+        const targetFolder = job?.targetFolder || (job && typeof getJobDesignatedFolder === 'function' ? getJobDesignatedFolder(job) : null);
+        if (targetFolder && fs.existsSync(targetFolder)) {
+          const jobDir = path.join(targetFolder, id);
+          if (fs.existsSync(jobDir)) {
+            fs.rmSync(jobDir, { recursive: true, force: true });
+          }
+          const files = fs.readdirSync(targetFolder);
+          for (const f of files) {
+            if (f.startsWith(`${id}_`) || f.startsWith(`${id}.`)) {
+              const fullPath = path.join(targetFolder, f);
+              try {
+                if (fs.lstatSync(fullPath).isDirectory()) {
+                  fs.rmSync(fullPath, { recursive: true, force: true });
+                } else {
+                  fs.unlinkSync(fullPath);
+                }
+              } catch (e) {}
             }
           }
         }
@@ -8933,7 +8961,7 @@ app.delete('/api/jobs', identifyUser, (req, res) => {
       jobs.delete(id);
     }
   }
-  saveJobsHistory();
+  saveAllJobsState();
   broadcastGlobalJobUpdate();
   res.json({ success: true, message: 'Cleared completed jobs' });
 });
@@ -9071,25 +9099,27 @@ app.get('/api/stream/:id', (req, res) => {
   }
 });
 
-// Periodic cleanup of temp files and parts folders older than 2 hours (exempting permanent user files)
+// Periodic cleanup of orphaned temporary artifacts older than 24 hours (exempting all user storage)
 setInterval(() => {
   try {
     const now = Date.now();
-    const files = safeReaddir(TEMP_DIR);
-    for (const f of files) {
-      const full = path.join(TEMP_DIR, f);
-      if (isPermanentUserFile(full)) continue;
-      const stat = fs.statSync(full);
-      if (now - stat.mtimeMs > 2 * 3600 * 1000) {
-        if (stat.isDirectory()) {
-          fs.rmSync(full, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(full);
+    if (fs.existsSync(TEMP_DIR) && !isPermanentUserDirectory(TEMP_DIR)) {
+      const files = fs.readdirSync(TEMP_DIR);
+      for (const f of files) {
+        const full = path.join(TEMP_DIR, f);
+        if (isPermanentUserFile(full)) continue;
+        const stat = fs.statSync(full);
+        if (now - stat.mtimeMs > 24 * 3600 * 1000) {
+          if (stat.isDirectory()) {
+            fs.rmSync(full, { recursive: true, force: true });
+          } else {
+            fs.unlinkSync(full);
+          }
         }
       }
     }
   } catch (e) {}
-}, 15 * 60 * 1000);
+}, 60 * 60 * 1000);
 
 let slskdProcess = null;
 
@@ -9120,21 +9150,33 @@ function startEmbeddedSlskd() {
   });
 }
 
-// Graceful Shutdown
+// Graceful Shutdown - Preserves all in-progress, queued, and standby jobs
 function gracefulShutdown() {
-  console.log('Shutting down server, terminating active download processes...');
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log('[Server] Graceful shutdown initiated. Preserving all active, queued, and standby jobs...');
+
+  // 1. Clear stream watcher timers so they don't fire during shutdown
+  for (const timer of activeStreamWatchers.values()) {
+    try { clearTimeout(timer); } catch (e) {}
+  }
+  activeStreamWatchers.clear();
+
+  // 2. Politely signal child processes to flush in-progress data safely
   for (const job of jobs.values()) {
     if (job.process) {
       const pid = job.process.pid;
       try {
         if (process.platform === 'win32') {
-          execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+          execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
         } else {
-          execSync(`kill -9 ${pid} 2>/dev/null`, { stdio: 'ignore' });
+          try { job.process.kill('SIGINT'); } catch (e1) {}
+          try { execSync(`kill -INT ${pid} 2>/dev/null || kill -TERM ${pid} 2>/dev/null`, { stdio: 'ignore' }); } catch (e2) {}
         }
       } catch (e) {}
     }
   }
+
   if (slskdProcess) {
     try {
       if (process.platform === 'win32') {
@@ -9144,6 +9186,11 @@ function gracefulShutdown() {
       }
     } catch (e) {}
   }
+
+  // 3. Persist complete state of ALL jobs to disk synchronously
+  saveAllJobsStateSync();
+
+  console.log('[Server] All jobs preserved to .jobs_state.json successfully. Exiting.');
   process.exit(0);
 }
 
@@ -9156,6 +9203,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 Server listening on http://0.0.0.0:${PORT}`);
   console.log(`====================================================`);
   startEmbeddedSlskd();
+  restoreAllJobsState();
 });
 
 // Configure Node.js HTTP server keepAlive timeouts for Cloudflare Tunnel / Reverse Proxies

@@ -16,6 +16,8 @@ engine_config.json
 .user_sessions.json
 .access_requests.json
 .role_permissions.json
+.jobs_history.json
+.jobs_state.json
 *.key
 *.pem
 *.p12
