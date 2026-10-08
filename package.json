@@ -1,6 +1,6 @@
 {
   "name": "jable-downloader-web-ui",
-  "version": "4.26.3",
+  "version": "4.27.8",
   "private": true,
   "license": "UNLICENSED",
   "description": "Modern Web UI for video downloading and local streaming",

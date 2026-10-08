@@ -1495,6 +1495,26 @@ function renderPreviewCard(data) {
     if (chkEmbedThumbnail) chkEmbedThumbnail.checked = true;
   }
 
+  if (data.isOffline) {
+    if (downloadBtnText) downloadBtnText.textContent = 'Auto-Record Stream';
+    if (startDownloadBtn) {
+      startDownloadBtn.style.opacity = '1';
+      startDownloadBtn.title = 'Model is currently offline. UniLoader will monitor the room and immediately record once live!';
+    }
+  } else if (data.isPrivate) {
+    if (downloadBtnText) downloadBtnText.textContent = 'Auto-Record Stream';
+    if (startDownloadBtn) {
+      startDownloadBtn.style.opacity = '1';
+      startDownloadBtn.title = 'Model is currently in a private show. UniLoader will monitor the room and immediately record once public broadcast starts!';
+    }
+  } else {
+    if (downloadBtnText) downloadBtnText.textContent = currentMode === 'audio' ? 'Extract Audio' : (data.duration === 'LIVE' ? 'Record Live Stream' : 'Download Now');
+    if (startDownloadBtn) {
+      startDownloadBtn.style.opacity = '1';
+      startDownloadBtn.title = '';
+    }
+  }
+
   previewCard.style.display = 'block';
   updateStorageTargetUI();
   previewCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1503,6 +1523,11 @@ function renderPreviewCard(data) {
 // 2. Start Single Download Job
 async function startDownload() {
   if (!currentExtractedData) return;
+
+  const isStreamWatcher = Boolean(currentExtractedData.isOffline || currentExtractedData.isPrivate);
+  if (isStreamWatcher) {
+    showToast(`⏳ Stream Watcher engaged: Standby mode active for ${currentExtractedData.model || 'model'}. UniLoader will auto-record when broadcast starts!`, 'info');
+  }
 
   const storageSelect = document.getElementById('storageFolderSelect');
   const selectedFolder = (storageSelect && storageSelect.style.display !== 'none' && storageSelect.value)
@@ -1517,6 +1542,11 @@ async function startDownload() {
     title: currentExtractedData.title,
     code: currentExtractedData.code,
     poster: currentExtractedData.poster,
+    isOffline: currentExtractedData.isOffline || false,
+    isPrivate: currentExtractedData.isPrivate || false,
+    isStreamWatcher: isStreamWatcher,
+    camStreamName: currentExtractedData.camStreamName || undefined,
+    isLiveCapture: Boolean(currentExtractedData.camStreamName || currentExtractedData.duration === 'LIVE' || (currentExtractedData.title && currentExtractedData.title.includes('Live Stream')) || isStreamWatcher),
     downloadFolder: selectedFolder || undefined,
     concurrentFragments: parseInt(concurrencySelect.value, 10) || 32,
     mode: currentMode,
@@ -1803,7 +1833,7 @@ function createJobCardElement(job) {
           <span class="job-code" id="job-code-${job.id}">${job.code || 'MEDIA'}</span>
         </div>
         <div class="job-header-right">
-          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase())}</span>
+          <span class="job-status-badge status-${job.status}" id="job-badge-${job.id}">${job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : (job.status === 'waiting_for_stream' ? 'WAITING FOR STREAM' : job.status.toUpperCase()))}</span>
           <button type="button" class="btn-job-remove" onclick="removeJob('${job.id}')" title="Remove task">&times;</button>
         </div>
       </div>
@@ -1925,7 +1955,22 @@ function renderJobControls(job) {
         </button>
         <button class="btn btn-danger btn-sm" onclick="cancelJob('${safeJobId}')" title="Cancel download">Cancel</button>
       `;
-    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') {
+    } else if (job.status === 'downloading' || job.status === 'queued' || job.status === 'resolving_ddl' || job.status === 'resolving_olamovies' || job.status === 'waiting_for_stream') {
+      const isLive = job.isLiveCapture || (job.progress && job.progress.isLive) || (job.title && job.title.includes('Live Stream')) || (job.opts && (job.opts.isLiveCapture || job.opts.camStreamName));
+      if (job.status === 'waiting_for_stream') {
+        return `
+          <button class="btn btn-danger btn-sm" onclick="cancelJob('${safeJobId}')" title="Cancel standby watcher">Cancel Standby</button>
+        `;
+      }
+      if (isLive) {
+        return `
+          <button class="btn btn-success btn-sm" onclick="stopRecordingJob('${safeJobId}')" title="Stop live recording and save video">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" ry="2"></rect></svg>
+            <span>Stop & Save</span>
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="cancelJob('${safeJobId}')" title="Cancel and discard">Cancel</button>
+        `;
+      }
       return `
         <button class="btn btn-warning btn-sm" onclick="pauseJob('${safeJobId}')" title="Pause download">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
@@ -1951,6 +1996,7 @@ function renderJobControls(job) {
 function formatEtaDisplay(eta, status) {
   if (status === 'completed') return 'Ready';
   if (status === 'paused') return 'Paused';
+  if (status === 'waiting_for_stream') return eta || 'Waiting for stream...';
   if (status === 'resolving_ddl' || status === 'resolving_olamovies') return eta || 'Resolving DDL...';
   if (!eta || eta === '--' || eta === '0' || eta === '--:--') return '--:--';
   if (typeof eta === 'string' && /^\d+$/.test(eta.trim())) {
@@ -1967,12 +2013,19 @@ function updateJobCard(job) {
   const card = document.getElementById(`job-card-${job.id}`);
   if (!card) return;
 
+  const isLive = job.isLiveCapture || (job.progress && job.progress.isLive) || (job.title && job.title.includes('Live Stream')) || (job.opts && (job.opts.isLiveCapture || job.opts.camStreamName));
+
   card.className = `job-card ${job.status}`;
 
   const badge = document.getElementById(`job-badge-${job.id}`);
   if (badge) {
-    badge.className = `job-status-badge status-${job.status}`;
-    badge.textContent = job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : job.status.toUpperCase());
+    if (job.status === 'downloading' && isLive) {
+      badge.className = 'job-status-badge status-recording-live';
+      badge.innerHTML = '<span class="recording-pulse-dot"></span> LIVE RECORDING';
+    } else {
+      badge.className = `job-status-badge status-${job.status}`;
+      badge.textContent = job.status === 'completed' ? 'READY' : ((job.status === 'resolving_ddl' || job.status === 'resolving_olamovies') ? 'RESOLVING DDL' : (job.status === 'waiting_for_stream' ? 'WAITING FOR STREAM' : job.status.toUpperCase()));
+    }
   }
 
   const titleEl = document.getElementById(`job-title-${job.id}`);
@@ -1994,23 +2047,41 @@ function updateJobCard(job) {
 
   const fill = document.getElementById(`job-prog-fill-${job.id}`);
   if (fill) {
-    fill.style.width = `${job.progress.percent || 0}%`;
-    if (job.status === 'completed') fill.classList.add('completed');
+    if (job.status === 'downloading' && isLive) {
+      fill.classList.add('recording-live');
+      fill.style.width = '100%';
+    } else {
+      fill.classList.remove('recording-live');
+      fill.style.width = `${job.progress.percent || 0}%`;
+      if (job.status === 'completed') fill.classList.add('completed');
+    }
   }
 
   const pct = document.getElementById(`job-metric-pct-${job.id}`);
-  if (pct) pct.textContent = `${(job.progress.percent || 0).toFixed(1)}%`;
+  if (pct) {
+    if (job.status === 'downloading' && isLive) {
+      pct.textContent = 'LIVE';
+    } else {
+      pct.textContent = `${(job.progress.percent || 0).toFixed(1)}%`;
+    }
+  }
 
   const spd = document.getElementById(`job-metric-spd-${job.id}`);
   if (spd) spd.textContent = job.progress.speed || '0 MB/s';
 
   const eta = document.getElementById(`job-metric-eta-${job.id}`);
-  if (eta) eta.textContent = formatEtaDisplay(job.progress.eta, job.status);
+  if (eta) {
+    if (job.status === 'downloading' && isLive && job.progress.eta) {
+      eta.innerHTML = `<span class="recording-pulse-dot"></span> ${escapeHtml(job.progress.eta)}`;
+    } else {
+      eta.textContent = formatEtaDisplay(job.progress.eta, job.status);
+    }
+  }
 
   const frag = document.getElementById(`job-metric-frag-${job.id}`);
   if (frag) {
     const sz = job.filesize || (job.progress.totalSize && job.progress.totalSize !== '0 MB' ? job.progress.totalSize : null);
-    frag.textContent = sz || (job.status === 'completed' ? 'Ready' : 'Calculating...');
+    frag.textContent = sz || (job.status === 'completed' ? 'Ready' : (isLive ? 'Capturing...' : 'Calculating...'));
   }
 
   // Update controls
@@ -2229,6 +2300,28 @@ window.resumeAllJobs = async function() {
     loadJobs();
   } catch (err) {
     console.warn('Resume all error:', err);
+  }
+};
+
+window.stopRecordingJob = async function(jobId) {
+  try {
+    const card = document.getElementById(`job-card-${jobId}`);
+    if (card) {
+      const badge = document.getElementById(`job-badge-${jobId}`);
+      if (badge) {
+        badge.className = 'job-status-badge status-resolving';
+        badge.textContent = 'FINALIZING...';
+      }
+      const controls = document.getElementById(`job-controls-${jobId}`);
+      if (controls) {
+        controls.innerHTML = `<button class="btn btn-secondary btn-sm" disabled>Saving...</button>`;
+      }
+    }
+    showToast('Finalizing and saving recorded stream to permanent storage...', 'info');
+    await fetch(`/api/jobs/${jobId}/stop`, { method: 'POST' });
+    setTimeout(loadJobs, 1200);
+  } catch (err) {
+    console.warn('Stop recording error:', err);
   }
 };
 

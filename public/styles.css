@@ -1973,6 +1973,51 @@ body {
   animation: pulseGlow 2s infinite ease-in-out;
 }
 
+.status-waiting_for_stream {
+  background-color: hsla(280, 85%, 60%, 0.18);
+  color: hsl(280, 95%, 75%);
+  border: 1px solid hsla(280, 85%, 60%, 0.4);
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+.status-recording-live {
+  background-color: hsla(0, 85%, 60%, 0.18) !important;
+  color: #ff4d4f !important;
+  border: 1px solid hsla(0, 85%, 60%, 0.45) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+.recording-pulse-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+  animation: recordingDotPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes recordingDotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.4; }
+}
+
+.progress-fill.recording-live {
+  background: linear-gradient(90deg, #ef4444, #f97316, #ef4444) !important;
+  background-size: 200% 100% !important;
+  animation: liveProgressShimmer 2s infinite linear !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5) !important;
+}
+
+@keyframes liveProgressShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* Progress Bar */
 .progress-container {
   width: 100%;

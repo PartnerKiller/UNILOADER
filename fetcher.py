@@ -3,6 +3,7 @@ import sys
 import io
 import json
 import re
+import html as html_lib
 import base64
 import urllib.parse
 import urllib.request
@@ -607,13 +608,34 @@ def extract_all(url):
         stream_dict = {k: v for k, v in video_streams}
         
         target_stream = ''
-        for key in ['video_alt_url4', 'video_alt_url3', 'video_alt_url2', 'video_alt_url', 'video_url']:
+        max_height = 0
+        quality_label = 'Best'
+        quality_map = [
+            ('video_alt_url4', 2160, '4K 2160p'),
+            ('video_alt_url3', 1080, '1080p Full HD'),
+            ('video_alt_url2', 720, '720p HD'),
+            ('video_alt_url', 480, '480p'),
+            ('video_url', 360, '360p')
+        ]
+        for key, h, lbl in quality_map:
             if key in stream_dict:
-                target_stream = stream_dict[key]
-                break
+                if not target_stream:
+                    target_stream = stream_dict[key]
+                    max_height = h
+                    quality_label = lbl
 
         if not target_stream and video_streams:
             target_stream = video_streams[-1][1]
+            max_height = 1080
+            quality_label = 'HD'
+
+        if target_stream:
+            try:
+                head_r = session.get(target_stream, headers=headers, allow_redirects=False, timeout=10)
+                if head_r.status_code in [301, 302, 303, 307] and head_r.headers.get('Location'):
+                    target_stream = head_r.headers.get('Location')
+            except Exception:
+                pass
 
         poster_m = re.search(r'preview_url\s*:\s*[\x27\x22](https?://[^\x27\x22]+)[\x27\x22]', html)
         poster = poster_m.group(1) if poster_m else ''
@@ -637,12 +659,17 @@ def extract_all(url):
             'code': code,
             'poster': poster,
             'hlsUrl': target_stream or url,
-            'downloadTargetUrl': url,
+            'downloadTargetUrl': target_stream or url,
+            'directUrl': target_stream or url,
+            'referer': 'https://rule34video.com/',
             'tags': tags,
             'model': model,
             'duration': duration,
             'extractor': 'Rule34Video',
-            'sourceUrl': url
+            'sourceUrl': url,
+            'maxHeight': max_height,
+            'qualityLabel': quality_label,
+            'streams': stream_dict
         }
 
     # -------------------------------------------------------------
@@ -1181,10 +1208,10 @@ def extract_all(url):
 
         title_m = re.search(r"html5player\.setVideoTitle\('([^']+)'\)", html)
         if title_m:
-            title = title_m.group(1).strip()
+            title = html_lib.unescape(title_m.group(1).strip())
         else:
             title = soup.title.string.strip() if soup.title else 'XVideos Video'
-            title = re.sub(r'\s*-\s*XVIDEOS\.COM.*$', '', title, flags=re.IGNORECASE).strip()
+            title = html_lib.unescape(re.sub(r'\s*-\s*XVIDEOS\.COM.*$', '', title, flags=re.IGNORECASE).strip())
 
         hls_m = re.search(r"html5player\.setVideoHLS\('([^']+)'\)", html)
         hls_url = hls_m.group(1) if hls_m else ''
@@ -1546,6 +1573,151 @@ def extract_all(url):
             pass
 
     # -------------------------------------------------------------
+    # 13.6. OMG.sexy & Stripchat (omg.sexy, stripchat.com)
+    # -------------------------------------------------------------
+    if any(d in url for d in ['omg.sexy', 'stripchat.com']):
+        try:
+            m = re.search(r'(?:omg\.sexy|stripchat\.com)/(?:(?:en|model|girls|user)/)?([a-zA-Z0-9_\-]+)', url)
+            ignored_slugs = {'about', 'login', 'favorites', 'manifest.json', 'dmca', 'parental-control', 'terms', 'privacy', 'girls', 'trans', 'men', 'couples', 'tags', 'tag', 'videos', 'photos', 'feed', 'discover', 'tokens'}
+            if m and m.group(1).lower() not in ignored_slugs:
+                username = m.group(1)
+                req_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                }
+
+                # Query official broadcasts API for true real-time broadcast and show status
+                b_item = {}
+                try:
+                    b_headers = {'User-Agent': req_headers['User-Agent'], 'Accept': 'application/json', 'Referer': f'https://omg.sexy/{username}'}
+                    b_resp = session.get(f"https://omg.sexy/api/front/v1/broadcasts/{username}", headers=b_headers, timeout=8)
+                    if b_resp.status_code != 200:
+                        b_headers['Referer'] = f'https://stripchat.com/{username}'
+                        b_resp = session.get(f"https://stripchat.com/api/front/v1/broadcasts/{username}", headers=b_headers, timeout=8)
+                    if b_resp.status_code == 200:
+                        b_item = b_resp.json().get('item') or {}
+                except Exception:
+                    pass
+
+                resp = session.get(f"https://omg.sexy/{username}", headers=req_headers, timeout=12)
+                if resp.status_code != 200:
+                    resp = session.get(f"https://stripchat.com/{username}", headers=req_headers, timeout=12)
+
+                if resp.status_code == 200:
+                    html_c = resp.text
+                    idx = html_c.find('window.__PRELOADED_STATE__')
+                    if idx != -1:
+                        eq_idx = html_c.find('=', idx)
+                        script_end = html_c.find('</script>', eq_idx)
+                        raw_data = html_c[eq_idx+1:script_end].strip()
+                        if raw_data.endswith(';'):
+                            raw_data = raw_data[:-1].strip()
+
+                        data = json.loads(raw_data)
+                        view_cam = data.get('viewCam', {})
+                        model_data = view_cam.get('model')
+
+                        if model_data:
+                            model_id = str(b_item.get('streamName') or b_item.get('modelId') or model_data.get('id'))
+                            user_display = model_data.get('username') or username
+                            
+                            # Real-time liveness and show status
+                            b_status = b_item.get('status') or model_data.get('status') or 'idle'
+                            b_is_live = b_item.get('isLive') if 'isLive' in b_item else model_data.get('isLive', False)
+                            
+                            active_show = view_cam.get('show')
+                            has_active_show = bool(active_show and not active_show.get('endedAt') and active_show.get('mode') in ['private', 'p2p', 'groupShow', 'ticketShow'])
+                            is_in_active_private = has_active_show or (b_status in ['private', 'p2p', 'groupShow', 'ticketShow'])
+                            is_live = bool(b_is_live and b_status == 'public' and not is_in_active_private)
+
+                            poster = model_data.get('previewUrl') or model_data.get('snapshotUrl') or model_data.get('avatarUrl') or f"https://img.strpst.com/thumbs/{model_id}/{model_id}.jpg"
+                            tags = model_data.get('tags') or []
+                            if isinstance(tags, list):
+                                tags = [str(t) for t in tags[:10]]
+                            else:
+                                tags = []
+
+                            if is_in_active_private:
+                                return {
+                                    'title': f"omg.sexy - {user_display} (In Private Show)",
+                                    'code': f"OMG-{user_display.upper()}",
+                                    'poster': poster,
+                                    'hlsUrl': '',
+                                    'downloadTargetUrl': '',
+                                    'tags': tags or ['omg.sexy', 'Private Show'],
+                                    'model': user_display,
+                                    'camStreamName': model_id,
+                                    'duration': 'PRIVATE',
+                                    'extractor': 'omg.sexy (Stripchat)',
+                                    'sourceUrl': url,
+                                    'maxHeight': 0,
+                                    'maxFps': 0,
+                                    'qualityLabel': 'In Private Show',
+                                    'isPrivate': True,
+                                    'statusMessage': f"Model {user_display} is currently in a private show ({b_status}). Standby active..."
+                                }
+
+                            if not is_live:
+                                return {
+                                    'title': f"omg.sexy - {user_display} (Offline)",
+                                    'code': f"OMG-{user_display.upper()}",
+                                    'poster': poster,
+                                    'hlsUrl': '',
+                                    'downloadTargetUrl': '',
+                                    'tags': tags or ['omg.sexy', 'Offline'],
+                                    'model': user_display,
+                                    'camStreamName': model_id,
+                                    'duration': 'OFFLINE',
+                                    'extractor': 'omg.sexy (Stripchat)',
+                                    'sourceUrl': url,
+                                    'maxHeight': 0,
+                                    'maxFps': 0,
+                                    'qualityLabel': 'Model Offline',
+                                    'isOffline': True,
+                                    'statusMessage': f"Model {user_display} is currently offline. Stream is not broadcasting."
+                                }
+
+                            # Resolve HLS host
+                            stream_host = None
+                            config_v3 = data.get('configV3', {}) or data.get('config', {})
+                            if isinstance(config_v3, dict):
+                                static_feat = (config_v3.get('static') or {}).get('features') or (config_v3.get('static') or {}).get('featuresV2') or {}
+                                fb_domains = (static_feat.get('hlsFallback') or {}).get('fallbackDomains')
+                                if fb_domains and isinstance(fb_domains, list) and len(fb_domains) > 0:
+                                    stream_host = fb_domains[0]
+
+                            if not stream_host:
+                                raw_hosts = re.findall(r'"hlsStreamHost":\s*"([^"]+)"', raw_data)
+                                if raw_hosts:
+                                    stream_host = raw_hosts[0]
+
+                            if not stream_host:
+                                stream_host = 'doppiocdn.org'
+
+                            master_hls = f"https://edge-hls.{stream_host}/hls/{model_id}/master/{model_id}_auto.m3u8"
+                            title = f"omg.sexy - {user_display} Live Stream"
+
+                            return {
+                                'title': title,
+                                'code': f"OMG-{user_display.upper()}",
+                                'poster': poster,
+                                'hlsUrl': master_hls,
+                                'downloadTargetUrl': master_hls,
+                                'camStreamName': model_id,
+                                'tags': tags,
+                                'model': user_display,
+                                'duration': 'LIVE',
+                                'extractor': 'omg.sexy (Stripchat)',
+                                'sourceUrl': url,
+                                'maxHeight': 1080,
+                                'maxFps': 30,
+                                'qualityLabel': 'Source HD'
+                            }
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------
     # 14. Universal JAV & Video Sites (JavCL, Javmix, JavFull, JavDoe, Javseen, JavQuick, JavCt, 7MMTV, TokyoMotion, etc.)
     # -------------------------------------------------------------
     try:
@@ -1667,7 +1839,7 @@ def extract_all(url):
             quality_label = f'{max_height}p'
 
         return {
-            'title': title.strip(),
+            'title': html_lib.unescape(title.strip()),
             'code': code,
             'poster': poster,
             'hlsUrl': hls_url,

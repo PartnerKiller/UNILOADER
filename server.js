@@ -28,9 +28,62 @@ const { spawn, exec, execSync } = require('child_process');
 const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
 const aiService = require('./ai_service');
 
+function safeReaddir(dir, options) {
+  try {
+    if (!dir) return [];
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return []; }
+    }
+    return fs.readdirSync(dir, options);
+  } catch (err) {
+    console.warn(`[Server] safeReaddir warning for ${dir}:`, err.message);
+    return [];
+  }
+}
+
+function resolveValidTempDir() {
+  const candidates = [];
+  if (process.env.TEMP_DIR) {
+    candidates.push(process.env.TEMP_DIR);
+  }
+  if (process.platform === 'linux') {
+    candidates.push('/media/ssd/sakura/temp');
+    candidates.push('/media/hdd/sakura/temp');
+    candidates.push('/media/storage/temp');
+  }
+  candidates.push(path.join(__dirname, 'temp_media'));
+
+  for (const candidate of candidates) {
+    try {
+      const parentDir = path.dirname(candidate);
+      if (fs.existsSync(parentDir)) {
+        if (!fs.existsSync(candidate)) {
+          fs.mkdirSync(candidate, { recursive: true });
+        }
+        const testFile = path.join(candidate, `.write_test_${process.pid}_${Date.now()}`);
+        fs.writeFileSync(testFile, 'ok');
+        fs.unlinkSync(testFile);
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(candidate, 0o777); } catch (e) {}
+        }
+        return candidate;
+      }
+    } catch (e) {
+      // Continue to next candidate
+    }
+  }
+
+  const fallback = path.join(__dirname, 'temp_media');
+  try {
+    if (!fs.existsSync(fallback)) fs.mkdirSync(fallback, { recursive: true });
+    if (process.platform !== 'win32') fs.chmodSync(fallback, 0o777);
+  } catch (e) {}
+  return fallback;
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
-let TEMP_DIR = process.env.TEMP_DIR || path.join(__dirname, 'temp_media');
+let TEMP_DIR = resolveValidTempDir();
 
 // High-Speed Public BitTorrent Trackers for maximum swarm connectivity & peer discovery
 const HIGH_SPEED_BT_TRACKERS = [
@@ -82,6 +135,39 @@ const defaultEngineConfig = {
   }
 };
 let engineConfig = { ...defaultEngineConfig };
+
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function sanitizeAndTruncateFilename(str, maxBytes = 80) {
+  if (!str || typeof str !== 'string') return 'media';
+  let clean = decodeHtmlEntities(str)
+    .replace(/[\\/:*?"<>|\r\n\t]/g, '_')
+    .replace(/_+/g, '_')
+    .trim();
+
+  // Truncate safely on UTF-8 byte boundary to prevent Linux [Errno 36] (NAME_MAX = 255 bytes)
+  const buf = Buffer.from(clean, 'utf8');
+  if (buf.length <= maxBytes) {
+    return clean || 'media';
+  }
+  let truncatedBuf = buf.subarray(0, maxBytes);
+  let res = truncatedBuf.toString('utf8');
+  res = res.replace(/\uFFFD+$/, '').trim();
+  res = res.replace(/[.\s_]+$/, '');
+  return res || 'media';
+}
 
 function normalizeBandwidthString(val) {
   if (val === undefined || val === null) return '0';
@@ -206,8 +292,15 @@ function getMaxConcurrentDownloads() {
   return engineConfig.maxConcurrentJobs || 4;
 }
 
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+  if (process.platform !== 'win32') {
+    try { fs.chmodSync(TEMP_DIR, 0o777); } catch (e) {}
+  }
+} catch (e) {
+  console.warn('[Server] Could not initialize TEMP_DIR:', e.message);
 }
 
 
@@ -304,6 +397,7 @@ console.log('Detected Tools:', tools);
 const jobs = new Map();
 const sseClients = new Map(); // jobId -> Set(res)
 const globalSseClients = new Map(); // res -> currentUser
+const activeStreamWatchers = new Map(); // jobId -> Timeout
 
 const PRIMARY_HISTORY_FILE = path.join(__dirname, '.jobs_history.json');
 const TEMP_HISTORY_FILE = path.join(TEMP_DIR, '.jobs_history.json');
@@ -389,7 +483,7 @@ function loadJobsHistory() {
 
   // Scan TEMP_DIR for any media files from previous runs
   try {
-    const files = fs.readdirSync(TEMP_DIR);
+    const files = safeReaddir(TEMP_DIR);
     const mediaExtensions = new Set(['.mp4', '.mkv', '.webm', '.mp3', '.flac', '.m4a', '.wav', '.opus']);
     const knownPaths = new Set(Array.from(jobs.values()).map(j => path.normalize(j.filePath || '')));
 
@@ -499,9 +593,24 @@ function findMediaFileByJobId(jobId) {
     }
   } catch (e) {}
 
-  // 3. Scan TEMP_DIR for prefixed files
+  // 3. Check job designatedFolder or downloadFolder if set
+  if (job && (job.designatedFolder || job.downloadFolder)) {
+    const targetFolder = job.designatedFolder || job.downloadFolder;
+    try {
+      if (fs.existsSync(targetFolder)) {
+        const dfFiles = safeReaddir(targetFolder).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl') && !f.endsWith('.aria2'));
+        let matched = dfFiles.find(f => f.startsWith(`${jobId}_`) || (job.filename && f === job.filename));
+        if (matched) {
+          const fullPath = path.join(targetFolder, matched);
+          return { filePath: fullPath, filename: matched.replace(`${jobId}_`, ''), job };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 4. Scan TEMP_DIR for prefixed files
   try {
-    const files = fs.readdirSync(TEMP_DIR).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl'));
+    const files = safeReaddir(TEMP_DIR).filter(f => !f.startsWith('.') && !f.endsWith('_parts') && !f.endsWith('.part') && !f.endsWith('.ytdl') && !f.endsWith('.aria2'));
 
     let matched = files.find(f => f.startsWith(`${jobId}_`));
     if (matched) {
@@ -882,9 +991,11 @@ function processDownloadQueue() {
 
   for (const job of jobs.values()) {
     if (job.status === 'queued') {
+      const isRule34 = (job.url && job.url.includes('rule34video.com')) ||
+                       (job.opts && (job.opts.extractor === 'Rule34Video' || (job.opts.downloadTargetUrl && job.opts.downloadTargetUrl.includes('rule34video.com'))));
       if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
         startTorrentJob(job);
-      } else if (job.url && (job.url.includes('workers.dev') || job.mode === 'direct_http')) {
+      } else if (job.mode === 'direct_http' || isRule34 || (job.url && job.url.includes('workers.dev'))) {
         startDirectHttpJob(job);
       } else if (job.mode === 'ddl_direct') {
         startDdlMovieResolver(job, job.opts || {});
@@ -921,6 +1032,151 @@ app.get('/api/health', (req, res) => {
     },
     downloadDir: TEMP_DIR
   });
+});
+
+// =========================================================================
+// Cam Stream Proxy & Mouflon v2 Decryption Engine (OMG.sexy & Stripchat)
+// =========================================================================
+const CAM_PDKEYS = {
+  'Ook7quaiNgiyuhai': 'EQueeGh2kaewa3ch',
+  'Zeechoej4aleeshi': 'ubahjae7goPoodi6'
+};
+
+const CAM_TOKEN_RE = /_(\d+)_([^_]+)_(\d+)/;
+
+function decryptMouflonSegmentUri(uri, pdkey) {
+  const m = uri.match(CAM_TOKEN_RE);
+  if (!m) return uri;
+  const encryptedPart = m[2];
+  const reversed = encryptedPart.split('').reverse().join('');
+  let padded = reversed;
+  const mod = reversed.length % 4;
+  if (mod === 2) padded += '==';
+  else if (mod === 3) padded += '=';
+  let decoded;
+  try {
+    decoded = Buffer.from(padded, 'base64');
+  } catch (e1) {
+    try {
+      decoded = Buffer.from(padded, 'base64url');
+    } catch (e2) {
+      return null;
+    }
+  }
+  const hash = crypto.createHash('sha256').update(pdkey).digest();
+  const out = Buffer.alloc(decoded.length);
+  for (let i = 0; i < decoded.length; i++) {
+    out[i] = decoded[i] ^ hash[i % 32];
+  }
+  const decStr = out.toString('utf8');
+  if (!/^[\x20-\x7e]+$/.test(decStr)) return null;
+  return uri.replace(m[2], decStr);
+}
+
+app.get('/api/cam-proxy/:streamName.m3u8', async (req, res) => {
+  const rawStream = req.params.streamName.replace(/\.m3u8$/i, '');
+  const masterUrl = `https://edge-hls.doppiocdn.org/hls/${rawStream}/master/${rawStream}_auto.m3u8`;
+
+  try {
+    const masterResp = await fetch(masterUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Referer': 'https://stripchat.com/',
+        'Origin': 'https://stripchat.com'
+      }
+    });
+
+    if (!masterResp.ok) {
+      return res.status(masterResp.status).send('Cam stream offline or master unavailable');
+    }
+
+    const masterBody = await masterResp.text();
+    let matchedPkey = null;
+    let matchedPdkey = null;
+    for (const line of masterBody.split('\n')) {
+      if (line.startsWith('#EXT-X-MOUFLON:PSCH:v2:')) {
+        const pk = line.split(':').pop().trim();
+        if (CAM_PDKEYS[pk]) {
+          matchedPkey = pk;
+          matchedPdkey = CAM_PDKEYS[pk];
+          break;
+        }
+      }
+    }
+
+    if (!matchedPkey) {
+      return res.status(404).send('No compatible mouflon key found in master manifest');
+    }
+
+    let subUrl = null;
+    for (const line of masterBody.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        subUrl = trimmed;
+        break;
+      }
+    }
+
+    if (!subUrl) {
+      return res.status(404).send('No variant stream found in master playlist');
+    }
+
+    const sep = subUrl.includes('?') ? '&' : '?';
+    const subUrlWithPkey = `${subUrl}${sep}psch=v2&pkey=${matchedPkey}`;
+
+    const subResp = await fetch(subUrlWithPkey, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Referer': 'https://stripchat.com/',
+        'Origin': 'https://stripchat.com'
+      },
+      redirect: 'manual'
+    });
+
+    if (subResp.status >= 300 && subResp.status < 400) {
+      return res.status(503).send('Stream temporarily redirected to promo teaser (model in private show or offline)');
+    }
+
+    const subBody = await subResp.text();
+    if (subBody.includes('#EXT-X-MOUFLON-ADVERT') || subBody.includes('cpa/v2/stream.m3u8')) {
+      return res.status(503).send('Advert stream detected (model in private show or offline)');
+    }
+
+    const lines = subBody.split('\n');
+    const outLines = [];
+    let pendingUri = null;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#EXT-X-MOUFLON:URI:')) {
+        const enc = trimmed.replace('#EXT-X-MOUFLON:URI:', '').trim();
+        const dec = decryptMouflonSegmentUri(enc, matchedPdkey);
+        pendingUri = dec || enc;
+        continue;
+      }
+      if (pendingUri && trimmed && !trimmed.startsWith('#')) {
+        outLines.push(pendingUri);
+        pendingUri = null;
+        continue;
+      }
+      if (trimmed.startsWith('#EXT-X-MOUFLON:PSCH:')) continue;
+      if (/^#EXT-X-(PART|PART-INF|PRELOAD-HINT|SERVER-CONTROL|RENDITION-REPORT):/.test(trimmed)) continue;
+      if (trimmed.startsWith('#EXTINF:') && !trimmed.endsWith(',')) {
+        outLines.push(trimmed + ',');
+        continue;
+      }
+      outLines.push(trimmed);
+    }
+
+    res.set({
+      'Content-Type': 'application/vnd.apple.mpegurl',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Access-Control-Allow-Origin': '*'
+    });
+    return res.send(outLines.join('\n'));
+  } catch (err) {
+    return res.status(500).send(`Cam proxy error: ${err.message}`);
+  }
 });
 
 // Download Directory Configuration
@@ -1328,7 +1584,7 @@ function ensureCategorySubfolders(baseFolder) {
   if (!baseFolder || typeof baseFolder !== 'string') return;
   const resolved = path.resolve(baseFolder.trim());
   const baseName = path.basename(resolved);
-  if (Object.values(CATEGORY_SUBFOLDERS).includes(baseName)) {
+  if (Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase())) {
     return;
   }
   for (const sub of Object.values(CATEGORY_SUBFOLDERS)) {
@@ -1761,7 +2017,8 @@ function finalizeJobPermanentStorage(job) {
     const category = getJobCategory(job);
     const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
     const baseName = path.basename(userFolder);
-    const targetFolder = Object.values(CATEGORY_SUBFOLDERS).includes(baseName)
+    const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
+    const targetFolder = isAlreadyTargetCategory
       ? userFolder
       : path.join(userFolder, subfolderName);
 
@@ -1778,8 +2035,11 @@ function finalizeJobPermanentStorage(job) {
       targetName = targetName.slice(job.id.length + 1);
     }
     targetName = targetName.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
-    targetName = targetName.replace(/[\\/:*?"<>|]/g, '_').trim();
-    if (!targetName) targetName = `${job.title || 'media'}_${Date.now()}`;
+    const ext = path.extname(targetName);
+    const base = path.basename(targetName, ext);
+    const safeBase = sanitizeAndTruncateFilename(base, 80);
+    targetName = `${safeBase}${ext}`;
+    if (!safeBase) targetName = `media_${Date.now()}${ext}`;
 
     let destPath = path.join(targetFolder, targetName);
     if (fs.existsSync(destPath) && path.resolve(destPath) !== path.resolve(job.filePath)) {
@@ -3405,7 +3665,7 @@ app.get('/api/admin/system-stats', requireAdmin, (req, res) => {
 
     try {
       if (fs.existsSync(TEMP_DIR)) {
-        const files = fs.readdirSync(TEMP_DIR);
+        const files = safeReaddir(TEMP_DIR);
         tempFileCount = files.length;
         for (const f of files) {
           try {
@@ -4253,7 +4513,7 @@ app.post('/api/admin/storage/delete-bulk', requireAdmin, (req, res) => {
     // Clean up empty directories in TEMP_DIR
     try {
       if (fs.existsSync(TEMP_DIR)) {
-        const subdirs = fs.readdirSync(TEMP_DIR, { withFileTypes: true }).filter(e => e.isDirectory());
+        const subdirs = safeReaddir(TEMP_DIR, { withFileTypes: true }).filter(e => e.isDirectory());
         for (const sub of subdirs) {
           const subPath = path.join(TEMP_DIR, sub.name);
           try {
@@ -6634,7 +6894,7 @@ function startTorrentJob(job) {
   }
 }
 
-function startDirectHttpJob(job) {
+async function startDirectHttpJob(job) {
   job.status = 'downloading';
   job.startTime = Date.now();
   job.progress.eta = 'Connecting to high-speed cloud stream...';
@@ -6642,13 +6902,72 @@ function startDirectHttpJob(job) {
   job.logs.push('Starting Direct Cloud stream acceleration via aria2c (32 connections)...');
   broadcastJobUpdate(job.id);
 
-  const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
-  const outDir = TEMP_DIR;
-  let rawBase = (job.filename || `${job.title}.mkv`).replace(/[\\/:*?"<>|]/g, '_');
-  if (!rawBase.endsWith('.mkv') && !rawBase.endsWith('.mp4') && !rawBase.endsWith('.webm')) {
-    rawBase += '.mkv';
+  // If downloadTargetUrl is not present and url is rule34video, extract it first
+  if ((!job.opts || !job.opts.downloadTargetUrl) && job.url && job.url.includes('rule34video.com')) {
+    try {
+      job.logs.push('Resolving Rule34 direct high-speed video streams...');
+      const meta = await extractMetadata(job.url);
+      if (meta) {
+        job.opts = job.opts || {};
+        job.opts.downloadTargetUrl = meta.downloadTargetUrl;
+        job.opts.directUrl = meta.directUrl;
+        job.opts.referer = meta.referer || 'https://rule34video.com/';
+        if (meta.title && !job.title) job.title = meta.title;
+        if (meta.poster && !job.poster) job.poster = meta.poster;
+        if (meta.streams) job.opts.streams = meta.streams;
+      }
+    } catch (e) {
+      job.logs.push(`Warning resolving Rule34 streams: ${e.message}`);
+    }
   }
-  const targetFilename = `${job.id}_${rawBase}`;
+
+  const ariaBin = process.platform === 'linux' ? '/usr/bin/aria2c' : 'aria2c';
+  const activeDir = (job.designatedFolder && fs.existsSync(job.designatedFolder)) ? job.designatedFolder : TEMP_DIR;
+  const outDir = activeDir;
+
+  let streamUrl = (job.opts && (job.opts.downloadTargetUrl || job.opts.directUrl)) || job.url;
+  if (job.opts && job.opts.streams && job.opts.videoQuality) {
+    const q = String(job.opts.videoQuality).toLowerCase();
+    const s = job.opts.streams;
+    if (q.includes('2160') || q.includes('4k')) {
+      streamUrl = s.video_alt_url4 || streamUrl;
+    } else if (q.includes('1080')) {
+      streamUrl = s.video_alt_url3 || streamUrl;
+    } else if (q.includes('720')) {
+      streamUrl = s.video_alt_url2 || streamUrl;
+    } else if (q.includes('480')) {
+      streamUrl = s.video_alt_url || streamUrl;
+    } else if (q.includes('360')) {
+      streamUrl = s.video_url || streamUrl;
+    }
+  }
+
+  let ext = '.mp4';
+  const cleanStreamUrl = (streamUrl || '').split('?')[0].toLowerCase();
+  if (cleanStreamUrl.endsWith('.mp4') || (streamUrl && streamUrl.includes('.mp4'))) {
+    ext = '.mp4';
+  } else if (cleanStreamUrl.endsWith('.mkv') || (streamUrl && streamUrl.includes('.mkv'))) {
+    ext = '.mkv';
+  } else if (cleanStreamUrl.endsWith('.webm') || (streamUrl && streamUrl.includes('.webm'))) {
+    ext = '.webm';
+  } else if (job.opts && job.opts.audioFormat) {
+    ext = `.${job.opts.audioFormat.toLowerCase().replace(/^\./, '')}`;
+  }
+
+  let titleBase = job.filename || job.title || 'media';
+  titleBase = titleBase.replace(/\.[^.]+$/, '');
+  const safeBase = sanitizeAndTruncateFilename(titleBase, 100);
+  const finalFileName = `${safeBase}${ext}`;
+  const targetFilename = `${job.id}_${finalFileName}`;
+
+  if (streamUrl && streamUrl.includes('rule34video.com/get_file/')) {
+    try {
+      const loc = execSync(`curl -sI -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" -e "https://rule34video.com/" "${streamUrl}" | grep -i "^location:" | awk '{print $2}'`, { timeout: 8000 }).toString().trim();
+      if (loc && (loc.startsWith('http://') || loc.startsWith('https://'))) {
+        streamUrl = loc;
+      }
+    } catch (e) {}
+  }
 
   const args = [
     '--dir=' + outDir,
@@ -6668,16 +6987,20 @@ function startDirectHttpJob(job) {
     '--auto-file-renaming=false',
     '--file-allocation=none',
     '--check-certificate=false',
-    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    '--header=User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     `--max-download-limit=${resolveUserBandwidthCap(job) || '0'}`,
     `--max-overall-download-limit=${resolveUserBandwidthCap(job) || '0'}`
   ];
 
-  if (job.url && (job.url.includes('workers.dev') || job.url.includes('omd-'))) {
+  if (job.opts && job.opts.referer) {
+    args.push(`--header=Referer: ${job.opts.referer}`);
+  } else if ((streamUrl && (streamUrl.includes('rule34video.com') || streamUrl.includes('boomio-cdn.com'))) || (job.url && job.url.includes('rule34video.com'))) {
+    args.push('--header=Referer: https://rule34video.com/');
+  } else if (streamUrl && (streamUrl.includes('workers.dev') || streamUrl.includes('omd-'))) {
     args.push('--header=Referer: https://drive.google.com/');
   }
 
-  args.push(job.url);
+  args.push(streamUrl);
 
   try {
     const child = spawn(ariaBin, args, { windowsHide: true });
@@ -6936,13 +7259,82 @@ app.post('/api/extract', async (req, res) => {
   }
 });
 
+// Helper to poll and automatically start recording when a livestream goes live
+function watchAndStartStream(job) {
+  const jobId = job.id;
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
+  }
+
+  job.status = 'waiting_for_stream';
+  job.isStreamWatcher = true;
+  job.progress.percent = 0;
+  job.progress.speed = 'Standby';
+  job.progress.eta = 'Waiting for stream...';
+  job.logs.push('📡 Stream Watcher engaged: Live broadcast is currently offline.');
+  job.logs.push('⏳ Standby monitoring active: Polling room every 15s. UniLoader will automatically start recording when the stream starts!');
+  broadcastJobUpdate(jobId);
+  processDownloadQueue();
+
+  const targetUrl = (job.opts && (job.opts.url || job.opts.sourceUrl)) || job.url;
+  let checkCount = 0;
+  const pollIntervalMs = 15000;
+
+  const poll = async () => {
+    const currentJob = jobs.get(jobId);
+    if (!currentJob || currentJob.status !== 'waiting_for_stream') {
+      activeStreamWatchers.delete(jobId);
+      return;
+    }
+
+    checkCount++;
+    try {
+      const meta = await extractMetadata(targetUrl, true);
+      if (meta && meta.hlsUrl && !meta.isOffline && !meta.isPrivate) {
+        currentJob.logs.push(`🔴 Stream broadcast started! Live master HLS stream detected: ${meta.hlsUrl}`);
+        currentJob.logs.push(`🚀 Engaging Universal Downloader live stream capture engine...`);
+
+        if (meta.title) currentJob.title = meta.title;
+        if (meta.poster) currentJob.poster = meta.poster;
+        currentJob.opts.hlsUrl = meta.hlsUrl;
+        currentJob.opts.downloadTargetUrl = meta.hlsUrl;
+        if (meta.camStreamName) currentJob.opts.camStreamName = meta.camStreamName;
+        currentJob.opts.isOffline = false;
+        currentJob.opts.isPrivate = false;
+        currentJob.isStreamWatcher = false;
+        activeStreamWatchers.delete(jobId);
+
+        startJobProcess(currentJob);
+        return;
+      } else {
+        const stateDesc = (meta && meta.isPrivate) ? 'in private show' : 'offline';
+        if (checkCount % 4 === 0) {
+          currentJob.logs.push(`[Stream Watcher] Polled at ${new Date().toLocaleTimeString()} - Model still ${stateDesc}. Standby monitoring active...`);
+          broadcastJobUpdate(jobId);
+        }
+      }
+    } catch (err) {
+      if (checkCount % 8 === 0) {
+        currentJob.logs.push(`[Stream Watcher] Notice: ${err.message || 'Waiting for live connection...'}`);
+        broadcastJobUpdate(jobId);
+      }
+    }
+
+    if (jobs.has(jobId) && jobs.get(jobId).status === 'waiting_for_stream') {
+      const timer = setTimeout(poll, pollIntervalMs);
+      activeStreamWatchers.set(jobId, timer);
+    } else {
+      activeStreamWatchers.delete(jobId);
+    }
+  };
+
+  const timer = setTimeout(poll, pollIntervalMs);
+  activeStreamWatchers.set(jobId, timer);
+}
+
 // Helper to start the actual process
 function startJobProcess(job) {
-  job.status = 'downloading';
-  job.startTime = Date.now();
-  job.progress.eta = 'Starting...';
-  broadcastJobUpdate(job.id);
-
   const { opts } = job;
   let {
     url, hlsUrl, downloadTargetUrl, mode, videoQuality, videoFormat,
@@ -6953,6 +7345,21 @@ function startJobProcess(job) {
   mode = mode || 'video';
   concurrentFragments = parseInt(concurrentFragments, 10) || 32;
   const rawTarget = downloadTargetUrl || hlsUrl || url || '';
+  const safeFileTitle = sanitizeAndTruncateFilename(job.title || 'media', 80);
+  const activeDir = (job.designatedFolder && fs.existsSync(job.designatedFolder)) ? job.designatedFolder : TEMP_DIR;
+
+  const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com')));
+  const isOfflineStream = opts.isStreamWatcher || (isCamNetwork && (opts.isOffline || opts.isPrivate || (job.title && (job.title.includes('(Offline)') || job.title.includes('(In Private Show)'))) || (!rawTarget && !hlsUrl)));
+
+  if (isOfflineStream) {
+    watchAndStartStream(job);
+    return;
+  }
+
+  job.status = 'downloading';
+  job.startTime = Date.now();
+  job.progress.eta = 'Starting...';
+  broadcastJobUpdate(job.id);
 
   const isJavGuru = (url && url.includes('jav.guru')) || (rawTarget && rawTarget.includes('maxstream.org'));
   const isSpotify = url && url.includes('spotify.com');
@@ -6973,8 +7380,8 @@ function startJobProcess(job) {
     const saavnScript = path.join(__dirname, 'jiosaavn_engine.py');
     const isFlac = (mode === 'audio' && audioFormat === 'flac');
     const ext = isFlac ? 'flac' : (audioFormat || 'm4a');
-    const safeTitle = (job.title || 'jiosaavn_track').replace(/[\\/:*?"<>|]/g, '_').trim();
-    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.${ext}`);
+    const safeTitle = safeFileTitle;
+    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}.${ext}`);
 
     job.logs.push(`Starting JioSaavn High-Fidelity Music Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -6993,8 +7400,8 @@ function startJobProcess(job) {
   } else if (isTikTok) {
     const pythonBin = getPythonBin();
     const ttScript = path.join(__dirname, 'tiktok_engine.py');
-    const safeTitle = (job.title || 'tiktok_media').replace(/[\\/:*?"<>|]/g, '_').trim();
-    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}`);
+    const safeTitle = safeFileTitle;
+    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}`);
 
     job.logs.push(`Starting TikTok Watermark-Free HD Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -7015,8 +7422,8 @@ function startJobProcess(job) {
   } else if (isInstagram) {
     const pythonBin = getPythonBin();
     const igScript = path.join(__dirname, 'instagram_engine.py');
-    const safeTitle = (job.title || 'instagram_media').replace(/[\\/:*?"<>|]/g, '_').trim();
-    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}`);
+    const safeTitle = safeFileTitle;
+    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}`);
 
     job.logs.push(`Starting Instagram FastCDN Video Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -7039,10 +7446,10 @@ function startJobProcess(job) {
     const spotifyScript = path.join(__dirname, 'spotify_downloader.py');
     const isFlac = (mode === 'audio' && audioFormat === 'flac');
     const ext = isFlac ? 'flac' : (audioFormat || 'mp3');
-    const safeTitle = (job.title || 'spotify_media').replace(/[\\/:*?"<>|]/g, '_').trim();
+    const safeTitle = safeFileTitle;
     const finalOutPath = isSpotifyPlaylistOrAlbum
-      ? path.join(TEMP_DIR, `${job.id}_${safeTitle}.zip`)
-      : path.join(TEMP_DIR, `${job.id}_${safeTitle}.${ext}`);
+      ? path.join(activeDir, `${job.id}_${safeTitle}.zip`)
+      : path.join(activeDir, `${job.id}_${safeTitle}.${ext}`);
 
     job.logs.push(`Starting SpotiFLAC-Next ${isFlac ? 'True Lossless FLAC' : (audioFormat || 'mp3').toUpperCase()} Engine...`);
     job.logs.push(`Target: ${url}`);
@@ -7062,8 +7469,8 @@ function startJobProcess(job) {
   } else if (isYouTubeFlac || isDeezerFlac || (isTidal && isAudioFlac) || mode === 'audiophile_flac' || (mode === 'audio' && audioFormat === 'flac')) {
     const pythonBin = getPythonBin();
     const audiophileScript = path.join(__dirname, 'audiophile_flac_engine.py');
-    const safeTitle = (job.title || 'audiophile_track').replace(/[\\/:*?"<>|]/g, '_').trim();
-    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeTitle}.flac`);
+    const safeTitle = safeFileTitle;
+    const finalOutPath = path.join(activeDir, `${job.id}_${safeTitle}.flac`);
 
     let artist = (opts && opts.artist) || '';
     let trackTitle = (opts && opts.trackTitle) || '';
@@ -7124,7 +7531,7 @@ function startJobProcess(job) {
   } else if (isJavGuru) {
     const pythonBin = getPythonBin();
     const hlsScript = path.join(__dirname, 'hls_downloader.py');
-    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${job.title}.mp4`);
+    const finalOutPath = path.join(TEMP_DIR, `${job.id}_${safeFileTitle}.mp4`);
 
     job.logs.push(`Starting JavGuru High-Speed Stream Engine...`);
     job.logs.push(`Target: ${url || rawTarget}`);
@@ -7148,7 +7555,7 @@ function startJobProcess(job) {
       concurrentFragments = Math.min(concurrentFragments, 6);
     }
 
-    const outputTemplate = path.join(TEMP_DIR, `${job.id}_${job.title}.%(ext)s`);
+    const outputTemplate = path.join(activeDir, `${job.id}_${safeFileTitle}.%(ext)s`);
     const args = [
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
@@ -7157,14 +7564,19 @@ function startJobProcess(job) {
       '--fragment-retries', String(isRateLimitedHost ? 50 : 30),
       '--retry-sleep', 'fragment:exp=1:20',
       '--retry-sleep', 'http:exp=1:20',
-      '--socket-timeout', isRateLimitedHost ? '30' : '20',
       '--hls-use-mpegts',
       '--newline',
-      '--no-skip-unavailable-fragments',
-      '--abort-on-unavailable-fragment',
+      '--trim-filenames', '80',
       '--js-runtimes', process.platform === 'win32' ? 'node' : (fs.existsSync('/usr/bin/node') ? 'node:/usr/bin/node' : 'node'),
       '-o', outputTemplate
     ];
+
+    const isLiveStream = isCamNetwork || (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('edge-hls') || rawTarget.includes('stripchat') || rawTarget.includes('omg.sexy')));
+    if (!isLiveStream) {
+      args.push('--no-skip-unavailable-fragments', '--abort-on-unavailable-fragment');
+    } else {
+      args.push('--skip-unavailable-fragments');
+    }
 
     const effectiveChunk = (engineConfig.httpChunkSize && engineConfig.httpChunkSize !== 'default' && engineConfig.httpChunkSize !== 'none')
       ? engineConfig.httpChunkSize
@@ -7313,6 +7725,18 @@ function startJobProcess(job) {
 
     const isJable = url && url.includes('jable.tv');
     let targetUrl = (isJable && hlsUrl) ? hlsUrl : (downloadTargetUrl || url);
+    if (hlsUrl && (isLiveStream || (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))))) {
+      targetUrl = hlsUrl;
+    }
+
+    const camStreamMatch = (targetUrl || '').match(/\/hls\/(\d+)\//) || (rawTarget || '').match(/\/hls\/(\d+)\//) || (hlsUrl || '').match(/\/hls\/(\d+)\//);
+    const resolvedCamStream = opts.camStreamName || (camStreamMatch ? camStreamMatch[1] : null);
+    if (resolvedCamStream && isCamNetwork) {
+      targetUrl = `http://127.0.0.1:${PORT}/api/cam-proxy/${resolvedCamStream}.m3u8`;
+      args.push('--add-header', 'Referer: https://stripchat.com/');
+    } else if (targetUrl && targetUrl.includes('omg.sexy') && !targetUrl.includes('.m3u8')) {
+      targetUrl = targetUrl.replace(/omg\.sexy/i, 'stripchat.com');
+    }
     if (opts.isMusicTrack && (!targetUrl || !targetUrl.startsWith('http'))) {
       const qArtist = (opts.artist || '').trim();
       const qTitle = (opts.trackTitle || opts.title || '').trim();
@@ -7463,13 +7887,41 @@ function attachProcessListeners(job, child) {
       job.progress.currentFrag = parseInt(fragMatch[1], 10);
       job.progress.totalFrag = parseInt(fragMatch[2], 10);
     }
+
+    // Parse ffmpeg live recording progress: frame= 1129 fps= 36 size= 9984KiB time=00:00:37.99 bitrate=2152.6kbits/s speed=1.17x
+    const ffmpegStatMatch = line.match(/frame=\s*(\d+).*?size=\s*([\d.]+\s*(?:KiB|MiB|GiB|KB|MB|GB)).*?time=\s*([\d:.]+).*?(?:bitrate=\s*([\d.]+\s*(?:kbits|mbits)\/s))?.*?speed=\s*([\d.]+x)?/i);
+    if (ffmpegStatMatch) {
+      job.isLiveCapture = true;
+      job.progress.downloadedSize = ffmpegStatMatch[2];
+      job.progress.totalSize = ffmpegStatMatch[2];
+      job.filesize = ffmpegStatMatch[2];
+      if (ffmpegStatMatch[4]) job.progress.speed = ffmpegStatMatch[4];
+      else if (ffmpegStatMatch[5]) job.progress.speed = ffmpegStatMatch[5];
+      job.progress.eta = `REC ${ffmpegStatMatch[3]}`;
+      job.progress.isLive = true;
+      job.progress.recordedDuration = ffmpegStatMatch[3];
+      job.progress.percent = 100;
+    }
   };
 
+  let lastFfmpegLogTime = 0;
   const handleLogLine = (rawLine, isErr = false) => {
     const clean = stripAnsi(rawLine).trim();
     if (!clean) return;
-    const finalLine = isErr && !clean.startsWith('[ERR]') ? `[ERR] ${clean}` : clean;
+
+    // Detect normal ffmpeg livestream status lines that should not be marked as [ERR]
+    const isFfmpegProgress = clean.startsWith('frame=') || clean.startsWith('[hls @') || clean.startsWith('[https @') || clean.startsWith('[http @') || clean.startsWith('Opening \'') || clean.startsWith('Opening ') || clean.startsWith('Input #') || clean.startsWith('Output #') || clean.startsWith('Stream #') || clean.startsWith('Metadata:') || clean.startsWith('Program ') || clean.startsWith('Duration:') || clean.startsWith('Press [q]') || clean.includes('Found duplicated MOOV') || clean.startsWith('video:') || clean.startsWith('audio:') || clean.startsWith('headers:') || clean.startsWith('Stream mapping:') || clean.startsWith('[tcp @') || clean.startsWith('[tls @') || clean.startsWith('[mp4 @') || clean.startsWith('[mpegts @') || clean.includes('fps=') || clean.includes('time=') || clean.includes('bitrate=') || clean.includes('speed=');
+
     parseProgress(clean);
+
+    // Throttle repetitive frame= logs so log view isn't overwhelmed
+    if (clean.startsWith('frame=')) {
+      const now = Date.now();
+      if (now - lastFfmpegLogTime < 3000) return;
+      lastFfmpegLogTime = now;
+    }
+
+    const finalLine = (isErr && !isFfmpegProgress && !clean.startsWith('[ERR]')) ? `[ERR] ${clean}` : clean;
     appendJobLog(job, finalLine);
   };
 
@@ -7508,13 +7960,90 @@ function attachProcessListeners(job, child) {
       return;
     }
 
-    if (code === 0) {
-      try {
-        const files = fs.readdirSync(TEMP_DIR);
-        // Find actual completed media file (strictly regular files, exclude directories and temporary artifacts)
-        let matched = files.find(f => {
+    const targetUrl = (job.opts && (job.opts.url || job.opts.sourceUrl)) || job.url || '';
+    const rawTarget = (job.opts && (job.opts.downloadTargetUrl || job.opts.hlsUrl)) || '';
+    const isCamNetwork = (targetUrl && (targetUrl.includes('omg.sexy') || targetUrl.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com'))) || (job.opts && !!job.opts.camStreamName);
+    const isLiveCapture = job.isLiveCapture || isCamNetwork || (targetUrl && (targetUrl.includes('/live/') || targetUrl.includes('chaturbate.com'))) || (rawTarget && (rawTarget.includes('edge-hls') || rawTarget.includes('cam-proxy')));
+
+    let activeScanDir = (job.designatedFolder && fs.existsSync(job.designatedFolder)) ? job.designatedFolder : TEMP_DIR;
+    try {
+      const files = safeReaddir(activeScanDir);
+
+      // 1. Check for live capture buffer (.part or .ytdl) to remux into clean MP4
+      const partFile = files.find(f => {
+        if (!f.startsWith(`${jobId}_`)) return false;
+        return f.endsWith('.part') || f.endsWith('.ytdl');
+      });
+
+      if (partFile) {
+        const partPath = path.join(activeScanDir, partFile);
+        let partStat = null;
+        try { partStat = fs.statSync(partPath); } catch (e) {}
+        if (partStat && partStat.size >= 1.5 * 1024 * 1024) {
+          const targetCleanPath = partPath.replace(/\.(part|ytdl)$/, '');
+          const ffmpegBin = tools.ffmpegDir ? path.join(tools.ffmpegDir, 'ffmpeg') : 'ffmpeg';
+          try {
+            job.logs.push(`[Finalizer] Remuxing live capture buffer (${(partStat.size / (1024 * 1024)).toFixed(1)} MB) into standard MP4...`);
+            execSync(`"${ffmpegBin}" -y -i "${partPath}" -c copy -movflags +faststart "${targetCleanPath}"`, { stdio: 'ignore', timeout: 30000 });
+            try { fs.unlinkSync(partPath); } catch (e) {}
+          } catch (remuxErr) {
+            job.logs.push(`[Finalizer] Remux note: ${remuxErr.message}. Renaming buffer directly...`);
+            try {
+              if (fs.existsSync(targetCleanPath)) fs.unlinkSync(targetCleanPath);
+              fs.renameSync(partPath, targetCleanPath);
+            } catch (renErr) {}
+          }
+        }
+      }
+
+      // 2. Locate completed media file
+      const refreshedFiles = safeReaddir(activeScanDir);
+      let matched = refreshedFiles.find(f => {
+        if (!f.startsWith(`${jobId}_`)) return false;
+        if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.endsWith('.aria2') || f.includes('_playlist_dir')) return false;
+        try {
+          const p = path.join(activeScanDir, f);
+          const st = fs.statSync(p);
+          return st.isFile() && st.size > 0;
+        } catch (e) {
+          return false;
+        }
+      });
+
+      // If freyr downloaded without prefix, find recent audio file
+      if (!matched && job.isFreyr) {
+        const musicFiles = refreshedFiles
+          .filter(f => f.endsWith('.m4a') || f.endsWith('.mp3') || f.endsWith('.flac'))
+          .map(f => ({ name: f, time: fs.statSync(path.join(activeScanDir, f)).mtimeMs }))
+          .sort((a, b) => b.time - a.time);
+        if (musicFiles.length > 0) {
+          const src = path.join(activeScanDir, musicFiles[0].name);
+          const dst = path.join(activeScanDir, `${jobId}_${musicFiles[0].name}`);
+          fs.renameSync(src, dst);
+          matched = `${jobId}_${musicFiles[0].name}`;
+        }
+      }
+
+      // Secondary fallback search if extension differed slightly in activeScanDir
+      if (!matched) {
+        matched = refreshedFiles.find(f => {
+          if (!f.includes(jobId)) return false;
+          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.aria2')) return false;
+          try {
+            const p = path.join(activeScanDir, f);
+            return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
+          } catch (e) {
+            return false;
+          }
+        });
+      }
+
+      // If still not matched and activeScanDir is not TEMP_DIR, fallback scan TEMP_DIR
+      if (!matched && activeScanDir !== TEMP_DIR) {
+        const tempFiles = safeReaddir(TEMP_DIR);
+        matched = tempFiles.find(f => {
           if (!f.startsWith(`${jobId}_`)) return false;
-          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.includes('_playlist_dir')) return false;
+          if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.temp') || f.endsWith('.aria2') || f.includes('_playlist_dir')) return false;
           try {
             const p = path.join(TEMP_DIR, f);
             const st = fs.statSync(p);
@@ -7523,107 +8052,113 @@ function attachProcessListeners(job, child) {
             return false;
           }
         });
-
-        // If freyr downloaded without prefix, find recent audio file
-        if (!matched && job.isFreyr) {
-          const musicFiles = files
-            .filter(f => f.endsWith('.m4a') || f.endsWith('.mp3') || f.endsWith('.flac'))
-            .map(f => ({ name: f, time: fs.statSync(path.join(TEMP_DIR, f)).mtimeMs }))
-            .sort((a, b) => b.time - a.time);
-          if (musicFiles.length > 0) {
-            const src = path.join(TEMP_DIR, musicFiles[0].name);
-            const dst = path.join(TEMP_DIR, `${jobId}_${musicFiles[0].name}`);
-            fs.renameSync(src, dst);
-            matched = `${jobId}_${musicFiles[0].name}`;
-          }
-        }
-
-        // Secondary fallback search if extension differed slightly
-        if (!matched) {
-          matched = files.find(f => {
-            if (!f.includes(jobId)) return false;
-            if (f.endsWith('_work') || f.endsWith('_parts') || f.endsWith('.part') || f.endsWith('.ytdl')) return false;
-            try {
-              const p = path.join(TEMP_DIR, f);
-              return fs.statSync(p).isFile() && fs.statSync(p).size > 0;
-            } catch (e) {
-              return false;
-            }
-          });
-        }
-
         if (matched) {
-          const originalExt = path.extname(matched);
-          const rawBase = matched.replace(`${jobId}_`, '');
-          let cleanBase = rawBase.replace(/\.[^.]+$/, '');
-          cleanBase = cleanBase.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
-          const cleanFilename = `${cleanBase}${originalExt}`;
-          
-          let cleanFilePath = path.join(TEMP_DIR, cleanFilename);
-          const rawFilePath = path.join(TEMP_DIR, matched);
-          
-          // Rename on disk to remove machine jobId prefix
-          if (rawFilePath !== cleanFilePath) {
-            try {
-              if (fs.existsSync(cleanFilePath)) {
-                try { fs.unlinkSync(cleanFilePath); } catch (e) {}
-              }
-              fs.renameSync(rawFilePath, cleanFilePath);
-              matched = cleanFilename;
-            } catch (renErr) {
-              console.warn('[Server] Notice renaming file:', renErr.message);
-              cleanFilePath = rawFilePath;
-            }
-          }
+          activeScanDir = TEMP_DIR;
+        }
+      }
 
-          job.filePath = cleanFilePath;
-          job.filename = cleanFilename;
+      // 3. Cam promo ad teaser guard: detect 20s promo clip (< 1.5 MB)
+      if (matched && isCamNetwork) {
+        const matchedPath = path.join(activeScanDir, matched);
+        let st;
+        try { st = fs.statSync(matchedPath); } catch (e) {}
+        if (st && st.size < 1.5 * 1024 * 1024) {
+          job.logs.push(`[Stream Guard] Detected promotional teaser clip (${(st.size / 1024).toFixed(1)} KiB, ~20s promo ad).`);
+          job.logs.push(`[Stream Guard] Purged promotional ad file. Re-engaging Standby Watcher to record actual public broadcast...`);
+          try { fs.unlinkSync(matchedPath); } catch (e) {}
+          matched = null;
+          job.status = 'waiting_for_stream';
+          job.opts.isOffline = true;
+          watchAndStartStream(job);
+          scheduleJobUpdate(jobId, true);
+          processDownloadQueue();
+          return;
+        }
+      }
 
-          // Purge any stray loose images from temp directory so only the single clean media file remains
+      // 4. File acceptance:
+      let fileStat = null;
+      if (matched) {
+        try { fileStat = fs.statSync(path.join(activeScanDir, matched)); } catch (e) {}
+      }
+
+      const isLiveAccepted = matched && fileStat && fileStat.size >= 1.5 * 1024 * 1024;
+      const isCleanSuccess = code === 0 && matched && fileStat && fileStat.size > 0;
+      const isStopAccepted = (job.isStopping || isLiveCapture) && matched && fileStat && fileStat.size > 0;
+
+      if (isCleanSuccess || isLiveAccepted || isStopAccepted) {
+        const originalExt = path.extname(matched);
+        const rawBase = matched.replace(`${jobId}_`, '');
+        let cleanBase = rawBase.replace(/\.[^.]+$/, '');
+        cleanBase = cleanBase.replace(/^job_[a-zA-Z0-9]+_[a-zA-Z0-9]+_/, '');
+        const cleanFilename = `${cleanBase}${originalExt}`;
+        
+        let cleanFilePath = path.join(activeScanDir, cleanFilename);
+        const rawFilePath = path.join(activeScanDir, matched);
+        
+        // Rename on disk to remove machine jobId prefix
+        if (rawFilePath !== cleanFilePath) {
           try {
-            const allDirFiles = fs.readdirSync(TEMP_DIR);
+            if (fs.existsSync(cleanFilePath)) {
+              try { fs.unlinkSync(cleanFilePath); } catch (e) {}
+            }
+            fs.renameSync(rawFilePath, cleanFilePath);
+            matched = cleanFilename;
+          } catch (renErr) {
+            console.warn('[Server] Notice renaming file:', renErr.message);
+            cleanFilePath = rawFilePath;
+          }
+        }
+
+        job.filePath = cleanFilePath;
+        job.filename = cleanFilename;
+
+        // Purge loose leftover images/parts from activeScanDir and TEMP_DIR
+        try {
+          const dirsToClean = new Set([activeScanDir, TEMP_DIR]);
+          for (const d of dirsToClean) {
+            const allDirFiles = safeReaddir(d);
             for (const f of allDirFiles) {
               if ((f.startsWith(`${jobId}_`) || f.startsWith(cleanBase) || f === 'cover.jpg') &&
-                  (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg') || f.endsWith('.webp') || f.endsWith('.part'))) {
-                try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
+                  (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg') || f.endsWith('.webp') || f.endsWith('.part') || f.endsWith('.ytdl') || f.endsWith('.aria2'))) {
+                try { fs.unlinkSync(path.join(d, f)); } catch (e) {}
               }
             }
-          } catch (e) {}
-
-          job.coverUrl = `/api/download-cover/${job.id}`;
-
-          const stat = fs.statSync(job.filePath);
-          if (stat.size > 0) {
-            finalizeJobPermanentStorage(job);
-            job.status = 'completed';
-            job.progress.percent = 100;
-            job.progress.eta = 'Ready';
-            job.logs.push('Processing completed! File ready in folder.');
-            job.filesize = stat.size > (1024 ** 3)
-              ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
-              : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
-            job.progress.totalSize = job.filesize;
-            saveJobsHistory();
-          } else {
-            job.status = 'failed';
-            job.error = 'Downloaded file was 0 bytes.';
-            job.logs.push('[ERR] Media file was empty (0 bytes).');
           }
+        } catch (e) {}
+
+        job.coverUrl = `/api/download-cover/${job.id}`;
+
+        const stat = fs.statSync(job.filePath);
+        if (stat.size > 0) {
+          finalizeJobPermanentStorage(job);
+          job.status = 'completed';
+          job.isStopping = false;
+          job.progress.percent = 100;
+          job.progress.eta = 'Ready';
+          job.logs.push(`Processing completed! File ready in folder (${(stat.size / (1024 * 1024)).toFixed(1)} MB).`);
+          job.filesize = stat.size > (1024 ** 3)
+            ? (stat.size / (1024 ** 3)).toFixed(2) + ' GB'
+            : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
+          job.progress.totalSize = job.filesize;
+          saveJobsHistory();
         } else {
           job.status = 'failed';
-          job.error = 'No output media file was generated.';
-          job.logs.push('[ERR] Media file was not found in temp directory.');
+          job.error = 'Downloaded file was 0 bytes.';
+          job.logs.push('[ERR] Media file was empty (0 bytes).');
         }
-      } catch (e) {
+      } else {
+        if (job.status !== 'cancelled' && job.status !== 'paused' && job.status !== 'waiting_for_stream') {
+          job.status = 'failed';
+          job.error = matched ? `Recording file below threshold (${fileStat ? (fileStat.size/1024).toFixed(0)+' KB' : 'empty'})` : `Engine exited with code ${code}`;
+          job.logs.push(`Process exited with code ${code}${matched ? ' (insufficient media size)' : ' (no output file)'}`);
+        }
+      }
+    } catch (e) {
+      if (job.status !== 'cancelled' && job.status !== 'paused' && job.status !== 'waiting_for_stream') {
         job.status = 'failed';
         job.error = e.message;
         job.logs.push(`[ERR] File verification error: ${e.message}`);
-      }
-    } else {
-      if (job.status !== 'cancelled' && job.status !== 'paused') {
-        job.status = 'failed';
-        job.error = `Engine exited with code ${code}`;
-        job.logs.push(`Process failed with exit code ${code}`);
       }
     }
     scheduleJobUpdate(jobId, true);
@@ -7637,7 +8172,8 @@ function createAndStartJob(opts) {
   } = opts;
 
   mode = mode || 'video';
-  const safeTitle = (customFilename || title || 'video_' + Date.now()).replace(/[\\/:*?"<>|]/g, '_').trim();
+  const displayTitle = decodeHtmlEntities(title || customFilename || 'video_' + Date.now()).trim();
+  const safeTitle = sanitizeAndTruncateFilename(customFilename || title || 'video_' + Date.now(), 80);
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
   const ext = (mode === 'audio' || mode === 'audiophile_flac') ? (audioFormat || (mode === 'audiophile_flac' ? 'flac' : 'mp3')) : (videoFormat && videoFormat !== 'auto' ? videoFormat : 'mp4');
@@ -7663,17 +8199,38 @@ function createAndStartJob(opts) {
       initialLogs.push('⚡ Bandwidth Allocation: Uncapped (Full Pipe Speed)');
     }
   }
+  let designatedFolder = null;
   if (assignedFolder) {
     const category = getJobCategory(opts);
     const subfolderName = CATEGORY_SUBFOLDERS[category] || 'Links';
-    initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${path.join(assignedFolder, subfolderName)}`);
+    const baseName = path.basename(assignedFolder);
+    const isAlreadyTargetCategory = Object.values(CATEGORY_SUBFOLDERS).some(c => c.toLowerCase() === baseName.toLowerCase()) || ['link', 'links'].includes(baseName.toLowerCase());
+    designatedFolder = isAlreadyTargetCategory ? assignedFolder : path.join(assignedFolder, subfolderName);
+    try {
+      if (!fs.existsSync(designatedFolder)) {
+        fs.mkdirSync(designatedFolder, { recursive: true });
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(designatedFolder, 0o775); } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    initialLogs.push(`📁 Permanent Storage [${subfolderName}]: Destination routed to ${designatedFolder}`);
   }
+
+  const isRule34 = (url && url.includes('rule34video.com')) ||
+                   (opts && (opts.extractor === 'Rule34Video' || (opts.downloadTargetUrl && opts.downloadTargetUrl.includes('rule34video.com'))));
+  if (isRule34) {
+    mode = 'direct_http';
+  }
+
+  const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (opts.downloadTargetUrl && (opts.downloadTargetUrl.includes('omg.sexy') || opts.downloadTargetUrl.includes('stripchat.com'))) || !!opts.camStreamName;
+  const isLiveStream = isCamNetwork || opts.isLiveCapture || (url && (url.includes('/live/') || url.includes('chaturbate.com'))) || (opts.hlsUrl && (opts.hlsUrl.includes('edge-hls') || opts.hlsUrl.includes('cam-proxy')));
 
   const job = {
     id: jobId,
     url,
     opts,
-    title: safeTitle,
+    title: displayTitle,
     code: code || 'MEDIA',
     poster: poster || '',
     mode,
@@ -7682,8 +8239,11 @@ function createAndStartJob(opts) {
     role,
     isOwner,
     isPremium,
-    downloadFolder: assignedFolder || '',
-    isPermanent: !!assignedFolder,
+    isLiveCapture: !!isLiveStream,
+    isLiveStream: !!isLiveStream,
+    downloadFolder: designatedFolder || assignedFolder || '',
+    designatedFolder: designatedFolder || null,
+    isPermanent: !!designatedFolder,
     filePath,
     filename: finalFilename,
     filesize: '',
@@ -7711,7 +8271,7 @@ function createAndStartJob(opts) {
   if (getActiveDownloadCount() < getMaxConcurrentDownloads()) {
     if (job.opts && (job.opts.magnet || job.opts.torrentUrl || job.opts.type === 'torrent')) {
       startTorrentJob(job);
-    } else if (job.url && (job.url.includes('workers.dev') || job.mode === 'direct_http')) {
+    } else if (job.mode === 'direct_http' || isRule34 || (job.url && job.url.includes('workers.dev'))) {
       startDirectHttpJob(job);
     } else if (job.mode === 'ddl_direct' || job.status === 'resolving_ddl') {
       startDdlMovieResolver(job);
@@ -7817,7 +8377,7 @@ app.post('/api/download', identifyUser, async (req, res) => {
       payload.type = 'direct_http';
     }
 
-    if (!title && !isDirectStream) {
+    if ((!title || !payload.downloadTargetUrl) && !isDirectStream) {
       try {
         const meta = await extractMetadata(url);
         payload.hlsUrl = meta.hlsUrl;
@@ -7825,8 +8385,21 @@ app.post('/api/download', identifyUser, async (req, res) => {
         payload.code = meta.code;
         payload.poster = meta.poster;
         payload.downloadTargetUrl = meta.downloadTargetUrl;
+        if (meta.directUrl) payload.directUrl = meta.directUrl;
         if (meta.referer) payload.referer = meta.referer;
+        if (meta.extractor) payload.extractor = meta.extractor;
+        if (meta.streams) payload.streams = meta.streams;
+        if (meta.camStreamName) payload.camStreamName = meta.camStreamName;
+        if (meta.isOffline) payload.isOffline = meta.isOffline;
+        if (meta.isPrivate) payload.isPrivate = meta.isPrivate;
+        if (meta.isOffline || meta.isPrivate) payload.isStreamWatcher = true;
       } catch (e) {}
+    }
+
+    if (payload.extractor === 'Rule34Video' || url.includes('rule34video.com') || (payload.downloadTargetUrl && payload.downloadTargetUrl.includes('rule34video.com'))) {
+      payload.mode = 'direct_http';
+      payload.type = 'direct_http';
+      if (!payload.referer) payload.referer = 'https://rule34video.com/';
     }
 
     const job = createAndStartJob(payload);
@@ -7899,13 +8472,21 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
         code: meta ? meta.code : '',
         poster: meta ? meta.poster : '',
         downloadTargetUrl: meta ? meta.downloadTargetUrl : '',
+        directUrl: (meta && meta.directUrl) ? meta.directUrl : '',
         referer: (meta && meta.referer) ? meta.referer : '',
+        extractor: (meta && meta.extractor) ? meta.extractor : '',
+        streams: (meta && meta.streams) ? meta.streams : undefined,
         ownerId: req.currentUser.userId,
         username: req.currentUser.username,
         role: req.currentUser.role,
         isOwner: req.currentUser.isOwner || req.currentUser.role === 'owner' || req.currentUser.userId === 'owner' || req.currentUser.username === 'sakura',
         isPremium: req.currentUser.isPremium
       };
+
+      if (meta && (meta.extractor === 'Rule34Video' || trimmed.includes('rule34video.com'))) {
+        jobOpts.mode = 'direct_http';
+        jobOpts.type = 'direct_http';
+      }
 
       const job = createAndStartJob(jobOpts);
       createdJobs.push({
@@ -7995,6 +8576,17 @@ function pauseJob(job) {
     broadcastJobUpdate(job.id);
     return true;
   }
+  if (job.status === 'waiting_for_stream') {
+    job.status = 'paused';
+    job.progress.eta = 'Paused';
+    job.logs.push('Stream watcher paused by user.');
+    if (activeStreamWatchers.has(job.id)) {
+      clearTimeout(activeStreamWatchers.get(job.id));
+      activeStreamWatchers.delete(job.id);
+    }
+    broadcastJobUpdate(job.id);
+    return true;
+  }
   if (job.status === 'downloading') {
     job.status = 'paused';
     job.progress.speed = '0 MB/s';
@@ -8030,6 +8622,13 @@ function resumeJob(job) {
   if (!job || job.status !== 'paused') return false;
 
   job.logs.push('Resuming download...');
+
+  if (job.isStreamWatcher || (job.opts && (job.opts.isStreamWatcher || job.opts.isOffline))) {
+    job.logs.push('Resuming stream watcher standby monitoring...');
+    watchAndStartStream(job);
+    return true;
+  }
+
   if (job.isSuspended && job.process && job.process.pid) {
     const pid = job.process.pid;
     if (process.platform !== 'win32') {
@@ -8112,7 +8711,7 @@ app.post('/api/jobs/pause-all', identifyUser, (req, res) => {
   let count = 0;
   for (const job of jobs.values()) {
     if ((job.ownerId || 'owner') === req.currentUser.userId || (req.query.all === '1' && req.currentUser.isOwner)) {
-      if (job.status === 'downloading' || job.status === 'queued') {
+      if (job.status === 'downloading' || job.status === 'queued' || job.status === 'waiting_for_stream') {
         if (pauseJob(job)) count++;
       }
     }
@@ -8135,6 +8734,57 @@ app.post('/api/jobs/resume-all', identifyUser, (req, res) => {
   res.json({ success: true, resumedCount: count });
 });
 
+// 8.5. Stop & Finalize Livestream Job
+app.post('/api/jobs/:id/stop', identifyUser, (req, res) => {
+  const jobId = req.params.id;
+  const job = jobs.get(jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  if (job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
+    return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
+
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
+  }
+
+  job.isStopping = true;
+  job.isLiveCapture = true;
+  job.logs.push('⏹️ [Stream] Stop requested by user. Finalizing and saving recorded stream...');
+  broadcastJobUpdate(jobId);
+
+  if (job.process) {
+    const pid = job.process.pid;
+    try {
+      if (job.process.stdin && job.process.stdin.writable) {
+        job.process.stdin.write('q\n');
+      }
+    } catch (e) {}
+
+    try {
+      job.process.kill('SIGINT');
+    } catch (e) {
+      try { job.process.kill('SIGTERM'); } catch (err) {}
+    }
+
+    // Failsafe: if process has not closed within 4 seconds, force close
+    setTimeout(() => {
+      if (job.process) {
+        try {
+          if (process.platform === 'win32') {
+            execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+          } else {
+            execSync(`kill -TERM ${pid} 2>/dev/null || kill -9 ${pid} 2>/dev/null`, { stdio: 'ignore' });
+          }
+        } catch (e) {}
+      }
+    }, 4000);
+  }
+
+  res.json({ success: true, message: 'Stopping recording and saving file...' });
+});
+
 // 9. Cancel Job (Tree termination & partial cleanup)
 app.post('/api/jobs/:id/cancel', identifyUser, (req, res) => {
   const jobId = req.params.id;
@@ -8147,6 +8797,11 @@ app.post('/api/jobs/:id/cancel', identifyUser, (req, res) => {
 
   job.status = 'cancelled';
   job.logs.push('Download cancelled by user.');
+
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
+  }
 
   if (job.process) {
     const pid = job.process.pid;
@@ -8164,7 +8819,7 @@ app.post('/api/jobs/:id/cancel', identifyUser, (req, res) => {
 
   // Clean temp files & parts folders
   try {
-    const files = fs.readdirSync(TEMP_DIR);
+    const files = safeReaddir(TEMP_DIR);
     for (const f of files) {
       if (f.startsWith(`${jobId}_`)) {
         const fullPath = path.join(TEMP_DIR, f);
@@ -8189,6 +8844,11 @@ app.delete('/api/jobs/:id', identifyUser, (req, res) => {
 
   if (job && job.ownerId && job.ownerId !== req.currentUser.userId && !req.currentUser.isOwner) {
     return res.status(403).json({ error: 'Permission denied: job belongs to another user' });
+  }
+
+  if (activeStreamWatchers.has(jobId)) {
+    clearTimeout(activeStreamWatchers.get(jobId));
+    activeStreamWatchers.delete(jobId);
   }
 
   if (job && job.process) {
@@ -8221,7 +8881,7 @@ app.delete('/api/jobs/:id', identifyUser, (req, res) => {
 
   // 3. Remove any prefixed files in TEMP_DIR
   try {
-    const files = fs.readdirSync(TEMP_DIR);
+    const files = safeReaddir(TEMP_DIR);
     for (const f of files) {
       if (f.startsWith(`${jobId}_`) || f.startsWith(`${jobId}.`) || f === jobId) {
         const fullPath = path.join(TEMP_DIR, f);
@@ -8259,7 +8919,7 @@ app.delete('/api/jobs', identifyUser, (req, res) => {
         if (job.filePath && !job.isPermanent && !isPermanentUserFile(job.filePath) && fs.existsSync(job.filePath)) {
           fs.rmSync(job.filePath, { recursive: true, force: true });
         }
-        const files = fs.readdirSync(TEMP_DIR);
+        const files = safeReaddir(TEMP_DIR);
         for (const f of files) {
           if (f.startsWith(`${id}_`) || f.startsWith(`${id}.`) || f === id) {
             const fullPath = path.join(TEMP_DIR, f);
@@ -8416,7 +9076,7 @@ app.get('/api/stream/:id', (req, res) => {
 setInterval(() => {
   try {
     const now = Date.now();
-    const files = fs.readdirSync(TEMP_DIR);
+    const files = safeReaddir(TEMP_DIR);
     for (const f of files) {
       const full = path.join(TEMP_DIR, f);
       if (isPermanentUserFile(full)) continue;
