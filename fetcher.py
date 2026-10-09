@@ -1583,7 +1583,7 @@ def extract_all(url):
                 username = m.group(1)
                 req_headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
                 }
 
@@ -1600,120 +1600,105 @@ def extract_all(url):
                 except Exception:
                     pass
 
-                resp = session.get(f"https://omg.sexy/{username}", headers=req_headers, timeout=12)
-                if resp.status_code != 200:
-                    resp = session.get(f"https://stripchat.com/{username}", headers=req_headers, timeout=12)
+                model_data = None
+                view_cam = {}
+                raw_data = ''
+                resp = None
+                try:
+                    resp = session.get(f"https://omg.sexy/{username}", headers=req_headers, timeout=12)
+                    if resp.status_code != 200:
+                        resp = session.get(f"https://stripchat.com/{username}", headers=req_headers, timeout=12)
+                    if resp and resp.status_code == 200:
+                        html_c = resp.text
+                        idx = html_c.find('window.__PRELOADED_STATE__')
+                        if idx != -1:
+                            eq_idx = html_c.find('=', idx)
+                            script_end = html_c.find('</script>', eq_idx)
+                            raw_data = html_c[eq_idx+1:script_end].strip()
+                            if raw_data.endswith(';'):
+                                raw_data = raw_data[:-1].strip()
+                            pdata = json.loads(raw_data)
+                            view_cam = pdata.get('viewCam', {})
+                            model_data = view_cam.get('model')
+                except Exception:
+                    pass
 
-                if resp.status_code == 200:
-                    html_c = resp.text
-                    idx = html_c.find('window.__PRELOADED_STATE__')
-                    if idx != -1:
-                        eq_idx = html_c.find('=', idx)
-                        script_end = html_c.find('</script>', eq_idx)
-                        raw_data = html_c[eq_idx+1:script_end].strip()
-                        if raw_data.endswith(';'):
-                            raw_data = raw_data[:-1].strip()
+                model_id = str(b_item.get('streamName') or b_item.get('modelId') or (model_data.get('id') if model_data else ''))
+                user_display = (model_data.get('username') if model_data else None) or username
 
-                        data = json.loads(raw_data)
-                        view_cam = data.get('viewCam', {})
-                        model_data = view_cam.get('model')
+                if model_id or model_data:
+                    stream_host = 'doppiocdn.org'
+                    if raw_data:
+                        raw_hosts = re.findall(r'[\x27\x22]hlsStreamHost[\x27\x22]\s*:\s*[\x27\x22]([^\x27\x22]+)[\x27\x22]', raw_data)
+                        if raw_hosts:
+                            stream_host = raw_hosts[0]
 
-                        if model_data:
-                            model_id = str(b_item.get('streamName') or b_item.get('modelId') or model_data.get('id'))
-                            user_display = model_data.get('username') or username
-                            
-                            # Real-time liveness and show status
-                            b_status = b_item.get('status') or model_data.get('status') or 'idle'
-                            b_is_live = b_item.get('isLive') if 'isLive' in b_item else model_data.get('isLive', False)
-                            
-                            active_show = view_cam.get('show')
-                            has_active_show = bool(active_show and not active_show.get('endedAt') and active_show.get('mode') in ['private', 'p2p', 'groupShow', 'ticketShow'])
-                            is_in_active_private = has_active_show or (b_status in ['private', 'p2p', 'groupShow', 'ticketShow'])
-                            is_live = bool(b_is_live and b_status == 'public' and not is_in_active_private)
+                    # Real-time CDN master playlist probe
+                    cdn_live = False
+                    if model_id:
+                        try:
+                            chk = session.head(
+                                f"https://edge-hls.{stream_host}/hls/{model_id}/master/{model_id}_auto.m3u8",
+                                headers={'User-Agent': req_headers['User-Agent'], 'Referer': f'https://stripchat.com/{username}'},
+                                timeout=4
+                            )
+                            if chk.status_code == 200:
+                                cdn_live = True
+                        except Exception:
+                            pass
 
-                            poster = model_data.get('previewUrl') or model_data.get('snapshotUrl') or model_data.get('avatarUrl') or f"https://img.strpst.com/thumbs/{model_id}/{model_id}.jpg"
-                            tags = model_data.get('tags') or []
-                            if isinstance(tags, list):
-                                tags = [str(t) for t in tags[:10]]
-                            else:
-                                tags = []
+                    b_status = str(b_item.get('status') or (model_data.get('status') if model_data else '') or 'off').lower()
+                    b_is_live = bool(b_item.get('isLive')) if 'isLive' in b_item else (bool(model_data.get('isLive')) if model_data else False)
 
-                            if is_in_active_private:
-                                return {
-                                    'title': f"omg.sexy - {user_display} (In Private Show)",
-                                    'code': f"OMG-{user_display.upper()}",
-                                    'poster': poster,
-                                    'hlsUrl': '',
-                                    'downloadTargetUrl': '',
-                                    'tags': tags or ['omg.sexy', 'Private Show'],
-                                    'model': user_display,
-                                    'camStreamName': model_id,
-                                    'duration': 'PRIVATE',
-                                    'extractor': 'omg.sexy (Stripchat)',
-                                    'sourceUrl': url,
-                                    'maxHeight': 0,
-                                    'maxFps': 0,
-                                    'qualityLabel': 'In Private Show',
-                                    'isPrivate': True,
-                                    'statusMessage': f"Model {user_display} is currently in a private show ({b_status}). Standby active..."
-                                }
+                    # Model is live if API reports isLive, or CDN master playlist is active (200), or status indicates active broadcast
+                    is_live = bool(b_is_live or cdn_live or (b_status not in ['off', 'none', 'idle_offline', 'offline'] and b_status != ''))
 
-                            if not is_live:
-                                return {
-                                    'title': f"omg.sexy - {user_display} (Offline)",
-                                    'code': f"OMG-{user_display.upper()}",
-                                    'poster': poster,
-                                    'hlsUrl': '',
-                                    'downloadTargetUrl': '',
-                                    'tags': tags or ['omg.sexy', 'Offline'],
-                                    'model': user_display,
-                                    'camStreamName': model_id,
-                                    'duration': 'OFFLINE',
-                                    'extractor': 'omg.sexy (Stripchat)',
-                                    'sourceUrl': url,
-                                    'maxHeight': 0,
-                                    'maxFps': 0,
-                                    'qualityLabel': 'Model Offline',
-                                    'isOffline': True,
-                                    'statusMessage': f"Model {user_display} is currently offline. Stream is not broadcasting."
-                                }
+                    poster = (model_data.get('previewUrl') if model_data else None) or (model_data.get('snapshotUrl') if model_data else None) or f"https://img.strpst.com/thumbs/{model_id}/{model_id}.jpg"
+                    tags = (model_data.get('tags') if model_data else None) or []
+                    if isinstance(tags, list):
+                        tags = [str(t) for t in tags[:10]]
+                    else:
+                        tags = []
 
-                            # Resolve HLS host
-                            stream_host = None
-                            config_v3 = data.get('configV3', {}) or data.get('config', {})
-                            if isinstance(config_v3, dict):
-                                static_feat = (config_v3.get('static') or {}).get('features') or (config_v3.get('static') or {}).get('featuresV2') or {}
-                                fb_domains = (static_feat.get('hlsFallback') or {}).get('fallbackDomains')
-                                if fb_domains and isinstance(fb_domains, list) and len(fb_domains) > 0:
-                                    stream_host = fb_domains[0]
+                    if not is_live:
+                        return {
+                            'title': f"omg.sexy - {user_display} (Offline)",
+                            'code': f"OMG-{user_display.upper()}",
+                            'poster': poster,
+                            'hlsUrl': '',
+                            'downloadTargetUrl': '',
+                            'tags': tags or ['omg.sexy', 'Offline'],
+                            'model': user_display,
+                            'camStreamName': model_id,
+                            'duration': 'OFFLINE',
+                            'extractor': 'omg.sexy (Stripchat)',
+                            'sourceUrl': url,
+                            'maxHeight': 0,
+                            'maxFps': 0,
+                            'qualityLabel': 'Model Offline',
+                            'isOffline': True,
+                            'statusMessage': f"Model {user_display} is currently offline ({b_status}). Stream is not broadcasting."
+                        }
 
-                            if not stream_host:
-                                raw_hosts = re.findall(r'"hlsStreamHost":\s*"([^"]+)"', raw_data)
-                                if raw_hosts:
-                                    stream_host = raw_hosts[0]
+                    master_hls = f"https://edge-hls.{stream_host}/hls/{model_id}/master/{model_id}_auto.m3u8"
+                    title = f"omg.sexy - {user_display} Live Stream"
 
-                            if not stream_host:
-                                stream_host = 'doppiocdn.org'
-
-                            master_hls = f"https://edge-hls.{stream_host}/hls/{model_id}/master/{model_id}_auto.m3u8"
-                            title = f"omg.sexy - {user_display} Live Stream"
-
-                            return {
-                                'title': title,
-                                'code': f"OMG-{user_display.upper()}",
-                                'poster': poster,
-                                'hlsUrl': master_hls,
-                                'downloadTargetUrl': master_hls,
-                                'camStreamName': model_id,
-                                'tags': tags,
-                                'model': user_display,
-                                'duration': 'LIVE',
-                                'extractor': 'omg.sexy (Stripchat)',
-                                'sourceUrl': url,
-                                'maxHeight': 1080,
-                                'maxFps': 30,
-                                'qualityLabel': 'Source HD'
-                            }
+                    return {
+                        'title': title,
+                        'code': f"OMG-{user_display.upper()}",
+                        'poster': poster,
+                        'hlsUrl': master_hls,
+                        'downloadTargetUrl': master_hls,
+                        'camStreamName': model_id,
+                        'tags': tags,
+                        'model': user_display,
+                        'duration': 'LIVE',
+                        'extractor': 'omg.sexy (Stripchat)',
+                        'sourceUrl': url,
+                        'maxHeight': 1080,
+                        'maxFps': 30,
+                        'qualityLabel': 'Source HD'
+                    }
         except Exception:
             pass
 

@@ -7326,9 +7326,13 @@ function watchAndStartStream(job) {
   broadcastJobUpdate(jobId);
   processDownloadQueue();
 
-  const targetUrl = (job.opts && (job.opts.url || job.opts.sourceUrl)) || job.url;
+  const targetUrl = (job.opts && (job.opts.url || job.opts.sourceUrl)) || job.url || '';
   let checkCount = 0;
   const pollIntervalMs = 15000;
+
+  const camMatch = targetUrl.match(/(?:omg\.sexy|stripchat\.com)\/([a-zA-Z0-9_\-]+)/i);
+  const camUsername = camMatch ? camMatch[1] : null;
+  const isCamNetwork = Boolean(camUsername) || targetUrl.includes('omg.sexy') || targetUrl.includes('stripchat.com');
 
   const poll = async () => {
     const currentJob = jobs.get(jobId);
@@ -7339,28 +7343,156 @@ function watchAndStartStream(job) {
 
     checkCount++;
     try {
-      const meta = await extractMetadata(targetUrl, true);
-      if (meta && meta.hlsUrl && !meta.isOffline && !meta.isPrivate) {
-        currentJob.logs.push(`🔴 Stream broadcast started! Live master HLS stream detected: ${meta.hlsUrl}`);
-        currentJob.logs.push(`🚀 Engaging Universal Downloader live stream capture engine...`);
+      if (isCamNetwork && camUsername) {
+        // Fast dual-layer detection for cam platforms (0 process overhead, 100% reliable)
+        let resolvedStreamName = (currentJob.opts && currentJob.opts.camStreamName) || null;
+        let isLive = false;
+        let isAdvertOrPromo = false;
+        let currentStatus = 'off';
 
-        if (meta.title) currentJob.title = meta.title;
-        if (meta.poster) currentJob.poster = meta.poster;
-        currentJob.opts.hlsUrl = meta.hlsUrl;
-        currentJob.opts.downloadTargetUrl = meta.hlsUrl;
-        if (meta.camStreamName) currentJob.opts.camStreamName = meta.camStreamName;
-        currentJob.opts.isOffline = false;
-        currentJob.opts.isPrivate = false;
-        currentJob.isStreamWatcher = false;
-        activeStreamWatchers.delete(jobId);
+        // 1. Direct API check (omg.sexy / stripchat broadcast API)
+        try {
+          const apiResp = await fetch(`https://omg.sexy/api/front/v1/broadcasts/${camUsername}`, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+              'Accept': 'application/json, text/plain, */*',
+              'Referer': 'https://stripchat.com/'
+            },
+            signal: AbortSignal.timeout(6000)
+          });
+          if (apiResp.ok) {
+            const data = await apiResp.json();
+            const bModel = data?.model || data;
+            if (bModel) {
+              if (bModel.streamName || bModel.id) {
+                resolvedStreamName = String(bModel.streamName || bModel.id);
+                currentJob.opts.camStreamName = resolvedStreamName;
+              }
+              const bLive = Boolean(bModel.isLive);
+              currentStatus = String(bModel.status || '').toLowerCase();
+              if (bLive || (currentStatus && !['off', 'offline', 'none', 'idle_offline'].includes(currentStatus))) {
+                isLive = true;
+              }
+            }
+          }
+        } catch (apiErr) {
+          try {
+            const scResp = await fetch(`https://stripchat.com/api/front/v1/broadcasts/${camUsername}`, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*'
+              },
+              signal: AbortSignal.timeout(6000)
+            });
+            if (scResp.ok) {
+              const scData = await scResp.json();
+              const scModel = scData?.model || scData;
+              if (scModel) {
+                if (scModel.streamName || scModel.id) {
+                  resolvedStreamName = String(scModel.streamName || scModel.id);
+                  currentJob.opts.camStreamName = resolvedStreamName;
+                }
+                const scLive = Boolean(scModel.isLive);
+                currentStatus = String(scModel.status || '').toLowerCase();
+                if (scLive || (currentStatus && !['off', 'offline', 'none', 'idle_offline'].includes(currentStatus))) {
+                  isLive = true;
+                }
+              }
+            }
+          } catch (scErr) {}
+        }
 
-        startJobProcess(currentJob);
-        return;
+        // 2. Direct edge CDN master playlist probe
+        let cdnActive = false;
+        if (resolvedStreamName) {
+          try {
+            const cdnMaster = `https://edge-hls.doppiocdn.org/hls/${resolvedStreamName}/master/${resolvedStreamName}_auto.m3u8`;
+            const cdnResp = await fetch(cdnMaster, {
+              method: 'HEAD',
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                'Referer': `https://stripchat.com/${camUsername}`
+              },
+              signal: AbortSignal.timeout(4000)
+            });
+            if (cdnResp.status === 200) {
+              cdnActive = true;
+              isLive = true;
+            }
+          } catch (cdnErr) {}
+        }
+
+        // 3. Local cam-proxy verification (detects real decrypted video vs 503 advert loops)
+        if (resolvedStreamName && (isLive || cdnActive)) {
+          try {
+            const proxyResp = await fetch(`http://127.0.0.1:${PORT}/api/cam-proxy/${resolvedStreamName}.m3u8`, {
+              headers: { 'User-Agent': 'UniLoader-Watcher' },
+              signal: AbortSignal.timeout(5000)
+            });
+            if (proxyResp.status === 200) {
+              isLive = true;
+              isAdvertOrPromo = false;
+            } else if (proxyResp.status === 503) {
+              isAdvertOrPromo = true;
+              isLive = false;
+            }
+          } catch (pErr) {}
+        }
+
+        if (isLive && resolvedStreamName && !isAdvertOrPromo) {
+          const masterHls = `https://edge-hls.doppiocdn.org/hls/${resolvedStreamName}/master/${resolvedStreamName}_auto.m3u8`;
+          currentJob.logs.push(`🔴 Stream broadcast started! Live master HLS stream detected: ${masterHls}`);
+          currentJob.logs.push(`🚀 Engaging Universal Downloader live stream capture engine...`);
+
+          const baseCleanTitle = (currentJob.title || `omg.sexy - ${camUsername}`)
+            .replace(/\s*\((?:Offline|In Private Show)\)/gi, '')
+            .trim();
+          currentJob.title = baseCleanTitle.toLowerCase().includes('live') ? baseCleanTitle : `${baseCleanTitle} Live Stream`;
+          currentJob.opts.title = currentJob.title;
+          currentJob.opts.hlsUrl = masterHls;
+          currentJob.opts.downloadTargetUrl = masterHls;
+          currentJob.opts.camStreamName = resolvedStreamName;
+          currentJob.opts.isOffline = false;
+          currentJob.opts.isPrivate = false;
+          currentJob.opts.isStreamWatcher = false;
+          currentJob.isStreamWatcher = false;
+          activeStreamWatchers.delete(jobId);
+
+          startJobProcess(currentJob);
+          return;
+        } else {
+          const stateDesc = isAdvertOrPromo ? 'in private show / promo teaser' : (currentStatus !== 'off' && currentStatus !== '' ? `status: ${currentStatus}` : 'offline');
+          if (checkCount % 4 === 0) {
+            currentJob.logs.push(`[Stream Watcher] Polled at ${new Date().toLocaleTimeString()} - Model ${stateDesc}. Standby monitoring active...`);
+            broadcastJobUpdate(jobId);
+          }
+        }
       } else {
-        const stateDesc = (meta && meta.isPrivate) ? 'in private show' : 'offline';
-        if (checkCount % 4 === 0) {
-          currentJob.logs.push(`[Stream Watcher] Polled at ${new Date().toLocaleTimeString()} - Model still ${stateDesc}. Standby monitoring active...`);
-          broadcastJobUpdate(jobId);
+        // Fallback for non-cam live platforms
+        const meta = await extractMetadata(targetUrl, true);
+        if (meta && meta.hlsUrl && !meta.isOffline) {
+          currentJob.logs.push(`🔴 Stream broadcast started! Live master HLS stream detected: ${meta.hlsUrl}`);
+          currentJob.logs.push(`🚀 Engaging Universal Downloader live stream capture engine...`);
+
+          if (meta.title) currentJob.title = meta.title.replace(/\s*\((?:Offline|In Private Show)\)/gi, '').trim();
+          if (meta.poster) currentJob.poster = meta.poster;
+          currentJob.opts.hlsUrl = meta.hlsUrl;
+          currentJob.opts.downloadTargetUrl = meta.hlsUrl;
+          if (meta.camStreamName) currentJob.opts.camStreamName = meta.camStreamName;
+          currentJob.opts.isOffline = false;
+          currentJob.opts.isPrivate = false;
+          currentJob.opts.isStreamWatcher = false;
+          currentJob.isStreamWatcher = false;
+          activeStreamWatchers.delete(jobId);
+
+          startJobProcess(currentJob);
+          return;
+        } else {
+          const stateDesc = (meta && meta.isPrivate) ? 'in private show' : 'offline';
+          if (checkCount % 4 === 0) {
+            currentJob.logs.push(`[Stream Watcher] Polled at ${new Date().toLocaleTimeString()} - Model still ${stateDesc}. Standby monitoring active...`);
+            broadcastJobUpdate(jobId);
+          }
         }
       }
     } catch (err) {
@@ -7397,7 +7529,11 @@ function startJobProcess(job) {
   const safeFileTitle = sanitizeAndTruncateFilename(job.title || 'media', 80);
 
   const isCamNetwork = (url && (url.includes('omg.sexy') || url.includes('stripchat.com'))) || (rawTarget && (rawTarget.includes('omg.sexy') || rawTarget.includes('stripchat.com')));
-  const isOfflineStream = opts.isStreamWatcher || (isCamNetwork && (opts.isOffline || opts.isPrivate || (job.title && (job.title.includes('(Offline)') || job.title.includes('(In Private Show)'))) || (!rawTarget && !hlsUrl)));
+  const hasActiveStreamTarget = Boolean(hlsUrl || (downloadTargetUrl && downloadTargetUrl.includes('.m3u8')));
+  const isExplicitOffline = Boolean(opts.isOffline || opts.isPrivate);
+  const isOfflineStream = (opts.isStreamWatcher && !hasActiveStreamTarget) || 
+                          (isCamNetwork && isExplicitOffline && !hasActiveStreamTarget) ||
+                          (isCamNetwork && !rawTarget && !hlsUrl);
 
   if (isOfflineStream) {
     watchAndStartStream(job);
