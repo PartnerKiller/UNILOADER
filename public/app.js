@@ -217,12 +217,31 @@ function getClientId() {
   return cid;
 }
 
+function regenerateClientId() {
+  const newCid = 'client_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
+  localStorage.setItem('sakura_client_id', newCid);
+  return newCid;
+}
+
+function clearAllAuthTokens() {
+  userAuthToken = '';
+  localStorage.removeItem('sakura_user_token');
+  sessionStorage.removeItem('sakura_user_token');
+  localStorage.removeItem('sakura_admin_token');
+  sessionStorage.removeItem('sakura_admin_token');
+  localStorage.removeItem('sakura_token');
+  sessionStorage.removeItem('sakura_token');
+  localStorage.removeItem('sakura_admin_remembered_user');
+  localStorage.removeItem('sakura_remembered_username');
+  localStorage.removeItem('sakura_remember_me');
+}
+
 function canAccess(featureKey) {
   if (featureKey === 'flac_checker') {
     return true;
   }
-  if (!currentUser) {
-    return featureKey === 'downloader';
+  if (!currentUser || currentUser.role === 'guest') {
+    return featureKey === 'downloader' || featureKey === 'flac_checker';
   }
   if (currentUser.isOwner || currentUser.role === 'owner' || currentUser.role === 'admin' || currentUser.username?.toLowerCase() === 'sakura') {
     return true;
@@ -431,7 +450,7 @@ function updateAuthUI(user, limits) {
       el.style.display = 'flex';
     });
 
-    if (sidebarUserName) sidebarUserName.textContent = 'Guest Visitor';
+    if (sidebarUserName) sidebarUserName.textContent = 'Guest';
     if (sidebarUserRole) {
       sidebarUserRole.textContent = 'GUEST ACCESS';
       sidebarUserRole.className = 'badge-tier badge-tier-guest';
@@ -444,7 +463,7 @@ function updateAuthUI(user, limits) {
     if (sidebarAuthBtn) sidebarAuthBtn.classList.remove('btn-user-active');
 
     if (mobileAuthBtnText) mobileAuthBtnText.textContent = 'Sign In';
-    if (drawerUserName) drawerUserName.textContent = 'Guest Visitor';
+    if (drawerUserName) drawerUserName.textContent = 'Guest';
     if (drawerUserRole) {
       drawerUserRole.textContent = 'GUEST ACCESS';
       drawerUserRole.className = 'badge-tier badge-tier-guest';
@@ -460,7 +479,7 @@ function updateAuthUI(user, limits) {
     if (applyMemberBox) applyMemberBox.style.display = 'none';
   }
 
-  // Dynamic navigation item visibility based on assigned role permissions
+  // Dynamic navigation item visibility: keep navigation hubs visible for discovery unless explicitly disabled by admin config
   const navFeatureMap = [
     { feat: 'movies', selectors: ['#navMovies', '#drawerNavMovies'] },
     { feat: 'music', selectors: ['#navMusic', '#drawerNavMusic'] },
@@ -469,10 +488,10 @@ function updateAuthUI(user, limits) {
   ];
 
   navFeatureMap.forEach(item => {
-    const isAllowed = canAccess(item.feat);
+    const isExplicitlyDisabled = currentUser && currentUser.features && currentUser.features[item.feat] === false;
     item.selectors.forEach(sel => {
       const el = document.querySelector(sel);
-      if (el) el.style.display = isAllowed ? 'flex' : 'none';
+      if (el) el.style.display = isExplicitlyDisabled ? 'none' : 'flex';
     });
   });
 
@@ -990,11 +1009,26 @@ function setupAuthModalEvents() {
       try {
         await fetch('/api/auth/logout', { method: 'POST' });
       } catch (e) {}
-      userAuthToken = '';
-      localStorage.removeItem('sakura_user_token');
-      sessionStorage.removeItem('sakura_user_token');
+
+      // 1. Wipe all local/session tokens & credentials completely
+      clearAllAuthTokens();
       currentUser = null;
+
+      // 2. Immediately purge all active tasks & listeners from DOM
+      renderJobsList([]);
+      activeJobStatusTracker.clear();
+      for (const [jid, es] of activeEventSources.entries()) {
+        try { es.close(); } catch (e) {}
+      }
+      activeEventSources.clear();
+
+      // 3. Reset client identity for clean guest session
+      regenerateClientId();
+
+      // 4. Update UI to Guest state
       updateAuthUI(null, null);
+
+      // 5. Reconnect clean SSE and fetch jobs for guest
       if (typeof restartJobsSSE === 'function') restartJobsSSE();
       if (typeof loadJobs === 'function') loadJobs();
       closeAccountModal();
@@ -1274,6 +1308,16 @@ function switchView(viewName, forceAllow = false) {
   };
 
   if (!forceAllow && viewToFeature[viewName] && !canAccess(viewToFeature[viewName])) {
+    if (!currentUser || currentUser.role === 'guest') {
+      const featNames = {
+        movies: 'Movie & TV Hub',
+        music: 'Music Hub',
+        'flac-checker': 'FLAC Checker',
+        'adult-search': 'Adult & JAV Hub'
+      };
+      openAuthModal('login', `Please sign in or apply for access to use ${featNames[viewName] || 'this feature'}.`);
+      return;
+    }
     switchView('downloader');
     return;
   }
@@ -5122,6 +5166,12 @@ function initAiFeatures() {
 
   if (btnAiCopilotTrigger && aiCopilotContainer) {
     btnAiCopilotTrigger.addEventListener('click', () => {
+      const isOwner = currentUser && (currentUser.isOwner || currentUser.role === 'owner' || currentUser.username?.toLowerCase() === 'sakura');
+      const hasAiAccess = isOwner || canAccess('ai_copilot');
+      if (!currentUser || currentUser.role === 'guest' || !hasAiAccess) {
+        openAuthModal('login', 'Please sign in or apply for access to use Gemini AI Media Copilot.');
+        return;
+      }
       const isHidden = aiCopilotContainer.style.display === 'none' || !aiCopilotContainer.style.display;
       aiCopilotContainer.style.display = isHidden ? 'flex' : 'none';
       btnAiCopilotTrigger.classList.toggle('active', isHidden);

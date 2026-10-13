@@ -890,8 +890,9 @@ function formatJobSummary(job, detailed = false) {
 
 function getJobsForUser(currentUser, options = {}) {
   const isOwner = currentUser && (currentUser.isOwner || currentUser.role === 'owner' || currentUser.userId === 'owner' || currentUser.username?.toLowerCase() === 'sakura');
+  const isGuest = !currentUser || currentUser.role === 'guest';
   const targetUserId = currentUser ? currentUser.userId : null;
-  const showAll = Boolean(options.all || isOwner);
+  const showAll = Boolean((options.all || isOwner) && !isGuest);
 
   const result = [];
   for (const job of jobs.values()) {
@@ -2631,11 +2632,22 @@ app.post('/api/auth/logout', identifyUser, (req, res) => {
     token = authHeader.substring(7).trim();
   } else if (req.headers['x-user-token']) {
     token = req.headers['x-user-token'];
+  } else if (req.headers['x-admin-token']) {
+    token = req.headers['x-admin-token'];
   }
-  if (token && userSessions.has(token)) {
-    userSessions.delete(token);
-    saveUserSessions();
+  if (token) {
+    if (userSessions.has(token)) {
+      userSessions.delete(token);
+      saveUserSessions();
+    }
+    if (adminSessions.has(token)) {
+      adminSessions.delete(token);
+      saveAdminSessions();
+    }
   }
+  res.clearCookie('token');
+  res.clearCookie('user_token');
+  res.clearCookie('admin_token');
   res.json({ success: true });
 });
 

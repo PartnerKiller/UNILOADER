@@ -63,19 +63,19 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Downloader</span>
         </button>
-        <button type="button" class="nav-item user-only-nav" data-view="movies" id="navMovies">
+        <button type="button" class="nav-item" data-view="movies" id="navMovies">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
           <span>Movie &amp; TV Hub</span>
         </button>
-        <button type="button" class="nav-item user-only-nav" data-view="music" id="navMusic">
+        <button type="button" class="nav-item" data-view="music" id="navMusic">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
           <span>Music Hub</span>
         </button>
-        <button type="button" class="nav-item user-only-nav" data-view="flac-checker" id="navFlacChecker">
+        <button type="button" class="nav-item" data-view="flac-checker" id="navFlacChecker">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           <span>FLAC Checker</span>
         </button>
-        <button type="button" class="nav-item nav-item-adult user-only-nav" data-view="adult-search" id="navAdultSearch">
+        <button type="button" class="nav-item nav-item-adult" data-view="adult-search" id="navAdultSearch">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
           <span>Adult &amp; JAV Hub</span>
         </button>
@@ -98,7 +98,7 @@
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             </div>
             <div class="user-card-meta">
-              <span class="user-card-name" id="sidebarUserName">Guest Visitor</span>
+              <span class="user-card-name" id="sidebarUserName">Guest</span>
               <span class="badge-tier badge-tier-guest" id="sidebarUserRole">GUEST ACCESS</span>
             </div>
           </div>
@@ -116,7 +116,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.1 &bull; Gemini AI &amp; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.2 &bull; Gemini AI &amp; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -182,7 +182,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
               </div>
               <div class="drawer-user-meta">
-                <span class="drawer-user-name" id="drawerUserName">Guest Visitor</span>
+                <span class="drawer-user-name" id="drawerUserName">Guest</span>
                 <span class="badge-tier badge-tier-guest" id="drawerUserRole">GUEST ACCESS</span>
               </div>
             </div>
@@ -203,7 +203,7 @@
                 <span class="drawer-item-desc">Fast video, audio &amp; batch processor</span>
               </div>
             </button>
-            <button type="button" class="drawer-nav-item user-only-nav" data-view="movies" id="drawerNavMovies">
+            <button type="button" class="drawer-nav-item" data-view="movies" id="drawerNavMovies">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
               </div>
@@ -213,7 +213,7 @@
               </div>
               <span class="drawer-badge badge-cinema">CINEMA</span>
             </button>
-            <button type="button" class="drawer-nav-item user-only-nav" data-view="music" id="drawerNavMusic">
+            <button type="button" class="drawer-nav-item" data-view="music" id="drawerNavMusic">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
               </div>
@@ -223,7 +223,7 @@
               </div>
               <span class="drawer-badge badge-music">STUDIO</span>
             </button>
-            <button type="button" class="drawer-nav-item user-only-nav" data-view="flac-checker" id="drawerNavFlacChecker">
+            <button type="button" class="drawer-nav-item" data-view="flac-checker" id="drawerNavFlacChecker">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
               </div>
@@ -232,7 +232,7 @@
                 <span class="drawer-item-desc">Spectral Nyquist &amp; Lossless Authenticity</span>
               </div>
             </button>
-            <button type="button" class="drawer-nav-item drawer-nav-item-adult user-only-nav" data-view="adult-search" id="drawerNavAdultSearch">
+            <button type="button" class="drawer-nav-item drawer-nav-item-adult" data-view="adult-search" id="drawerNavAdultSearch">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
               </div>
@@ -276,7 +276,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.1 &bull; Gemini AI &amp; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.2 &bull; Gemini AI &amp; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -337,7 +337,7 @@
                     </svg>
                     <span>Paste</span>
                   </button>
-                  <button type="button" class="btn btn-icon-text btn-ai-trigger ai-owner-feature" id="btnAiCopilotTrigger" title="AI Media Copilot (Gemini) - Natural Language Downloader">
+                  <button type="button" class="btn btn-icon-text btn-ai-trigger" id="btnAiCopilotTrigger" title="AI Media Copilot (Gemini) - Natural Language Downloader">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
                     <span>Copilot</span>
                   </button>
