@@ -237,20 +237,14 @@ function clearAllAuthTokens() {
 }
 
 function canAccess(featureKey) {
-  if (featureKey === 'flac_checker') {
-    return true;
-  }
   if (!currentUser || currentUser.role === 'guest') {
-    return featureKey === 'downloader' || featureKey === 'flac_checker';
+    return featureKey === 'downloader';
   }
   if (currentUser.isOwner || currentUser.role === 'owner' || currentUser.role === 'admin' || currentUser.username?.toLowerCase() === 'sakura') {
     return true;
   }
   if (currentUser.features && typeof currentUser.features[featureKey] !== 'undefined') {
     return !!currentUser.features[featureKey];
-  }
-  if (currentUser.role === 'guest') {
-    return featureKey === 'downloader';
   }
   return true;
 }
@@ -479,7 +473,7 @@ function updateAuthUI(user, limits) {
     if (applyMemberBox) applyMemberBox.style.display = 'none';
   }
 
-  // Dynamic navigation item visibility: keep navigation hubs visible for discovery unless explicitly disabled by admin config
+  // Dynamic navigation item visibility based on assigned role permissions
   const navFeatureMap = [
     { feat: 'movies', selectors: ['#navMovies', '#drawerNavMovies'] },
     { feat: 'music', selectors: ['#navMusic', '#drawerNavMusic'] },
@@ -488,10 +482,10 @@ function updateAuthUI(user, limits) {
   ];
 
   navFeatureMap.forEach(item => {
-    const isExplicitlyDisabled = currentUser && currentUser.features && currentUser.features[item.feat] === false;
+    const isAllowed = canAccess(item.feat);
     item.selectors.forEach(sel => {
       const el = document.querySelector(sel);
-      if (el) el.style.display = isExplicitlyDisabled ? 'none' : 'flex';
+      if (el) el.style.display = isAllowed ? 'flex' : 'none';
     });
   });
 
@@ -1027,6 +1021,11 @@ function setupAuthModalEvents() {
 
       // 4. Update UI to Guest state
       updateAuthUI(null, null);
+      switchView('downloader');
+      const aiCopilotContainer = document.getElementById('aiCopilotContainer');
+      if (aiCopilotContainer) aiCopilotContainer.style.display = 'none';
+      const btnAiCopilotTrigger = document.getElementById('btnAiCopilotTrigger');
+      if (btnAiCopilotTrigger) btnAiCopilotTrigger.classList.remove('active');
 
       // 5. Reconnect clean SSE and fetch jobs for guest
       if (typeof restartJobsSSE === 'function') restartJobsSSE();
