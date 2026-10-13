@@ -452,7 +452,7 @@ function updateAuthUI(user, limits) {
 
     if (sidebarUserName) sidebarUserName.textContent = 'Guest';
     if (sidebarUserRole) {
-      sidebarUserRole.textContent = 'GUEST ACCESS';
+      sidebarUserRole.textContent = 'GUEST';
       sidebarUserRole.className = 'badge-tier badge-tier-guest';
     }
     if (sidebarUserAvatar) {
@@ -465,7 +465,7 @@ function updateAuthUI(user, limits) {
     if (mobileAuthBtnText) mobileAuthBtnText.textContent = 'Sign In';
     if (drawerUserName) drawerUserName.textContent = 'Guest';
     if (drawerUserRole) {
-      drawerUserRole.textContent = 'GUEST ACCESS';
+      drawerUserRole.textContent = 'GUEST';
       drawerUserRole.className = 'badge-tier badge-tier-guest';
     }
     if (drawerUserAvatar) {

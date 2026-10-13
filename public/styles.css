@@ -6879,6 +6879,7 @@ body {
   min-width: 0;
   flex: 1;
   gap: 3px;
+  overflow: hidden;
 }
 
 .user-card-name {
@@ -6901,8 +6902,11 @@ body {
   padding: 1.5px 5.5px;
   border-radius: 3px;
   width: fit-content;
+  max-width: 100%;
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   flex-shrink: 0;
 }
 
@@ -7035,6 +7039,7 @@ body.authenticated-user .sidebar-user-card:hover .btn-user-auth {
   min-width: 0;
   flex: 1;
   gap: 3px;
+  overflow: hidden;
 }
 
 .drawer-user-name {
@@ -7051,22 +7056,24 @@ body.authenticated-user .sidebar-user-card:hover .btn-user-auth {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
-  padding: 5px 10px;
-  font-size: 0.74rem;
+  padding: 2.5px 7px;
+  font-size: 0.72rem;
   font-weight: 600;
   border-radius: var(--radius-sm);
-  background: var(--accent-primary);
-  color: #ffffff;
-  border: none;
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
   cursor: pointer;
   white-space: nowrap;
   transition: all var(--transition-fast);
 }
 
 .btn-drawer-auth:hover {
-  background: var(--accent-primary-hover);
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #93c5fd;
 }
 
 body.authenticated-user .btn-drawer-auth {
