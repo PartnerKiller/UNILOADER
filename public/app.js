@@ -501,6 +501,30 @@ function updateAuthUI(user, limits) {
     switchView('downloader');
   }
 
+  // Filter restricted audio format options (FLAC/WAV) from guests
+  const isMember = Boolean(user && user.role !== 'guest');
+  const audioFmtSelect = document.getElementById('audioFormatSelect');
+  if (audioFmtSelect) {
+    const restrictedOptions = audioFmtSelect.querySelectorAll('.user-only-option');
+    restrictedOptions.forEach(opt => {
+      opt.hidden = !isMember;
+      opt.disabled = !isMember;
+    });
+    if (!isMember && (audioFmtSelect.value === 'flac' || audioFmtSelect.value === 'wav')) {
+      audioFmtSelect.value = 'mp3';
+    }
+  }
+
+  // Update URL input placeholder appropriately
+  const urlInp = document.getElementById('urlInput');
+  if (urlInp) {
+    if (isMember) {
+      urlInp.placeholder = 'Paste video or audio link from Spotify, YouTube, Jable, MissAV, etc.';
+    } else {
+      urlInp.placeholder = 'Paste video or audio link from YouTube, Twitter, TikTok, Reddit, etc.';
+    }
+  }
+
   updateStorageTargetUI();
   applyMaintenanceUI();
 }
@@ -1307,16 +1331,6 @@ function switchView(viewName, forceAllow = false) {
   };
 
   if (!forceAllow && viewToFeature[viewName] && !canAccess(viewToFeature[viewName])) {
-    if (!currentUser || currentUser.role === 'guest') {
-      const featNames = {
-        movies: 'Movie & TV Hub',
-        music: 'Music Hub',
-        'flac-checker': 'FLAC Checker',
-        'adult-search': 'Adult & JAV Hub'
-      };
-      openAuthModal('login', `Please sign in or apply for access to use ${featNames[viewName] || 'this feature'}.`);
-      return;
-    }
     switchView('downloader');
     return;
   }

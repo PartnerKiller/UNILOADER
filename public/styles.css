@@ -7503,6 +7503,41 @@ body.authenticated-user .guest-only-nav {
   display: none !important;
 }
 
+/* Member-Only Feature Cards, Chips & Options */
+.user-only-feature {
+  display: none !important;
+}
+
+body.authenticated-user .user-only-feature {
+  display: block !important;
+}
+
+body.authenticated-user div.platform-category-card.user-only-feature,
+body.authenticated-user div.feature-card.user-only-feature,
+body.authenticated-user div.spec-item.user-only-feature {
+  display: flex !important;
+}
+
+body.authenticated-user .preset-chip.user-only-feature {
+  display: inline-flex !important;
+}
+
+.guest-only-feature {
+  display: flex !important;
+}
+
+body.authenticated-user .guest-only-feature {
+  display: none !important;
+}
+
+body:not(.authenticated-user) option.user-only-option {
+  display: none !important;
+}
+
+body.authenticated-user option.user-only-option {
+  display: block !important;
+}
+
 .nav-lock-badge,
 .drawer-lock-badge {
   display: none !important;

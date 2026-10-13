@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.28.5">
+  <link rel="stylesheet" href="styles.css?v=4.28.6">
 </head>
 <body>
   <!-- Sticky Owner Testing Banner (Shown only to Owner when maintenance mode is active) -->
@@ -116,7 +116,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.5 &bull; Gemini AI &amp; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.6 &bull; Gemini AI &amp; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -276,7 +276,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.5 &bull; Gemini AI &amp; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.6 &bull; Gemini AI &amp; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -326,7 +326,7 @@
                     type="text" 
                     id="urlInput" 
                     class="url-input" 
-                    placeholder="Paste video or audio link from Spotify, YouTube, Jable, MissAV, etc." 
+                    placeholder="Paste video or audio link from YouTube, Twitter, TikTok, Reddit, etc." 
                     autocomplete="off"
                     spellcheck="false"
                   />
@@ -426,7 +426,7 @@
             <button type="button" class="preset-chip" id="presetAudioMp3" title="Extract Audio as high quality 320k MP3 with embedded album art">
               🎧 MP3 Audio (320k)
             </button>
-            <button type="button" class="preset-chip" id="presetAudioFlac" title="Lossless Studio FLAC Audio (Premium)">
+            <button type="button" class="preset-chip user-only-feature" id="presetAudioFlac" title="Lossless Studio FLAC Audio (Premium)">
               🎼 Lossless FLAC 👑
             </button>
             <button type="button" class="preset-chip" id="presetSubtitles" title="Embed available subtitles into MP4/MKV">
@@ -493,10 +493,10 @@
                   <label for="audioFormatSelect" class="config-label">Audio Extraction Format</label>
                   <select id="audioFormatSelect" class="config-select">
                     <option value="mp3" selected>MP3 (320k High Quality)</option>
-                    <option value="flac">Lossless FLAC (Studio 24-bit) 👑 Premium</option>
+                    <option value="flac" class="user-only-option">Lossless FLAC (Studio 24-bit) 👑 Premium</option>
                     <option value="m4a">M4A / AAC (Apple Audio)</option>
                     <option value="opus">Opus (High Efficiency)</option>
-                    <option value="wav">WAV (Raw PCM Uncompressed) 👑 Premium</option>
+                    <option value="wav" class="user-only-option">WAV (Raw PCM Uncompressed) 👑 Premium</option>
                   </select>
                 </div>
 
@@ -1124,14 +1124,14 @@
               <div class="badge-tag">🌐 High-Compatibility Ecosystem</div>
               <h2 class="section-title">Supported Platforms & Media Catalogs</h2>
               <p class="section-description">
-                Powered by specialized direct-stream extractors, high-speed CDN pipelines, and the SpotiFLAC Hi-Res lossless engine. Over 1,000+ streaming sites supported natively.
+                Powered by specialized direct-stream extractors and high-speed CDN pipelines. Over 1,000+ video, audio, and media platforms supported natively.
               </p>
             </div>
           </div>
 
           <div class="platforms-grid">
-            <!-- Hi-Res Lossless Audio -->
-            <div class="platform-category-card">
+            <!-- Hi-Res Lossless Audio (Member Only) -->
+            <div class="platform-category-card user-only-feature">
               <div class="category-header">
                 <div class="category-icon music-icon">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
@@ -1153,8 +1153,8 @@
               </div>
             </div>
 
-            <!-- Premium Asian & JAV Networks -->
-            <div class="platform-category-card">
+            <!-- Premium Asian & JAV Networks (Member Only) -->
+            <div class="platform-category-card user-only-feature">
               <div class="category-header">
                 <div class="category-icon stream-icon">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
@@ -1179,8 +1179,8 @@
               </div>
             </div>
 
-            <!-- Adult & HMV Portals -->
-            <div class="platform-category-card">
+            <!-- Adult & HMV Portals (Member Only) -->
+            <div class="platform-category-card user-only-feature">
               <div class="category-header">
                 <div class="category-icon adult-icon">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
@@ -1205,7 +1205,7 @@
               </div>
             </div>
 
-            <!-- Mainstream & Social Networks -->
+            <!-- Mainstream & Social Networks (Visible to All) -->
             <div class="platform-category-card">
               <div class="category-header">
                 <div class="category-icon social-icon">
@@ -1228,6 +1228,29 @@
                 <span class="service-tag highlight">+1000 Sites</span>
               </div>
             </div>
+
+            <!-- Web Audio & Media Streams (Visible to All) -->
+            <div class="platform-category-card">
+              <div class="category-header">
+                <div class="category-icon music-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                </div>
+                <div>
+                  <h3 class="category-title">Web Audio &amp; Podcasts</h3>
+                  <span class="category-subtitle">High Bitrate &bull; Clean Extraction</span>
+                </div>
+              </div>
+              <p class="category-desc">Extract high-bitrate audio streams, podcast episodes, and tracks with automatic ID3 tagging and embedded album artwork.</p>
+              <div class="service-tags-list">
+                <span class="service-tag">SoundCloud</span>
+                <span class="service-tag">Bandcamp</span>
+                <span class="service-tag">Mixcloud</span>
+                <span class="service-tag">Audiomack</span>
+                <span class="service-tag">Podbean</span>
+                <span class="service-tag">Apple Podcasts</span>
+                <span class="service-tag">Web Streams</span>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -1248,14 +1271,25 @@
           </div>
 
           <div class="features-grid">
-            <!-- Feature 1 -->
-            <div class="feature-card">
+            <!-- Feature 1: Member Only (SpotiFLAC Studio Lossless Engine) -->
+            <div class="feature-card user-only-feature">
               <div class="feature-icon-wrapper f-blue">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
               </div>
               <h3 class="feature-title">SpotiFLAC Studio Lossless Engine</h3>
               <p class="feature-desc">
                 Unlike typical YouTube-to-FLAC rippers that repackage lossy streams, Universal Downloader performs authentic <strong>ISRC digital fingerprinting</strong> to pull genuine 16-bit 44.1kHz and 24-bit Hi-Res studio master streams with rich Vorbis tags and embedded album covers.
+              </p>
+            </div>
+
+            <!-- Feature 1: Guest Facing (Universal Direct Stream Engine) -->
+            <div class="feature-card guest-only-feature">
+              <div class="feature-icon-wrapper f-blue">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              </div>
+              <h3 class="feature-title">Universal Direct Stream Engine</h3>
+              <p class="feature-desc">
+                High-performance stream assembly pipelines designed to capture video and clean audio from over 1,000+ media platforms with automatic format selection, subtitle embedding, and clean metadata tagging.
               </p>
             </div>
 
@@ -1295,11 +1329,19 @@
 
           <!-- System Status & Specs Bar -->
           <div class="specs-bar">
-            <div class="spec-item">
+            <div class="spec-item guest-only-feature">
+              <span class="spec-label">Core Engine</span>
+              <span class="spec-value">yt-dlp + aria2c Core</span>
+            </div>
+            <div class="spec-item user-only-feature">
               <span class="spec-label">Core Engine</span>
               <span class="spec-value">SpotiFLAC + yt-dlp + aria2c</span>
             </div>
-            <div class="spec-item">
+            <div class="spec-item guest-only-feature">
+              <span class="spec-label">Audio Quality</span>
+              <span class="spec-value">320 kbps High Quality Audio</span>
+            </div>
+            <div class="spec-item user-only-feature">
               <span class="spec-label">Max Audio Quality</span>
               <span class="spec-value">24-bit / 96kHz Lossless FLAC</span>
             </div>
@@ -1329,7 +1371,7 @@
                   <div class="badge-tag badge-tag-request">MEMBER ACCESS GATEWAY</div>
                   <h3 class="apply-access-title">Apply for Member Access</h3>
                   <p class="apply-access-subtitle">
-                    Guests have access to the Core Downloader. Registered members unlock all platform tools: Movie &amp; TV Hub, Music Hub, Spectral FLAC Checker, and Adult Catalog. Submit your request below to be reviewed and approved by the owner (Sakura).
+                    Guests have access to standard link downloads. Registered members unlock multi-connection acceleration, priority queues, and advanced suite capabilities. Submit your request below to be reviewed and approved by the owner (Sakura).
                   </p>
                 </div>
               </div>
@@ -1340,12 +1382,12 @@
                   <div class="apply-form-row">
                     <div class="apply-input-col">
                       <label for="applyUsername" class="apply-label">Desired Username <span class="text-danger">*</span></label>
-                      <input type="text" id="applyUsername" class="apply-input" placeholder="e.g. audiophile_99" maxlength="32" minlength="3" required autocomplete="off" />
+                      <input type="text" id="applyUsername" class="apply-input" placeholder="e.g. member_user" maxlength="32" minlength="3" required autocomplete="off" />
                       <span class="apply-hint">Letters, numbers, underscores and hyphens (min 3 chars).</span>
                     </div>
                     <div class="apply-input-col">
                       <label for="applyReason" class="apply-label">Note / Usage Reason <span class="apply-opt">(Optional)</span></label>
-                      <input type="text" id="applyReason" class="apply-input" placeholder="e.g. Audiophile, 4K film streaming, or music archiving" maxlength="120" />
+                      <input type="text" id="applyReason" class="apply-input" placeholder="e.g. High-speed downloading, archiving, or personal research" maxlength="120" />
                       <span class="apply-hint">Brief note for the owner during approval.</span>
                     </div>
                   </div>
@@ -1438,7 +1480,7 @@
                   </div>
                 </div>
                 <p class="credit-bio">
-                  Lossless stream digital fingerprinting, SpotiFLAC integration, modern responsive SPA design, and autonomous real-time optimization.
+                  High-speed stream extraction pipelines, modern responsive SPA design, and autonomous real-time optimization.
                 </p>
                 <div class="credit-tags">
                   <span class="c-tag c-tag-ai">Google DeepMind</span>
@@ -1450,7 +1492,7 @@
 
             <!-- Open-Source Acknowledgements -->
             <div class="credits-footer-bar">
-              <span>Powered by Open-Source Titans: <strong>yt-dlp</strong> &bull; <strong>SpotiFLAC</strong> &bull; <strong>aria2c</strong> &bull; <strong>FFmpeg</strong> &bull; <strong>curl-cffi</strong> &bull; <strong>Node.js</strong></span>
+              <span>Powered by Open-Source Titans: <strong>yt-dlp</strong> &bull; <strong>aria2c</strong> &bull; <strong>FFmpeg</strong> &bull; <strong>curl-cffi</strong> &bull; <strong>Node.js</strong></span>
             </div>
           </div>
         </section>
@@ -1719,10 +1761,10 @@
             </div>
           </div>
           <div class="auth-perk-item">
-            <span class="perk-icon">🎼</span>
+            <span class="perk-icon">🎧</span>
             <div class="perk-text">
-              <strong>24-bit Hi-Res FLAC</strong>
-              <span>Tidal &amp; Deezer Lossless</span>
+              <strong>High-Fidelity Audio</strong>
+              <span>High bitrate extraction</span>
             </div>
           </div>
           <div class="auth-perk-item">
@@ -1902,6 +1944,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4.28.5"></script>
+  <script src="app.js?v=4.28.6"></script>
 </body>
 </html>
