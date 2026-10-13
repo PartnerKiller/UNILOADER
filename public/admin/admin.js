@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupCreds();
   setupQueue();
   setupUsersTab();
+  setupLinkAccess();
 
   if (adminToken) {
     verifySession();
@@ -283,6 +284,8 @@ function setupNavigation() {
       loadServiceLogs();
     } else if (tabName === 'engine') {
       loadEngineConfig();
+    } else if (tabName === 'links') {
+      loadLinkAccessConfig();
     } else if (tabName === 'storage') {
       loadStorageFiles();
     } else if (tabName === 'network') {
@@ -319,6 +322,7 @@ function setupNavigation() {
 function loadAllAdminData() {
   loadServiceStatus();
   loadEngineConfig();
+  loadLinkAccessConfig();
   loadSystemMetrics();
   loadCredsData();
   loadAdminUsers();
@@ -3884,3 +3888,363 @@ async function resetRolePermissions() {
     }
   }
 }
+
+// ============================================================================
+// 14. LINK ACCESS & GUEST PLATFORM PERMISSIONS LOGIC
+// ============================================================================
+let currentLinkAccessConfig = {
+  enforceGuestPolicy: true,
+  allowYouTube: true,
+  allowSocialMedia: true,
+  allowMusicAndFlac: false,
+  allowAdultAndJav: false,
+  allowMoviesAndTorrents: false,
+  allowAllOtherWebsites: false,
+  customAllowedDomains: [],
+  customBlockedDomains: [],
+  guestBlockMessage: 'Guest access is limited to YouTube and supported social media platforms. Sign in with a member account to download this content.'
+};
+
+function setupLinkAccess() {
+  const btnSave = document.getElementById('btnSaveLinkAccess');
+  const btnReset = document.getElementById('btnResetLinkAccess');
+  const btnAddAllowed = document.getElementById('btnAddAllowedDomain');
+  const btnAddBlocked = document.getElementById('btnAddBlockedDomain');
+  const inpAllowed = document.getElementById('inputNewAllowedDomain');
+  const inpBlocked = document.getElementById('inputNewBlockedDomain');
+  const btnTest = document.getElementById('btnRunLinkTest');
+  const inpTest = document.getElementById('inputTestGuestUrl');
+  const switchEnforce = document.getElementById('switchEnforceGuestPolicy');
+
+  if (btnSave) btnSave.addEventListener('click', saveLinkAccessConfig);
+  if (btnReset) btnReset.addEventListener('click', resetLinkAccessConfig);
+  if (btnAddAllowed) btnAddAllowed.addEventListener('click', () => addCustomDomain('allowed'));
+  if (btnAddBlocked) btnAddBlocked.addEventListener('click', () => addCustomDomain('blocked'));
+
+  if (inpAllowed) {
+    inpAllowed.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addCustomDomain('allowed');
+      }
+    });
+  }
+
+  if (inpBlocked) {
+    inpBlocked.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addCustomDomain('blocked');
+      }
+    });
+  }
+
+  if (btnTest) btnTest.addEventListener('click', testLinkAccessUrl);
+  if (inpTest) {
+    inpTest.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        testLinkAccessUrl();
+      }
+    });
+  }
+
+  if (switchEnforce) {
+    switchEnforce.addEventListener('change', () => {
+      const badge = document.getElementById('badgeGuestPolicyStatus');
+      if (badge) {
+        if (switchEnforce.checked) {
+          badge.textContent = 'ACTIVE ENFORCEMENT';
+          badge.style.background = 'rgba(16, 185, 129, 0.2)';
+          badge.style.color = '#34d399';
+          badge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+        } else {
+          badge.textContent = 'DISABLED (ALL GUEST LINKS ALLOWED)';
+          badge.style.background = 'rgba(245, 158, 11, 0.2)';
+          badge.style.color = '#fbbf24';
+          badge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+        }
+      }
+    });
+  }
+}
+
+async function loadLinkAccessConfig() {
+  const alertEl = document.getElementById('linkAccessAlert');
+  try {
+    const res = await fetch('/api/admin/link-access', {
+      headers: {
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.config) {
+      currentLinkAccessConfig = Object.assign({}, currentLinkAccessConfig, data.config);
+      renderLinkAccessUI();
+    }
+  } catch (err) {
+    if (alertEl) {
+      alertEl.style.display = 'block';
+      alertEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      alertEl.style.color = '#f87171';
+      alertEl.textContent = `Failed to load link access settings: ${err.message}`;
+    }
+  }
+}
+
+function renderLinkAccessUI() {
+  const cfg = currentLinkAccessConfig;
+  const switchEnforce = document.getElementById('switchEnforceGuestPolicy');
+  const badgeStatus = document.getElementById('badgeGuestPolicyStatus');
+  const switchYT = document.getElementById('switchAllowYouTube');
+  const switchSocial = document.getElementById('switchAllowSocialMedia');
+  const switchMusic = document.getElementById('switchAllowMusicAndFlac');
+  const switchAdult = document.getElementById('switchAllowAdultAndJav');
+  const switchMovies = document.getElementById('switchAllowMoviesAndTorrents');
+  const switchOther = document.getElementById('switchAllowAllOtherWebsites');
+  const textMsg = document.getElementById('textGuestBlockMessage');
+
+  if (switchEnforce) {
+    switchEnforce.checked = cfg.enforceGuestPolicy !== false;
+    if (badgeStatus) {
+      if (switchEnforce.checked) {
+        badgeStatus.textContent = 'ACTIVE ENFORCEMENT';
+        badgeStatus.style.background = 'rgba(16, 185, 129, 0.2)';
+        badgeStatus.style.color = '#34d399';
+        badgeStatus.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      } else {
+        badgeStatus.textContent = 'DISABLED (ALL GUEST LINKS ALLOWED)';
+        badgeStatus.style.background = 'rgba(245, 158, 11, 0.2)';
+        badgeStatus.style.color = '#fbbf24';
+        badgeStatus.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+      }
+    }
+  }
+  if (switchYT) switchYT.checked = cfg.allowYouTube !== false;
+  if (switchSocial) switchSocial.checked = cfg.allowSocialMedia !== false;
+  if (switchMusic) switchMusic.checked = !!cfg.allowMusicAndFlac;
+  if (switchAdult) switchAdult.checked = !!cfg.allowAdultAndJav;
+  if (switchMovies) switchMovies.checked = !!cfg.allowMoviesAndTorrents;
+  if (switchOther) switchOther.checked = !!cfg.allowAllOtherWebsites;
+  if (textMsg) textMsg.value = cfg.guestBlockMessage || '';
+
+  renderDomainTags('containerAllowedDomains', cfg.customAllowedDomains || [], 'allowed');
+  renderDomainTags('containerBlockedDomains', cfg.customBlockedDomains || [], 'blocked');
+}
+
+function renderDomainTags(containerId, domains, type) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  if (!domains || domains.length === 0) {
+    container.innerHTML = `<span style="font-size: 0.78rem; color: var(--text-muted); font-style: italic; padding: 4px;">No custom ${type} domains configured.</span>`;
+    return;
+  }
+  domains.forEach(domain => {
+    const tag = document.createElement('span');
+    tag.style.cssText = `display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-family: monospace; background: ${type === 'allowed' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}; color: ${type === 'allowed' ? '#34d399' : '#f87171'}; border: 1px solid ${type === 'allowed' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'};`;
+    tag.innerHTML = `<span>${escapeHtml(domain)}</span><button type="button" style="background: none; border: none; color: inherit; cursor: pointer; padding: 0 2px; font-size: 0.9rem; line-height: 1;" title="Remove domain">&times;</button>`;
+    tag.querySelector('button').addEventListener('click', () => {
+      removeCustomDomain(type, domain);
+    });
+    container.appendChild(tag);
+  });
+}
+
+function addCustomDomain(type) {
+  const input = document.getElementById(type === 'allowed' ? 'inputNewAllowedDomain' : 'inputNewBlockedDomain');
+  if (!input) return;
+  const raw = input.value.trim().toLowerCase();
+  if (!raw) return;
+  let val = raw.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '').trim();
+  if (!val) return;
+  const key = type === 'allowed' ? 'customAllowedDomains' : 'customBlockedDomains';
+  if (!currentLinkAccessConfig[key]) currentLinkAccessConfig[key] = [];
+  if (!currentLinkAccessConfig[key].includes(val)) {
+    currentLinkAccessConfig[key].push(val);
+    renderLinkAccessUI();
+  }
+  input.value = '';
+}
+
+function removeCustomDomain(type, domain) {
+  const key = type === 'allowed' ? 'customAllowedDomains' : 'customBlockedDomains';
+  if (!currentLinkAccessConfig[key]) return;
+  currentLinkAccessConfig[key] = currentLinkAccessConfig[key].filter(d => d !== domain);
+  renderLinkAccessUI();
+}
+
+async function saveLinkAccessConfig() {
+  const alertEl = document.getElementById('linkAccessAlert');
+  const btn = document.getElementById('btnSaveLinkAccess');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+  }
+
+  try {
+    const payload = {
+      enforceGuestPolicy: document.getElementById('switchEnforceGuestPolicy')?.checked ?? true,
+      allowYouTube: document.getElementById('switchAllowYouTube')?.checked ?? true,
+      allowSocialMedia: document.getElementById('switchAllowSocialMedia')?.checked ?? true,
+      allowMusicAndFlac: document.getElementById('switchAllowMusicAndFlac')?.checked ?? false,
+      allowAdultAndJav: document.getElementById('switchAllowAdultAndJav')?.checked ?? false,
+      allowMoviesAndTorrents: document.getElementById('switchAllowMoviesAndTorrents')?.checked ?? false,
+      allowAllOtherWebsites: document.getElementById('switchAllowAllOtherWebsites')?.checked ?? false,
+      guestBlockMessage: document.getElementById('textGuestBlockMessage')?.value.trim() || currentLinkAccessConfig.guestBlockMessage,
+      customAllowedDomains: currentLinkAccessConfig.customAllowedDomains || [],
+      customBlockedDomains: currentLinkAccessConfig.customBlockedDomains || []
+    };
+
+    const res = await fetch('/api/admin/link-access', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Failed to save settings');
+    }
+
+    currentLinkAccessConfig = Object.assign({}, currentLinkAccessConfig, data.config);
+    renderLinkAccessUI();
+
+    showToast('Link access policy saved successfully!', 'success');
+    if (alertEl) {
+      alertEl.style.display = 'block';
+      alertEl.style.background = 'rgba(16, 185, 129, 0.2)';
+      alertEl.style.color = '#34d399';
+      alertEl.textContent = '✅ Link Access policy saved and live across all guest sessions!';
+      setTimeout(() => { alertEl.style.display = 'none'; }, 5000);
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+    if (alertEl) {
+      alertEl.style.display = 'block';
+      alertEl.style.background = 'rgba(239, 68, 68, 0.2)';
+      alertEl.style.color = '#f87171';
+      alertEl.textContent = `❌ Error saving link access policy: ${err.message}`;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '💾 Save Link Access Policy';
+    }
+  }
+}
+
+async function resetLinkAccessConfig() {
+  if (!confirm('Are you sure you want to reset Guest Link Access to factory defaults (YouTube & Social Media allowed, FLAC, Adult, & Movies blocked)?')) {
+    return;
+  }
+  const btn = document.getElementById('btnResetLinkAccess');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+  }
+
+  try {
+    const res = await fetch('/api/admin/link-access/reset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.config) {
+      currentLinkAccessConfig = data.config;
+      renderLinkAccessUI();
+      showToast('Guest link access reset to factory policy', 'info');
+      const alertEl = document.getElementById('linkAccessAlert');
+      if (alertEl) {
+        alertEl.style.display = 'block';
+        alertEl.style.background = 'rgba(16, 185, 129, 0.2)';
+        alertEl.style.color = '#34d399';
+        alertEl.textContent = '✅ Guest link access reset to factory policy (YouTube & Social Media only).';
+        setTimeout(() => { alertEl.style.display = 'none'; }, 4000);
+      }
+    } else {
+      showToast(data.error || 'Failed to reset policy', 'error');
+    }
+  } catch (err) {
+    showToast(`Reset failed: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '↺ Reset Factory Policy';
+    }
+  }
+}
+
+async function testLinkAccessUrl() {
+  const input = document.getElementById('inputTestGuestUrl');
+  const out = document.getElementById('outputLinkTestResult');
+  const btn = document.getElementById('btnRunLinkTest');
+  if (!input || !out) return;
+  const url = input.value.trim();
+  if (!url) {
+    showToast('Please enter a test URL', 'warning');
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+  }
+  out.style.display = 'block';
+  out.innerHTML = '<span style="color: var(--text-muted);">Evaluating URL against active guest rules...</span>';
+
+  try {
+    const res = await fetch('/api/admin/link-access/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Evaluation error');
+    }
+
+    const r = data.result;
+    const isAllowed = r.allowed;
+    out.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.1rem;">${isAllowed ? '✅' : '⛔'}</span>
+          <strong style="color: ${isAllowed ? '#34d399' : '#f87171'}; font-size: 0.95rem;">
+            ${isAllowed ? 'GUEST DOWNLOAD ALLOWED' : 'GUEST DOWNLOAD BLOCKED'}
+          </strong>
+        </div>
+        <span style="font-family: monospace; font-size: 0.75rem; background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px;">
+          Category: ${escapeHtml(r.category || 'unknown')}
+        </span>
+      </div>
+      <div style="font-size: 0.82rem; margin-bottom: 4px; color: var(--text-main);">
+        <strong>Domain:</strong> <code>${escapeHtml(data.domain || 'N/A')}</code>
+      </div>
+      <div style="font-size: 0.82rem; margin-bottom: 6px; color: var(--text-muted);">
+        <strong>Evaluation Reason:</strong> ${escapeHtml(r.reason || 'N/A')}
+      </div>
+      ${!isAllowed ? `
+      <div style="font-size: 0.78rem; color: #fbbf24; background: rgba(245, 158, 11, 0.1); padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(245, 158, 11, 0.3);">
+        <strong>Guest Refusal Display:</strong> "${escapeHtml(r.userMessage || '')}"
+      </div>
+      ` : ''}
+    `;
+  } catch (err) {
+    out.innerHTML = `<span style="color: #f87171;">Error testing URL: ${escapeHtml(err.message)}</span>`;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Test Link Policy';
+    }
+  }
+}
+

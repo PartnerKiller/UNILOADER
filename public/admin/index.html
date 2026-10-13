@@ -63,7 +63,7 @@
         </div>
         <div class="brand-titles">
           <h1>Sakura Downloader <span>Admin Lab</span></h1>
-          <span class="badge-tag">Sakura Suite v4.28.6</span>
+          <span class="badge-tag">Sakura Suite v4.28.7</span>
         </div>
       </div>
 
@@ -98,6 +98,9 @@
         <button class="tab-btn" data-tab="engine">
           <span>⚙️ Engine Settings</span>
         </button>
+        <button class="tab-btn" data-tab="links">
+          <span>🔗 Link Access</span>
+        </button>
         <button class="tab-btn" data-tab="storage">
           <span>📁 Storage Explorer</span>
         </button>
@@ -126,6 +129,7 @@
           <option value="ui-lab">🎨 UI/UX Lab</option>
           <option value="service">🚀 Service &amp; Logs</option>
           <option value="engine">⚙️ Engine Settings</option>
+          <option value="links">🔗 Link Access</option>
           <option value="storage">📁 Storage Explorer</option>
           <option value="network">🌐 Network Health</option>
           <option value="terminal">💻 Terminal &amp; Dev</option>
@@ -789,6 +793,222 @@
                 <input type="checkbox" id="switchSourceTorrents" class="admin-toggle">
               </label>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LINK ACCESS & GUEST PLATFORM PERMISSIONS TAB -->
+      <section class="tab-panel" id="tab-links">
+        <div class="panel-header">
+          <div>
+            <h2>🔗 Link Access &amp; Guest Platform Control</h2>
+            <p>Enforce strict link downloading policies for anonymous guest visitors. Ensure guests can only download from YouTube and social media while blocking adult/JAV, Hi-Res FLAC music, and movie sites.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="btn btn-outline btn-sm" id="btnResetLinkAccess" type="button">↺ Reset Factory Policy</button>
+            <button class="btn btn-primary btn-sm" id="btnSaveLinkAccess" type="button">💾 Save Link Access Policy</button>
+          </div>
+        </div>
+
+        <div id="linkAccessAlert" style="display: none; padding: 10px 14px; border-radius: 8px; font-size: 0.88rem; margin-bottom: 18px;"></div>
+
+        <!-- Master Switch Card -->
+        <div class="engine-config-card" style="margin-bottom: 20px; border-left: 4px solid #10b981;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h3 style="margin: 0; font-size: 1.05rem;">Guest Link Protection Policy</h3>
+                <span class="badge-tag" id="badgeGuestPolicyStatus" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;">ACTIVE ENFORCEMENT</span>
+              </div>
+              <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: var(--text-muted);">
+                When enabled, guests can only download from authorized platform categories or whitelisted domains. Any unapproved link triggers an auth prompt.
+              </p>
+            </div>
+            <label class="switch-wrap" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <span style="font-size: 0.82rem; font-weight: 600;">Enforce Policy</span>
+              <input type="checkbox" id="switchEnforceGuestPolicy" class="admin-toggle" checked>
+            </label>
+          </div>
+        </div>
+
+        <!-- Platform Category Toggles Card Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px;">
+          <!-- 1. YouTube & Shorts -->
+          <div class="engine-config-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 1.25rem;">📺</span>
+                  <h4 style="margin: 0; font-size: 0.95rem;">YouTube &amp; Shorts</h4>
+                </div>
+                <input type="checkbox" id="switchAllowYouTube" class="admin-toggle" checked>
+              </div>
+              <p style="margin: 0 0 8px 0; font-size: 0.78rem; color: var(--text-muted);">
+                Standard YouTube video streams, Shorts, and audio extraction.
+              </p>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 6px; font-family: monospace;">
+              youtube.com &bull; youtu.be &bull; googlevideo.com
+            </div>
+          </div>
+
+          <!-- 2. Social Media Platforms -->
+          <div class="engine-config-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 1.25rem;">💬</span>
+                  <h4 style="margin: 0; font-size: 0.95rem;">Social Media &amp; Web Clips</h4>
+                </div>
+                <input type="checkbox" id="switchAllowSocialMedia" class="admin-toggle" checked>
+              </div>
+              <p style="margin: 0 0 8px 0; font-size: 0.78rem; color: var(--text-muted);">
+                Major social networks, micro-blogs, podcasts, and video sharing portals.
+              </p>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 6px; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Twitter/X, TikTok, Instagram, Reddit, Facebook, Vimeo, Threads, Twitch, Bluesky, SoundCloud, Bandcamp, Dailymotion">
+              Twitter/X &bull; TikTok &bull; Instagram &bull; Reddit &bull; Vimeo &bull; Facebook &bull; Twitch &bull; SoundCloud
+            </div>
+          </div>
+
+          <!-- 3. Music & FLAC Streaming Platforms -->
+          <div class="engine-config-card" style="display: flex; flex-direction: column; justify-content: space-between; border-color: rgba(239, 68, 68, 0.3);">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 1.25rem;">🎼</span>
+                  <h4 style="margin: 0; font-size: 0.95rem;">Hi-Res FLAC &amp; Music Streaming</h4>
+                </div>
+                <input type="checkbox" id="switchAllowMusicAndFlac" class="admin-toggle">
+              </div>
+              <p style="margin: 0 0 8px 0; font-size: 0.78rem; color: var(--text-muted);">
+                Lossless audiophile streaming engines and track converters. Locked for members only by default.
+              </p>
+            </div>
+            <div style="font-size: 0.72rem; color: #f87171; background: rgba(239, 68, 68, 0.1); padding: 6px 10px; border-radius: 6px; font-family: monospace;">
+              spotify.com &bull; tidal.com &bull; deezer.com &bull; qobuz.com &bull; apple music
+            </div>
+          </div>
+
+          <!-- 4. Adult & JAV Networks -->
+          <div class="engine-config-card" style="display: flex; flex-direction: column; justify-content: space-between; border-color: rgba(239, 68, 68, 0.3);">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 1.25rem;">🔞</span>
+                  <h4 style="margin: 0; font-size: 0.95rem;">Adult &amp; JAV Hub Platforms</h4>
+                </div>
+                <input type="checkbox" id="switchAllowAdultAndJav" class="admin-toggle">
+              </div>
+              <p style="margin: 0 0 8px 0; font-size: 0.78rem; color: var(--text-muted);">
+                Adult streaming portals, live cam feeds, and HMV networks. Strictly blocked for guests.
+              </p>
+            </div>
+            <div style="font-size: 0.72rem; color: #f87171; background: rgba(239, 68, 68, 0.1); padding: 6px 10px; border-radius: 6px; font-family: monospace;">
+              jable.tv &bull; missav.ai &bull; pornhub.com &bull; xvideos.com &bull; hanime.tv
+            </div>
+          </div>
+
+          <!-- 5. Movie & Cinema Hosts -->
+          <div class="engine-config-card" style="display: flex; flex-direction: column; justify-content: space-between; border-color: rgba(239, 68, 68, 0.3);">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 1.25rem;">🎬</span>
+                  <h4 style="margin: 0; font-size: 0.95rem;">Cinema &amp; Torrent Downloads</h4>
+                </div>
+                <input type="checkbox" id="switchAllowMoviesAndTorrents" class="admin-toggle">
+              </div>
+              <p style="margin: 0 0 8px 0; font-size: 0.78rem; color: var(--text-muted);">
+                BitTorrent magnet links, .torrent files, and cinema direct streaming hosts.
+              </p>
+            </div>
+            <div style="font-size: 0.72rem; color: #f87171; background: rgba(239, 68, 68, 0.1); padding: 6px 10px; border-radius: 6px; font-family: monospace;">
+              magnet: &bull; .torrent &bull; yts.mx &bull; thepiratebay &bull; cinema hosts
+            </div>
+          </div>
+
+          <!-- 6. All Other Websites -->
+          <div class="engine-config-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 1.25rem;">🌐</span>
+                  <h4 style="margin: 0; font-size: 0.95rem;">All Other General Web Links</h4>
+                </div>
+                <input type="checkbox" id="switchAllowAllOtherWebsites" class="admin-toggle">
+              </div>
+              <p style="margin: 0 0 8px 0; font-size: 0.78rem; color: var(--text-muted);">
+                Allow any other domain supported by yt-dlp. (Disabled = guests strictly confined to allowed categories above).
+              </p>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 6px; font-family: monospace;">
+              Non-categorized web links &bull; Educational &bull; Direct MP4/Web streams
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom Whitelist & Blacklist Domains Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-bottom: 20px;">
+          <!-- Custom Allowed Domains (Whitelist Override) -->
+          <div class="engine-config-card">
+            <h4 style="margin: 0 0 4px 0; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+              <span>✅ Custom Allowed Domains (Whitelist)</span>
+            </h4>
+            <p style="margin: 0 0 12px 0; font-size: 0.78rem; color: var(--text-muted);">
+              Specific domains that guests are always permitted to download from, regardless of general category filters.
+            </p>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+              <input type="text" id="inputNewAllowedDomain" class="admin-input" placeholder="e.g. bbc.co.uk or archive.org" style="flex: 1; font-size: 0.85rem;">
+              <button class="btn btn-primary btn-sm" id="btnAddAllowedDomain" type="button">Add Domain</button>
+            </div>
+            <div id="containerAllowedDomains" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 8px; border: 1px dashed var(--admin-border);">
+              <!-- Rendered dynamic tags -->
+            </div>
+          </div>
+
+          <!-- Custom Blocked Domains (Blacklist Override) -->
+          <div class="engine-config-card">
+            <h4 style="margin: 0 0 4px 0; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+              <span>⛔ Custom Blocked Domains (Blacklist)</span>
+            </h4>
+            <p style="margin: 0 0 12px 0; font-size: 0.78rem; color: var(--text-muted);">
+              Specific domains explicitly banned for guests, even if part of a generally allowed category.
+            </p>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+              <input type="text" id="inputNewBlockedDomain" class="admin-input" placeholder="e.g. facebook.com or kick.com" style="flex: 1; font-size: 0.85rem;">
+              <button class="btn btn-warning btn-sm" id="btnAddBlockedDomain" type="button">Block Domain</button>
+            </div>
+            <div id="containerBlockedDomains" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; padding: 8px; background: rgba(0,0,0,0.15); border-radius: 8px; border: 1px dashed var(--admin-border);">
+              <!-- Rendered dynamic tags -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Guest Refusal Notice -->
+        <div class="engine-config-card" style="margin-bottom: 20px;">
+          <h4 style="margin: 0 0 4px 0; font-size: 0.95rem;">Guest Refusal Notice (Prompt)</h4>
+          <p style="margin: 0 0 10px 0; font-size: 0.78rem; color: var(--text-muted);">
+            The message displayed to anonymous guests when they attempt to download an unpermitted link.
+          </p>
+          <textarea id="textGuestBlockMessage" class="admin-input" rows="2" style="width: 100%; font-size: 0.85rem; resize: vertical;" placeholder="Guest access is limited to YouTube and supported social media platforms..."></textarea>
+        </div>
+
+        <!-- Interactive Policy Simulator / Tester -->
+        <div class="engine-config-card" style="border: 1px solid rgba(59, 130, 246, 0.4); background: linear-gradient(135deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.6) 100%);">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <span style="font-size: 1.25rem;">🧪</span>
+            <h4 style="margin: 0; font-size: 0.95rem;">Live Guest Link Access Tester</h4>
+          </div>
+          <p style="margin: 0 0 12px 0; font-size: 0.78rem; color: var(--text-muted);">
+            Verify how a given media URL will be evaluated under the active guest access policy rules.
+          </p>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;">
+            <input type="text" id="inputTestGuestUrl" class="admin-input" placeholder="Paste any test URL (e.g. YouTube, Spotify, Jable, TikTok, Magnet)..." style="flex: 1; min-width: 260px; font-size: 0.85rem;">
+            <button class="btn btn-primary btn-sm" id="btnRunLinkTest" type="button">Test Link Policy</button>
+          </div>
+          <div id="outputLinkTestResult" style="display: none; padding: 12px; border-radius: 8px; font-size: 0.85rem; background: rgba(0,0,0,0.3); border: 1px solid var(--admin-border);">
+            <!-- Live test output -->
           </div>
         </div>
       </section>

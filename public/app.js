@@ -1451,10 +1451,30 @@ function highlightPreset(element) {
   if (element) element.classList.add('active');
 }
 
+function isRestrictedGuestUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const lower = url.trim().toLowerCase();
+  if (lower.startsWith('magnet:') || lower.includes('.torrent')) return true;
+  const blockedPatterns = [
+    'spotify.com', 'tidal.com', 'deezer.com', 'qobuz.com', 'music.apple.com',
+    'jable.tv', 'missav.', 'pornhub.com', 'xvideos.com', 'xnxx.com', 'spankbang.com',
+    'hanime.tv', 'rule34video.com', 'stripchat.com', 'chaturbate.com', 'youporn.com',
+    'redtube.com', 'txxx.com', 'eporner.com', 'beeg.com', 'xhamster.com',
+    'yts.mx', 'thepiratebay', '1337x', 'fmovies', 'soap2day'
+  ];
+  return blockedPatterns.some(p => lower.includes(p));
+}
+
 // 1. Fetch Video Metadata
 async function fetchVideoMetadata() {
   const url = urlInput.value.trim();
   if (!url) return;
+
+  if (!isMember && isRestrictedGuestUrl(url)) {
+    openAuthModal('login', 'Guest access is limited to YouTube and supported social media platforms. Please sign in to download this content.');
+    showToast('Guest access is limited to YouTube and social media platforms.', 'warning');
+    return;
+  }
 
   setFetchingState(true);
 
@@ -1467,6 +1487,9 @@ async function fetchVideoMetadata() {
 
     const data = await res.json();
     if (!res.ok || data.error) {
+      if (data.requireAuth) {
+        openAuthModal('login', data.error);
+      }
       throw new Error(data.error || 'Failed to extract media information');
     }
 
@@ -1581,6 +1604,13 @@ function renderPreviewCard(data) {
 async function startDownload() {
   if (!currentExtractedData) return;
 
+  const targetUrl = currentExtractedData.sourceUrl || urlInput.value.trim();
+  if (!isMember && isRestrictedGuestUrl(targetUrl)) {
+    openAuthModal('login', 'Guest access is limited to YouTube and supported social media platforms. Please sign in to download this content.');
+    showToast('Guest access is limited to YouTube and social media platforms.', 'warning');
+    return;
+  }
+
   const isStreamWatcher = Boolean(currentExtractedData.isOffline || currentExtractedData.isPrivate);
   if (isStreamWatcher) {
     showToast(`⏳ Stream Watcher engaged: Standby mode active for ${currentExtractedData.model || 'model'}. UniLoader will auto-record when broadcast starts!`, 'info');
@@ -1665,6 +1695,12 @@ async function startBatchDownload() {
   const urls = batchUrlsInput.value.split('\n').map(u => u.trim()).filter(Boolean);
   if (urls.length === 0) {
     showToast('Please enter at least one URL', 'error');
+    return;
+  }
+
+  if (!isMember && urls.some(u => isRestrictedGuestUrl(u))) {
+    openAuthModal('login', 'Guest access is limited to YouTube and supported social media platforms. Please sign in to download this content.');
+    showToast('Guest access is limited to YouTube and social media platforms.', 'warning');
     return;
   }
 

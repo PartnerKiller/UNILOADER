@@ -50,6 +50,119 @@ const HIGH_SPEED_BT_TRACKERS = [
 ];
 const BT_TRACKER_PARAMS = HIGH_SPEED_BT_TRACKERS.map(t => `tr=${encodeURIComponent(t)}`).join('&');
 
+// Guest Link Access Platform Presets
+const LINK_ACCESS_PRESETS = {
+  youtube: [
+    'youtube.com',
+    'youtu.be',
+    'googlevideo.com'
+  ],
+  socialMedia: [
+    'twitter.com',
+    'x.com',
+    't.co',
+    'tiktok.com',
+    'douyin.com',
+    'instagram.com',
+    'instagr.am',
+    'facebook.com',
+    'fb.watch',
+    'fb.com',
+    'reddit.com',
+    'redd.it',
+    'vimeo.com',
+    'threads.net',
+    'threads.com',
+    'pinterest.com',
+    'pin.it',
+    'twitch.tv',
+    'bsky.app',
+    'bluesky.app',
+    'soundcloud.com',
+    'mixcloud.com',
+    'bandcamp.com',
+    'dailymotion.com',
+    'bilibili.com',
+    'weibo.com',
+    'weibo.cn',
+    'tumblr.com',
+    'linkedin.com',
+    'snapchat.com',
+    't.me',
+    'telegram.me'
+  ],
+  musicFlac: [
+    'spotify.com',
+    'tidal.com',
+    'deezer.com',
+    'qobuz.com',
+    'music.apple.com',
+    'music.amazon.com',
+    'jiosaavn.com',
+    'gaana.com',
+    'wynk.in'
+  ],
+  adultJav: [
+    'jable.tv',
+    'missav.com',
+    'missav.ai',
+    'missav.ws',
+    'missav.live',
+    'pornhub.com',
+    'xvideos.com',
+    'xnxx.com',
+    'spankbang.com',
+    'hanime.tv',
+    'rule34video.com',
+    'stripchat.com',
+    'chaturbate.com',
+    'bongacams.com',
+    'cam4.com',
+    'youporn.com',
+    'redtube.com',
+    'tube8.com',
+    'txxx.com',
+    'hqporner.com',
+    'eporner.com',
+    'beeg.com',
+    'xhamster.com',
+    'javdb.com',
+    'javbus.com',
+    'javlibrary.com',
+    'javmenu.com',
+    'supjav.com',
+    '7mmtv.tv',
+    'thisav.com',
+    'tktube.com',
+    'netflav.com',
+    'av01.tv'
+  ],
+  moviesTorrents: [
+    'yts.mx',
+    'yts.rs',
+    'yts.lt',
+    'yts.do',
+    'thepiratebay.org',
+    'thepiratebay0.org',
+    '1337x.to',
+    '1337x.st',
+    'fmovies.to',
+    'soap2day.to',
+    'moviesjoy.to',
+    'hurawatch.to',
+    'streamwish.to',
+    'doodstream.com',
+    'mixdrop.co',
+    'streamtape.com',
+    'superembed.stream',
+    'vidcloud.stream',
+    'rapidcloud.co',
+    'olamovies.ink',
+    'olamovies.lat',
+    'olamovies.top'
+  ]
+};
+
 // Global Dynamic Engine Configuration
 const ENGINE_CONFIG_FILE = path.join(__dirname, 'engine_config.json');
 const defaultEngineConfig = {
@@ -67,6 +180,18 @@ const defaultEngineConfig = {
     userLimit: '3M',          // Default limit for registered standard members
     premiumLimit: '0',        // '0' = uncapped for premium, or e.g. '10M'
     customUserLimits: {}      // Per-user overrides: { [usernameOrId]: '500K' | '2M' | '0' }
+  },
+  linkAccess: {
+    enforceGuestPolicy: true,
+    allowYouTube: true,
+    allowSocialMedia: true,
+    allowMusicAndFlac: false,
+    allowAdultAndJav: false,
+    allowMoviesAndTorrents: false,
+    allowAllOtherWebsites: false,
+    customAllowedDomains: [],
+    customBlockedDomains: [],
+    guestBlockMessage: 'Guest access is limited to YouTube and supported social media platforms. Please sign in with a member account to download this content.'
   },
   features: {
     adultHub: true,
@@ -218,6 +343,12 @@ function loadEngineConfig() {
         features: {
           ...defaultEngineConfig.features,
           ...(parsed.features || {})
+        },
+        linkAccess: {
+          ...defaultEngineConfig.linkAccess,
+          ...(parsed.linkAccess || {}),
+          customAllowedDomains: Array.isArray(parsed.linkAccess?.customAllowedDomains) ? parsed.linkAccess.customAllowedDomains : [],
+          customBlockedDomains: Array.isArray(parsed.linkAccess?.customBlockedDomains) ? parsed.linkAccess.customBlockedDomains : []
         }
       };
     }
@@ -235,6 +366,166 @@ function saveEngineConfig() {
 }
 
 loadEngineConfig();
+
+function extractDomain(inputUrl) {
+  if (!inputUrl || typeof inputUrl !== 'string') return '';
+  const trimmed = inputUrl.trim();
+  if (trimmed.startsWith('magnet:')) return 'magnet';
+  try {
+    const parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    let host = parsed.hostname.toLowerCase();
+    if (host.startsWith('www.')) host = host.slice(4);
+    if (host.startsWith('m.')) host = host.slice(2);
+    return host;
+  } catch (e) {
+    const m = trimmed.match(/^(?:https?:\/\/)?(?:www\.|m\.)?([^\/\s?#:]+)/i);
+    return m ? m[1].toLowerCase() : '';
+  }
+}
+
+function matchesDomainList(host, domainList) {
+  if (!host || !Array.isArray(domainList)) return false;
+  return domainList.some(d => {
+    if (!d) return false;
+    const cleanD = String(d).toLowerCase().trim().replace(/^(?:https?:\/\/)?(?:www\.|m\.)?/, '').replace(/\/.*$/, '');
+    if (!cleanD) return false;
+    return host === cleanD || host.endsWith('.' + cleanD);
+  });
+}
+
+function evaluateGuestLinkAccess(url) {
+  const cfg = (engineConfig && engineConfig.linkAccess) ? engineConfig.linkAccess : defaultEngineConfig.linkAccess;
+  const userMessage = (cfg && cfg.guestBlockMessage) || defaultEngineConfig.linkAccess.guestBlockMessage;
+
+  if (!cfg || cfg.enforceGuestPolicy === false) {
+    return { allowed: true, category: 'all', reason: 'Guest link policy enforcement is disabled by administrator' };
+  }
+
+  const trimmed = (url || '').trim();
+  if (!trimmed) {
+    return { allowed: false, category: 'none', reason: 'Empty URL', userMessage };
+  }
+
+  const host = extractDomain(trimmed);
+
+  // 1. BitTorrent & Magnet links
+  if (trimmed.startsWith('magnet:') || trimmed.toLowerCase().includes('.torrent') || host === 'magnet') {
+    if (!cfg.allowMoviesAndTorrents) {
+      return {
+        allowed: false,
+        category: 'movies_torrents',
+        domain: 'magnet/torrent',
+        reason: 'BitTorrent and Magnet links are restricted to authenticated members.',
+        userMessage
+      };
+    }
+  }
+
+  // 2. Custom Blocked Domains (highest priority blacklist override)
+  if (Array.isArray(cfg.customBlockedDomains) && matchesDomainList(host, cfg.customBlockedDomains)) {
+    return {
+      allowed: false,
+      category: 'custom_blocked',
+      domain: host,
+      reason: `Domain ${host} is explicitly blocked for guests by administrator.`,
+      userMessage
+    };
+  }
+
+  // 3. Custom Allowed Domains (explicit admin whitelist override)
+  if (Array.isArray(cfg.customAllowedDomains) && matchesDomainList(host, cfg.customAllowedDomains)) {
+    return {
+      allowed: true,
+      category: 'custom_allowed',
+      domain: host,
+      reason: `Domain ${host} is explicitly permitted for guests by administrator.`
+    };
+  }
+
+  // 4. Adult & JAV checks
+  if (matchesDomainList(host, LINK_ACCESS_PRESETS.adultJav)) {
+    if (!cfg.allowAdultAndJav) {
+      return {
+        allowed: false,
+        category: 'adult',
+        domain: host,
+        reason: `Adult and JAV media platforms (${host}) are restricted to authenticated members.`,
+        userMessage
+      };
+    }
+    return { allowed: true, category: 'adult', domain: host };
+  }
+
+  // 5. Lossless FLAC & Music streaming checks
+  if (matchesDomainList(host, LINK_ACCESS_PRESETS.musicFlac)) {
+    if (!cfg.allowMusicAndFlac) {
+      return {
+        allowed: false,
+        category: 'music_flac',
+        domain: host,
+        reason: `Hi-Res FLAC and Music streaming platforms (${host}) are restricted to authenticated members.`,
+        userMessage
+      };
+    }
+    return { allowed: true, category: 'music_flac', domain: host };
+  }
+
+  // 6. Movies & Cinema hosters
+  if (matchesDomainList(host, LINK_ACCESS_PRESETS.moviesTorrents)) {
+    if (!cfg.allowMoviesAndTorrents) {
+      return {
+        allowed: false,
+        category: 'movies_torrents',
+        domain: host,
+        reason: `Movie and Cinema streaming hosts (${host}) are restricted to authenticated members.`,
+        userMessage
+      };
+    }
+    return { allowed: true, category: 'movies_torrents', domain: host };
+  }
+
+  // 7. YouTube check
+  if (matchesDomainList(host, LINK_ACCESS_PRESETS.youtube)) {
+    if (cfg.allowYouTube !== false) {
+      return { allowed: true, category: 'youtube', domain: host, reason: 'YouTube is permitted for guests.' };
+    }
+    return {
+      allowed: false,
+      category: 'youtube',
+      domain: host,
+      reason: 'YouTube downloads are currently disabled for guests by administrator.',
+      userMessage: 'YouTube downloads are currently restricted for guest visitors.'
+    };
+  }
+
+  // 8. Social Media check
+  if (matchesDomainList(host, LINK_ACCESS_PRESETS.socialMedia)) {
+    if (cfg.allowSocialMedia !== false) {
+      return { allowed: true, category: 'social_media', domain: host, reason: 'Social media platform is permitted for guests.' };
+    }
+    return {
+      allowed: false,
+      category: 'social_media',
+      domain: host,
+      reason: 'Social media downloads are currently disabled for guests by administrator.',
+      userMessage: 'Social media downloads are currently restricted for guest visitors.'
+    };
+  }
+
+  // 9. All other web domains
+  if (cfg.allowAllOtherWebsites === true) {
+    return { allowed: true, category: 'other', domain: host, reason: 'General web links are enabled for guests.' };
+  }
+
+  // Default refusal for any unallowed domain
+  return {
+    allowed: false,
+    category: 'unallowed_domain',
+    domain: host,
+    reason: `Platform ${host || 'unknown'} is outside the allowed guest download list (YouTube & Social Media only).`,
+    userMessage
+  };
+}
 
 function getMaxConcurrentDownloads() {
   return engineConfig.maxConcurrentJobs || 4;
@@ -1168,6 +1459,12 @@ function decryptMouflonSegmentUri(uri, pdkey) {
 }
 
 app.get('/api/cam-proxy/:streamName.m3u8', async (req, res) => {
+  const isInternal = req.ip === '127.0.0.1' || req.ip === '::1' || req.headers['user-agent'] === 'UniLoader-Watcher';
+  const sess = resolveUserSession(req);
+  if (!isInternal && (!sess || sess.role === 'guest')) {
+    return res.status(403).send('Cam streams require a registered member account.');
+  }
+
   const rawStream = req.params.streamName.replace(/\.m3u8$/i, '');
   const masterUrl = `https://edge-hls.doppiocdn.org/hls/${rawStream}/master/${rawStream}_auto.m3u8`;
 
@@ -1498,7 +1795,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     movies: false,
     music: false,
     audiophile_flac: false,
-    flac_checker: true,
+    flac_checker: false,
     adult: false,
     quality_4k: false,
     unlimited_concurrency: false,
@@ -1545,7 +1842,6 @@ function loadRolePermissions() {
             rolePermissions[role] = Object.assign({}, DEFAULT_ROLE_PERMISSIONS[role], data[role]);
           }
         }
-        rolePermissions.guest.flac_checker = true;
       }
     }
   } catch (err) {
@@ -1646,8 +1942,6 @@ function getUserPermissions(userOrRole) {
   const result = {};
   for (const item of FEATURE_METADATA) {
     if (isOwner) {
-      result[item.key] = true;
-    } else if (item.key === 'flac_checker') {
       result[item.key] = true;
     } else if (customPermissions && typeof customPermissions[item.key] === 'boolean') {
       result[item.key] = customPermissions[item.key];
@@ -4363,6 +4657,91 @@ app.post('/api/admin/bandwidth-caps', requireAdmin, (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// 12.3 Dedicated Guest Link Access Control APIs
+app.get('/api/admin/link-access', requireAdmin, (req, res) => {
+  res.json({
+    success: true,
+    config: engineConfig.linkAccess || defaultEngineConfig.linkAccess,
+    presets: LINK_ACCESS_PRESETS
+  });
+});
+
+app.post('/api/admin/link-access', requireAdmin, (req, res) => {
+  try {
+    const updates = req.body || {};
+    if (!engineConfig.linkAccess) {
+      engineConfig.linkAccess = { ...defaultEngineConfig.linkAccess };
+    }
+
+    if (typeof updates.enforceGuestPolicy === 'boolean') {
+      engineConfig.linkAccess.enforceGuestPolicy = updates.enforceGuestPolicy;
+    }
+    if (typeof updates.allowYouTube === 'boolean') {
+      engineConfig.linkAccess.allowYouTube = updates.allowYouTube;
+    }
+    if (typeof updates.allowSocialMedia === 'boolean') {
+      engineConfig.linkAccess.allowSocialMedia = updates.allowSocialMedia;
+    }
+    if (typeof updates.allowMusicAndFlac === 'boolean') {
+      engineConfig.linkAccess.allowMusicAndFlac = updates.allowMusicAndFlac;
+    }
+    if (typeof updates.allowAdultAndJav === 'boolean') {
+      engineConfig.linkAccess.allowAdultAndJav = updates.allowAdultAndJav;
+    }
+    if (typeof updates.allowMoviesAndTorrents === 'boolean') {
+      engineConfig.linkAccess.allowMoviesAndTorrents = updates.allowMoviesAndTorrents;
+    }
+    if (typeof updates.allowAllOtherWebsites === 'boolean') {
+      engineConfig.linkAccess.allowAllOtherWebsites = updates.allowAllOtherWebsites;
+    }
+    if (typeof updates.guestBlockMessage === 'string' && updates.guestBlockMessage.trim()) {
+      engineConfig.linkAccess.guestBlockMessage = updates.guestBlockMessage.trim();
+    }
+    if (Array.isArray(updates.customAllowedDomains)) {
+      engineConfig.linkAccess.customAllowedDomains = updates.customAllowedDomains
+        .map(d => extractDomain(String(d)))
+        .filter(Boolean);
+    }
+    if (Array.isArray(updates.customBlockedDomains)) {
+      engineConfig.linkAccess.customBlockedDomains = updates.customBlockedDomains
+        .map(d => extractDomain(String(d)))
+        .filter(Boolean);
+    }
+
+    saveEngineConfig();
+    console.log(`[LinkAccess] Guest policy updated: enforce=${engineConfig.linkAccess.enforceGuestPolicy}, yt=${engineConfig.linkAccess.allowYouTube}, social=${engineConfig.linkAccess.allowSocialMedia}, flac=${engineConfig.linkAccess.allowMusicAndFlac}, adult=${engineConfig.linkAccess.allowAdultAndJav}, movies=${engineConfig.linkAccess.allowMoviesAndTorrents}`);
+    res.json({
+      success: true,
+      message: 'Guest link access policy updated and saved successfully',
+      config: engineConfig.linkAccess
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/link-access/test', requireAdmin, (req, res) => {
+  const { url } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'URL is required to test' });
+  const result = evaluateGuestLinkAccess(url);
+  res.json({
+    success: true,
+    url,
+    domain: extractDomain(url),
+    result
+  });
+});
+
+app.post('/api/admin/link-access/reset', requireAdmin, (req, res) => {
+  engineConfig.linkAccess = { ...defaultEngineConfig.linkAccess };
+  saveEngineConfig();
+  res.json({
+    success: true,
+    message: 'Guest link access policy reset to factory defaults',
+    config: engineConfig.linkAccess
+  });
 });
 
 // 13. Storage Explorer & File Manager
@@ -7306,10 +7685,24 @@ async function startDdlMovieResolver(job) {
 }
 
 // 1. Metadata Extraction Endpoint
-app.post('/api/extract', async (req, res) => {
+app.post('/api/extract', identifyUser, async (req, res) => {
   try {
-    const { url } = req.body;
+    const { url } = req.body || {};
     if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    // Enforce link access restriction for guest visitors
+    if (req.currentUser && req.currentUser.role === 'guest') {
+      const check = evaluateGuestLinkAccess(url);
+      if (!check.allowed) {
+        return res.status(403).json({
+          error: check.userMessage,
+          requireAuth: true,
+          code: 'GUEST_LINK_RESTRICTED',
+          category: check.category
+        });
+      }
+    }
+
     const meta = await extractMetadata(url);
     res.json(meta);
   } catch (err) {
@@ -8485,6 +8878,19 @@ app.post('/api/download', identifyUser, async (req, res) => {
       });
     }
 
+    // Guest Link Access Policy Enforcement
+    if (req.currentUser && req.currentUser.role === 'guest') {
+      const check = evaluateGuestLinkAccess(url);
+      if (!check.allowed) {
+        return res.status(403).json({
+          error: check.userMessage,
+          requireAuth: true,
+          code: 'GUEST_LINK_RESTRICTED',
+          category: check.category
+        });
+      }
+    }
+
     // 1. Lossless Audio check: FLAC / WAV
     const audioFmt = (payload.audioFormat || '').toLowerCase();
     if ((audioFmt === 'flac' || audioFmt === 'wav' || payload.mode === 'audiophile_flac') && !isFeatureAllowed(req.currentUser, 'audiophile_flac')) {
@@ -8604,6 +9010,21 @@ app.post('/api/batch-download', identifyUser, async (req, res) => {
         error: 'Batch Downloader is disabled for your role. Please contact administrator.',
         requireAuth: req.currentUser.role === 'guest'
       });
+    }
+
+    // Guest Link Access Policy Enforcement for batch URLs
+    if (req.currentUser && req.currentUser.role === 'guest') {
+      for (const u of urls) {
+        const check = evaluateGuestLinkAccess(u);
+        if (!check.allowed) {
+          return res.status(403).json({
+            error: check.userMessage,
+            requireAuth: true,
+            code: 'GUEST_LINK_RESTRICTED',
+            category: check.category
+          });
+        }
+      }
     }
 
     let cappedNotice = null;
