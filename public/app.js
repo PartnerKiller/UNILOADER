@@ -249,6 +249,18 @@ function canAccess(featureKey) {
   return true;
 }
 
+function isUserMember() {
+  return Boolean(currentUser && currentUser.role && currentUser.role !== 'guest');
+}
+
+try {
+  Object.defineProperty(window, 'isMember', {
+    get: () => isUserMember(),
+    configurable: true
+  });
+} catch (e) {}
+
+
 // Transparent API Authorization & Client Identity Interceptor
 const originalFetch = window.fetch;
 window.fetch = function (url, options = {}) {
@@ -1470,7 +1482,7 @@ async function fetchVideoMetadata() {
   const url = urlInput.value.trim();
   if (!url) return;
 
-  if (!isMember && isRestrictedGuestUrl(url)) {
+  if (!isUserMember() && isRestrictedGuestUrl(url)) {
     openAuthModal('login', 'Guest access is limited to YouTube and supported social media platforms. Please sign in to download this content.');
     showToast('Guest access is limited to YouTube and social media platforms.', 'warning');
     return;
@@ -1605,7 +1617,7 @@ async function startDownload() {
   if (!currentExtractedData) return;
 
   const targetUrl = currentExtractedData.sourceUrl || urlInput.value.trim();
-  if (!isMember && isRestrictedGuestUrl(targetUrl)) {
+  if (!isUserMember() && isRestrictedGuestUrl(targetUrl)) {
     openAuthModal('login', 'Guest access is limited to YouTube and supported social media platforms. Please sign in to download this content.');
     showToast('Guest access is limited to YouTube and social media platforms.', 'warning');
     return;
@@ -1698,7 +1710,7 @@ async function startBatchDownload() {
     return;
   }
 
-  if (!isMember && urls.some(u => isRestrictedGuestUrl(u))) {
+  if (!isUserMember() && urls.some(u => isRestrictedGuestUrl(u))) {
     openAuthModal('login', 'Guest access is limited to YouTube and supported social media platforms. Please sign in to download this content.');
     showToast('Guest access is limited to YouTube and social media platforms.', 'warning');
     return;
