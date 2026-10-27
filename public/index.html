@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.28.8">
+  <link rel="stylesheet" href="styles.css?v=4.28.9">
 </head>
 <body>
   <!-- Sticky Owner Testing Banner (Shown only to Owner when maintenance mode is active) -->
@@ -116,7 +116,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.8 &bull; Gemini AI &amp; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.9 &bull; Gemini AI &amp; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -276,7 +276,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.8 &bull; Gemini AI &amp; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.9 &bull; Gemini AI &amp; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -373,9 +373,35 @@
                     <input type="text" id="aiCopilotInput" class="ai-prompt-input" placeholder="Ask Copilot: e.g. 'Download Daft Punk Discovery in 24-bit FLAC' or 'Find Oppenheimer 4K'..." autocomplete="off" />
                   </div>
                   <button type="button" class="btn-ai-submit" id="btnAiCopilotSubmit">
-                    <span>Ask AI</span>
+                    <span id="btnAiCopilotSubmitText">Ask AI</span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                   </button>
+                </div>
+                <!-- Category Tag Selector (Adult, Song, Movie, Video) -->
+                <div class="ai-tag-selector-row">
+                  <span class="ai-tag-label">TAG TYPE:</span>
+                  <div class="ai-tag-chips" id="aiCopilotTagChips">
+                    <button type="button" class="ai-tag-chip active" data-tag="auto" title="Auto-detect media type with Gemini AI">
+                      <span class="ai-tag-icon">✨</span>
+                      <span>Auto</span>
+                    </button>
+                    <button type="button" class="ai-tag-chip" data-tag="adult" title="Search as Adult & JAV Content (Jable, MissAV)">
+                      <span class="ai-tag-icon">🔞</span>
+                      <span>Adult</span>
+                    </button>
+                    <button type="button" class="ai-tag-chip" data-tag="song" title="Search as Song / Hi-Fi Audio (Spotify, Tidal, Deezer, Soulseek)">
+                      <span class="ai-tag-icon">🎵</span>
+                      <span>Song</span>
+                    </button>
+                    <button type="button" class="ai-tag-chip" data-tag="movie" title="Search as Movie / TV Cinema (YTS 4K, DDL, Torrents)">
+                      <span class="ai-tag-icon">🎬</span>
+                      <span>Movie</span>
+                    </button>
+                    <button type="button" class="ai-tag-chip" data-tag="video" title="Search as Web Video (YouTube, Social Media)">
+                      <span class="ai-tag-icon">📹</span>
+                      <span>Video</span>
+                    </button>
+                  </div>
                 </div>
                 <div class="ai-quick-examples">
                   <span class="ai-examples-label">Try:</span>
@@ -1944,6 +1970,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4.28.8"></script>
+  <script src="app.js?v=4.28.9"></script>
 </body>
 </html>

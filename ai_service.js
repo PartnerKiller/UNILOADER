@@ -164,9 +164,38 @@ function extractResponseText(geminiResult) {
  * Pillar 1: Smart Search & Intent Parser (Copilot)
  * Takes a natural language prompt and resolves download intent, entities, and parameters.
  */
-async function parseSearchIntent(userPrompt) {
+async function parseSearchIntent(userPrompt, category = null) {
   if (!userPrompt || typeof userPrompt !== 'string' || !userPrompt.trim()) {
     throw new Error('Search prompt cannot be empty');
+  }
+
+  const cleanPrompt = userPrompt.trim();
+  const normCategory = (category && typeof category === 'string' && category.toLowerCase().trim() !== 'auto')
+    ? category.toLowerCase().trim()
+    : null;
+
+  let categoryConstraint = '';
+  let forcedIntent = null;
+  let forcedTab = null;
+
+  if (normCategory) {
+    if (['adult', 'adult_jav', 'jav'].includes(normCategory)) {
+      forcedIntent = 'adult_jav';
+      forcedTab = 'adult-search';
+      categoryConstraint = `\nUSER TAG CONSTRAINT: The user explicitly tagged this query as ADULT/JAV media. You MUST set intent="adult_jav" and suggestedTab="adult-search". Extract actress name or JAV code if applicable, or set query="${cleanPrompt}".`;
+    } else if (['song', 'music', 'flac', 'audio'].includes(normCategory)) {
+      forcedIntent = 'music';
+      forcedTab = 'music';
+      categoryConstraint = `\nUSER TAG CONSTRAINT: The user explicitly tagged this query as a SONG/MUSIC track. You MUST set intent="music" and suggestedTab="music". Extract artist, song title, and album if applicable.`;
+    } else if (['movie', 'movies', 'cinema', 'film', 'tv'].includes(normCategory)) {
+      forcedIntent = 'movies';
+      forcedTab = 'movies';
+      categoryConstraint = `\nUSER TAG CONSTRAINT: The user explicitly tagged this query as a MOVIE/TV CINEMA. You MUST set intent="movies" and suggestedTab="movies". Extract movie/series title, year, season, and episode if applicable.`;
+    } else if (['video', 'yt', 'youtube', 'web'].includes(normCategory)) {
+      forcedIntent = 'general_search';
+      forcedTab = 'downloader';
+      categoryConstraint = `\nUSER TAG CONSTRAINT: The user explicitly tagged this query as a WEB VIDEO/CLIP (YouTube/Web). You MUST set intent="general_search" and suggestedTab="downloader".`;
+    }
   }
 
   const systemInstructions = `
@@ -178,7 +207,7 @@ Categories:
 - "movies": Cinema releases, TV series, episodes, anime.
 - "adult_jav": Japanese Adult Videos (JAV), actresses, uncensored releases, adult codes (e.g. SSIS-123, IPX-456).
 - "direct_url": If the input contains a URL (YouTube, Twitter, TikTok, Instagram, Jable, etc.).
-- "general_search": Ambiguous media.
+- "general_search": Ambiguous media or general web video.
 
 Output strictly valid JSON with no conversational markdown or backticks.
 Schema:
@@ -199,6 +228,7 @@ Schema:
   "directUrl": "url string or null",
   "explanation": "concise 1-sentence description of what will be searched/downloaded"
 }
+${categoryConstraint}
 `;
 
   const payload = {
@@ -206,7 +236,7 @@ Schema:
       {
         parts: [
           { text: systemInstructions },
-          { text: `User Prompt: "${userPrompt.trim()}"` }
+          { text: `User Prompt: "${cleanPrompt}"` }
         ]
       }
     ],
@@ -216,20 +246,68 @@ Schema:
     }
   };
 
-  const res = await callGemini(payload);
-  const rawText = extractResponseText(res);
   try {
-    const parsed = JSON.parse(rawText);
-    return {
-      success: true,
-      modelUsed: res.model,
-      intent: parsed
-    };
+    const res = await callGemini(payload);
+    const rawText = extractResponseText(res);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (e) {
+      const match = rawText.match(/\{[\s\S]*\}/);
+      if (match) parsed = JSON.parse(match[0]);
+    }
+
+    if (parsed) {
+      // If user provided explicit category tag, strictly enforce intent and suggestedTab
+      if (forcedIntent) {
+        parsed.intent = forcedIntent;
+      }
+      if (forcedTab) {
+        parsed.suggestedTab = forcedTab;
+      }
+      if (!parsed.query) {
+        parsed.query = cleanPrompt;
+      }
+
+      return {
+        success: true,
+        modelUsed: res.model,
+        intent: parsed
+      };
+    }
+    throw new Error('Could not parse Gemini JSON response');
   } catch (err) {
+    // Resilient Fallback based on explicit tag or basic URL detection
+    if (forcedIntent) {
+      return {
+        success: true,
+        modelUsed: 'rule-based-tagger',
+        intent: {
+          intent: forcedIntent,
+          query: cleanPrompt,
+          suggestedTab: forcedTab,
+          explanation: `Tagged ${normCategory.toUpperCase()} Search: "${cleanPrompt}"`
+        }
+      };
+    }
+
+    if (cleanPrompt.startsWith('http://') || cleanPrompt.startsWith('https://') || cleanPrompt.startsWith('magnet:')) {
+      return {
+        success: true,
+        modelUsed: 'rule-based-tagger',
+        intent: {
+          intent: 'direct_url',
+          query: cleanPrompt,
+          directUrl: cleanPrompt,
+          suggestedTab: 'downloader',
+          explanation: `Direct media URL download: ${cleanPrompt}`
+        }
+      };
+    }
+
     return {
       success: false,
-      error: `Failed to parse AI JSON response: ${err.message}`,
-      raw: rawText
+      error: `Failed to resolve search intent: ${err.message}`
     };
   }
 }

@@ -1482,6 +1482,23 @@ async function fetchVideoMetadata() {
   const url = urlInput.value.trim();
   if (!url) return;
 
+  // If user entered a search query instead of a URL, redirect to Copilot with category tags
+  if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('magnet:') && !url.startsWith('ytsearch')) {
+    const aiCopilotContainer = document.getElementById('aiCopilotContainer');
+    const btnAiCopilotTrigger = document.getElementById('btnAiCopilotTrigger');
+    const aiCopilotInput = document.getElementById('aiCopilotInput');
+    if (aiCopilotContainer) {
+      aiCopilotContainer.style.display = 'flex';
+      if (btnAiCopilotTrigger) btnAiCopilotTrigger.classList.add('active');
+      if (aiCopilotInput) {
+        aiCopilotInput.value = url;
+        aiCopilotInput.focus();
+      }
+      showToast('💡 Search query detected! Tag it as Adult, Song, Movie, or Video to search.', 'info');
+      return;
+    }
+  }
+
   if (!isUserMember() && isRestrictedGuestUrl(url)) {
     openAuthModal('login', 'Guest access is limited to YouTube and supported social media platforms. Please sign in to download this content.');
     showToast('Guest access is limited to YouTube and social media platforms.', 'warning');
@@ -5224,6 +5241,62 @@ function initAiFeatures() {
   const aiFeedbackSpinner = document.getElementById('aiFeedbackSpinner');
   const aiFeedbackText = document.getElementById('aiFeedbackText');
   const exampleChips = document.querySelectorAll('.ai-example-chip, .ai-copilot-chip');
+  const categoryTagChips = document.querySelectorAll('.ai-tag-chip');
+  const btnAiCopilotSubmitText = document.getElementById('btnAiCopilotSubmitText');
+
+  let currentCopilotTag = 'auto';
+
+  function setCopilotTag(tag) {
+    currentCopilotTag = (tag || 'auto').toLowerCase();
+    categoryTagChips.forEach(chip => {
+      chip.classList.toggle('active', chip.dataset.tag === currentCopilotTag);
+    });
+
+    const placeholders = {
+      auto: "Ask Copilot: e.g. 'swastika mukherjee', 'Download Daft Punk in FLAC', 'Find Oppenheimer 4K'...",
+      adult: "Search Adult & JAV: e.g. 'swastika mukherjee', 'SSIS-888', 'Yua Mikami'...",
+      song: "Search Songs & FLAC: e.g. 'swastika mukherjee', 'Daft Punk Discovery'...",
+      movie: "Search Movies & Cinema: e.g. 'swastika mukherjee', 'Oppenheimer 4K'...",
+      video: "Search Videos: e.g. 'swastika mukherjee' or paste YouTube / web link..."
+    };
+
+    const submitLabels = {
+      auto: 'Ask AI',
+      adult: 'Search Adult',
+      song: 'Search Song',
+      movie: 'Search Movie',
+      video: 'Search Video'
+    };
+
+    if (aiCopilotInput) {
+      aiCopilotInput.placeholder = placeholders[currentCopilotTag] || placeholders.auto;
+    }
+    if (btnAiCopilotSubmitText) {
+      btnAiCopilotSubmitText.textContent = submitLabels[currentCopilotTag] || 'Ask AI';
+    }
+  }
+
+  categoryTagChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      const tag = chip.dataset.tag || 'auto';
+      setCopilotTag(tag);
+      if (aiCopilotInput) aiCopilotInput.focus();
+    });
+  });
+
+  if (aiCopilotInput) {
+    aiCopilotInput.addEventListener('input', () => {
+      const val = aiCopilotInput.value;
+      const tagMatch = val.match(/(?:^|\s)(#(?:adult|jav|song|music|audio|movie|film|cinema|video|clip|yt))\b/i);
+      if (tagMatch) {
+        const raw = tagMatch[1].toLowerCase().replace('#', '');
+        if (['adult', 'jav'].includes(raw)) setCopilotTag('adult');
+        else if (['song', 'music', 'audio'].includes(raw)) setCopilotTag('song');
+        else if (['movie', 'film', 'cinema'].includes(raw)) setCopilotTag('movie');
+        else if (['video', 'clip', 'yt'].includes(raw)) setCopilotTag('video');
+      }
+    });
+  }
 
   if (btnAiCopilotTrigger && aiCopilotContainer) {
     btnAiCopilotTrigger.addEventListener('click', () => {
@@ -5258,22 +5331,45 @@ function initAiFeatures() {
   });
 
   async function handleAiCopilotSubmit(promptText) {
-    const prompt = (promptText || (aiCopilotInput ? aiCopilotInput.value : '')).trim();
-    if (!prompt) {
-      showToast('Please enter a media prompt for AI Copilot', 'warning');
+    let rawPrompt = (promptText || (aiCopilotInput ? aiCopilotInput.value : '')).trim();
+    if (!rawPrompt) {
+      showToast('Please enter a media query or prompt', 'warning');
       return;
     }
+
+    // Clean inline hashtags if present and sync active tag
+    let effectiveTag = currentCopilotTag;
+    const inlineTagMatch = rawPrompt.match(/(?:^|\s)(#(?:adult|jav|song|music|audio|movie|film|cinema|video|clip|yt))\b/i);
+    if (inlineTagMatch) {
+      const tagStr = inlineTagMatch[1].toLowerCase().replace('#', '');
+      if (['adult', 'jav'].includes(tagStr)) effectiveTag = 'adult';
+      else if (['song', 'music', 'audio'].includes(tagStr)) effectiveTag = 'song';
+      else if (['movie', 'film', 'cinema'].includes(tagStr)) effectiveTag = 'movie';
+      else if (['video', 'clip', 'yt'].includes(tagStr)) effectiveTag = 'video';
+      rawPrompt = rawPrompt.replace(inlineTagMatch[1], '').trim();
+      setCopilotTag(effectiveTag);
+    }
+
+    const prompt = rawPrompt;
+    if (!prompt) {
+      showToast('Please enter a search query after the tag', 'warning');
+      return;
+    }
+
+    const tagIcons = { adult: '🔞', song: '🎵', movie: '🎬', video: '📹', auto: '✨' };
+    const tagNames = { adult: 'Adult', song: 'Song', movie: 'Movie', video: 'Video', auto: 'Auto' };
+    const tagPrefix = effectiveTag !== 'auto' ? `Tag: ${tagIcons[effectiveTag] || ''} ${tagNames[effectiveTag] || ''} • ` : '';
 
     if (btnAiCopilotSubmit) btnAiCopilotSubmit.disabled = true;
     if (aiCopilotFeedback) aiCopilotFeedback.style.display = 'flex';
     if (aiFeedbackSpinner) aiFeedbackSpinner.style.display = 'inline-flex';
-    if (aiFeedbackText) aiFeedbackText.textContent = 'Consulting Gemini AI...';
+    if (aiFeedbackText) aiFeedbackText.textContent = `${tagPrefix}Consulting Gemini AI...`;
 
     try {
       const res = await fetch('/api/ai/copilot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({ prompt, category: effectiveTag })
       });
       const data = await res.json();
 
@@ -5322,7 +5418,12 @@ function initAiFeatures() {
         } else {
           switchView('downloader');
           if (urlInput && intent.query) {
-            urlInput.value = intent.query;
+            const finalQuery = intent.query.trim();
+            if (finalQuery.startsWith('http://') || finalQuery.startsWith('https://') || finalQuery.startsWith('magnet:')) {
+              urlInput.value = finalQuery;
+            } else {
+              urlInput.value = `ytsearch1:${finalQuery}`;
+            }
             if (fetchBtn) fetchBtn.click();
           }
         }
@@ -5337,8 +5438,48 @@ function initAiFeatures() {
         if (aiFeedbackText) aiFeedbackText.textContent = data.error || 'Request failed';
       }
     } catch (err) {
-      showToast(`AI Copilot error: ${err.message}`, 'error');
-      if (aiFeedbackText) aiFeedbackText.textContent = `Error: ${err.message}`;
+      // If a category tag was selected, execute search directly as reliable fallback
+      if (effectiveTag && effectiveTag !== 'auto') {
+        if (effectiveTag === 'adult') {
+          switchView('adult-search');
+          const adultInput = document.getElementById('adultSearchInput');
+          if (adultInput) {
+            adultInput.value = prompt;
+            currentAdultQuery = prompt;
+            currentAdultPage = 1;
+            if (typeof executeAdultSearch === 'function') executeAdultSearch();
+          }
+        } else if (effectiveTag === 'song') {
+          switchView('music');
+          const musicInput = document.getElementById('musicSearchInput');
+          if (musicInput) {
+            musicInput.value = prompt;
+            currentMusicQuery = prompt;
+            currentMusicPage = 1;
+            if (typeof executeMusicSearch === 'function') executeMusicSearch(prompt, 1);
+          }
+        } else if (effectiveTag === 'movie') {
+          switchView('movies');
+          const movieInput = document.getElementById('movieSearchInput');
+          if (movieInput) {
+            movieInput.value = prompt;
+            currentMovieQuery = prompt;
+            currentMoviePage = 1;
+            if (typeof executeMovieSearch === 'function') executeMovieSearch(prompt, 1);
+          }
+        } else if (effectiveTag === 'video') {
+          switchView('downloader');
+          if (urlInput) {
+            urlInput.value = (prompt.startsWith('http://') || prompt.startsWith('https://') || prompt.startsWith('magnet:')) ? prompt : `ytsearch1:${prompt}`;
+            if (fetchBtn) fetchBtn.click();
+          }
+        }
+        showToast(`Searching ${tagNames[effectiveTag] || 'media'} for "${prompt}"`, 'info');
+        if (aiFeedbackText) aiFeedbackText.textContent = `Direct Tag: routed to ${tagNames[effectiveTag] || 'media'} search.`;
+      } else {
+        showToast(`AI Copilot error: ${err.message}`, 'error');
+        if (aiFeedbackText) aiFeedbackText.textContent = `Error: ${err.message}`;
+      }
     } finally {
       if (btnAiCopilotSubmit) btnAiCopilotSubmit.disabled = false;
       if (aiFeedbackSpinner) aiFeedbackSpinner.style.display = 'none';

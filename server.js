@@ -2627,11 +2627,11 @@ app.get('/api/ai/status', identifyUser, requireAiAccess, (req, res) => {
 // 2. AI Media Copilot: Natural Language Intent Parser & Search Resolver
 app.post('/api/ai/copilot', identifyUser, requireAiAccess, async (req, res) => {
   try {
-    const { prompt } = req.body || {};
+    const { prompt, category } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       return res.status(400).json({ success: false, error: 'Query prompt is required' });
     }
-    const result = await aiService.parseSearchIntent(prompt.trim());
+    const result = await aiService.parseSearchIntent(prompt.trim(), category);
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
