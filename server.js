@@ -8727,6 +8727,7 @@ function attachProcessListeners(job, child) {
           job.status = 'completed';
           job.isStopping = false;
           job.progress.percent = 100;
+          job.progress.speed = '0 MB/s';
           job.progress.eta = 'Ready';
           job.logs.push(`Processing completed! File ready in folder (${(stat.size / (1024 * 1024)).toFixed(1)} MB).`);
           job.filesize = stat.size > (1024 ** 3)

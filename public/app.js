@@ -1979,7 +1979,7 @@ function createJobCardElement(job) {
       </div>
       <div class="metric-item">
         <span class="metric-label">Speed</span>
-        <span class="metric-value" id="job-metric-spd-${job.id}">${job.progress.speed || '0 MB/s'}</span>
+        <span class="metric-value" id="job-metric-spd-${job.id}">${job.status === 'completed' ? '—' : (job.progress.speed || '0 MB/s')}</span>
       </div>
       <div class="metric-item">
         <span class="metric-label">ETA</span>
@@ -2189,7 +2189,7 @@ function updateJobCard(job) {
   }
 
   const spd = document.getElementById(`job-metric-spd-${job.id}`);
-  if (spd) spd.textContent = job.progress.speed || '0 MB/s';
+  if (spd) spd.textContent = job.status === 'completed' ? '—' : (job.progress.speed || '0 MB/s');
 
   const eta = document.getElementById(`job-metric-eta-${job.id}`);
   if (eta) {

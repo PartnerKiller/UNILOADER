@@ -414,6 +414,9 @@
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 24px;
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
 }
 
 body {
@@ -423,6 +426,9 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
 }
 
 /* ==========================================================================
@@ -2782,6 +2788,53 @@ body {
     border-bottom: 1px solid var(--border-subtle);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
+    max-width: 100vw !important;
+    overflow: hidden !important;
+    gap: 8px !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+  }
+
+  .mobile-header .brand-group {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+
+  .mobile-header .brand-title {
+    font-size: 0.82rem !important;
+    font-weight: 800 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 160px !important;
+  }
+
+  .mobile-header-right {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .mobile-user-btn {
+    padding: 4px 8px !important;
+    font-size: 0.74rem !important;
+    gap: 5px !important;
+    max-width: 110px !important;
+  }
+
+  .mobile-user-btn span {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .status-pill-ready {
+    padding: 3px 8px !important;
+    font-size: 0.72rem !important;
   }
 
   /* Main Viewport Container with Bottom Safe Area */
@@ -2791,7 +2844,7 @@ body {
     padding-top: 12px !important;
     padding-left: max(10px, env(safe-area-inset-left, 0px)) !important;
     padding-right: max(10px, env(safe-area-inset-right, 0px)) !important;
-    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
     box-sizing: border-box;
     flex: 1;
     overflow-x: hidden;
@@ -2850,12 +2903,46 @@ body {
   }
 
   .section-header-flex {
-    margin-bottom: 10px;
-    gap: 8px;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    margin-bottom: 12px !important;
+    gap: 8px !important;
+    width: 100% !important;
   }
 
   .section-header-flex h2 {
-    font-size: 1.05rem;
+    font-size: 1.05rem !important;
+  }
+
+  .queue-header-actions {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .queue-header-actions .btn {
+    padding: 5px 10px !important;
+    font-size: 0.76rem !important;
+    flex-shrink: 0 !important;
+    touch-action: manipulation;
+  }
+
+  .queue-status-indicator {
+    padding: 3px 10px !important;
+    font-size: 0.74rem !important;
+    margin-left: auto !important;
+    flex-shrink: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .live-sync-badge {
+    font-size: 0.65rem !important;
+    padding: 2px 5px !important;
   }
 
   /* Mode Switch Tabs */
@@ -2925,14 +3012,36 @@ body {
 
   .input-wrapper {
     width: 100% !important;
-    padding: 8px 10px !important;
+    padding: 7px 10px !important;
     min-width: 0 !important;
-    box-sizing: border-box;
+    box-sizing: border-box !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
   }
 
   .url-input {
     min-width: 0 !important;
+    flex: 1 1 0% !important;
     width: 100% !important;
+    font-size: 0.86rem !important;
+  }
+
+  .btn-paste span,
+  .btn-ai-trigger span {
+    display: none !important;
+  }
+
+  .btn-paste,
+  .btn-ai-trigger {
+    padding: 6px 9px !important;
+    min-width: 34px !important;
+    height: 34px !important;
+    gap: 0 !important;
+    flex-shrink: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
   #fetchBtn, .btn-fetch {
@@ -2996,8 +3105,38 @@ body {
   }
 
   .advanced-toggles-grid {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 6px !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .checkbox-label {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    font-size: 0.82rem !important;
+    padding: 9px 12px !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    border-radius: 6px !important;
+  }
+
+  .checkbox-label span {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    line-height: 1.35 !important;
+    white-space: normal !important;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    width: 16px !important;
+    height: 16px !important;
+    flex-shrink: 0 !important;
+    margin: 0 !important;
   }
 
   .preview-actions {
@@ -3016,19 +3155,119 @@ body {
   .job-card {
     padding: 12px 10px !important;
     width: 100% !important;
-    box-sizing: border-box;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  .job-header {
+    width: 100% !important;
+    gap: 6px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .job-header-top {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .job-badges-row {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    flex-wrap: wrap !important;
+  }
+
+  .job-mode-tag {
+    font-size: 0.68rem !important;
+    padding: 2px 6px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .job-code {
+    max-width: 125px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 0.72rem !important;
+    padding: 2px 6px !important;
+  }
+
+  .job-header-right {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    flex-shrink: 0 !important;
+    margin-top: 1px !important;
+  }
+
+  .job-status-badge {
+    font-size: 0.68rem !important;
+    padding: 3px 8px !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .status-recording-live {
+    font-size: 0.65rem !important;
+    padding: 2px 7px !important;
+    gap: 4px !important;
+  }
+
+  .status-recording-live .recording-pulse-dot {
+    width: 5px !important;
+    height: 5px !important;
+  }
+
+  .btn-job-remove {
+    padding: 0 4px !important;
+    font-size: 1.15rem !important;
+    line-height: 1 !important;
   }
 
   .job-title {
     font-size: 0.85rem !important;
+    line-height: 1.35 !important;
     word-break: break-word !important;
     overflow-wrap: anywhere;
+  }
+
+  .job-meta {
+    font-size: 0.72rem !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .job-storage-tag {
+    font-size: 0.7rem !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
   }
 
   .job-metrics-grid {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 6px !important;
     padding: 8px !important;
+  }
+
+  .metric-item {
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .metric-label {
+    font-size: 0.68rem !important;
+  }
+
+  .metric-value {
+    font-size: 0.78rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    font-family: var(--font-mono);
   }
 
   .job-actions {
