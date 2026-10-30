@@ -125,9 +125,19 @@ def ensure_slskd_auth():
     if SLSKD_AUTH_TOKEN and "Authorization" in session.headers:
         return SLSKD_AUTH_TOKEN
 
+    # Check if security is enabled on slskd
+    try:
+        r_sec = session.get(f"{SLSKD_API_BASE}/session/enabled", timeout=2)
+        if r_sec.status_code == 200 and r_sec.text.strip().lower() == 'false':
+            return "no-auth-required"
+    except Exception:
+        pass
+
     creds_list = [
-        {"username": os.environ.get("SLSKD_USERNAME", "sakura"), "password": os.environ.get("SLSKD_PASSWORD", "sakura")},
+        {"username": os.environ.get("SLSKD_USERNAME", "uniloader_sakura"), "password": os.environ.get("SLSKD_PASSWORD", "sakura_p2p_pass_99")},
+        {"username": "uniloader_sakura", "password": "sakura_p2p_pass_99"},
         {"username": "sakura", "password": "sakura"},
+        {"username": "slskd", "password": "slskd"},
         {"username": "admin", "password": "password"}
     ]
     slskd_yml = "/home/sakura/slskd_data/slskd.yml"
@@ -252,6 +262,10 @@ def ensure_slskd_running():
 
 def get_slskd_downloads_dir():
     """Discovers slskd downloads directory dynamically from the running daemon or environment."""
+    env_dir = os.environ.get('SLSKD_DOWNLOADS_DIR')
+    if env_dir and os.path.exists(env_dir):
+        return env_dir
+
     try:
         r = session.get(f"{SLSKD_API_BASE}/options", timeout=2)
         if r.status_code == 200:
@@ -261,16 +275,45 @@ def get_slskd_downloads_dir():
     except Exception:
         pass
 
-    env_dir = os.environ.get('SLSKD_DOWNLOADS_DIR')
-    if env_dir and os.path.exists(env_dir):
-        return env_dir
+    # Common host storage locations (Docker bind mounts and local installs)
+    known_paths = [
+        '/media/hdd/sakura/slskd',
+        '/home/sakura/slskd_downloads',
+        '/media/hdd/sakura/slskd/downloads',
+        '/home/sakura/slskd_data/downloads',
+    ]
+    for kp in known_paths:
+        if os.path.exists(kp):
+            return kp
 
     if sys.platform == 'win32':
         win_dir = os.path.join(os.environ.get('LOCALAPPDATA', 'C:\\Users\\sayan\\AppData\\Local'), 'slskd', 'downloads')
         if os.path.exists(win_dir):
             return win_dir
 
-    return '/home/sakura/slskd_downloads'
+    return '/media/hdd/sakura/slskd' if os.path.exists('/media/hdd/sakura/slskd') else '/home/sakura/slskd_downloads'
+
+def get_slskd_scan_dirs():
+    """Returns a list of all active host directories where slskd downloads and candidate files reside."""
+    dirs = []
+    primary = get_slskd_downloads_dir()
+    if primary and os.path.exists(primary):
+        dirs.append(primary)
+
+    candidates = [
+        '/media/hdd/sakura/slskd',
+        '/home/sakura/slskd_downloads',
+        '/media/hdd/sakura/slskd/downloads',
+        '/home/sakura/slskd_data/downloads',
+    ]
+    if sys.platform == 'win32':
+        candidates.append(os.path.join(os.environ.get('LOCALAPPDATA', 'C:\\Users\\sayan\\AppData\\Local'), 'slskd', 'downloads'))
+
+    for c in candidates:
+        if c and os.path.exists(c) and c not in dirs:
+            dirs.append(c)
+
+    return dirs or ['/media/hdd/sakura/slskd']
 
 def normalize_slsk_path(p):
     """Normalizes Soulseek transfer path across Windows/Linux slashes and encodings."""
@@ -439,7 +482,7 @@ def calc_fidelity_score(bit_depth, sample_rate, size_bytes, filename, speed=0, f
 
     return score
 
-def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=None, duration=None, max_wait_sec=40):
+def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=None, duration=None, max_wait_sec=40, aliases=None):
     """
     Searches Soulseek P2P network for authentic CD/Vinyl Lossless FLAC rips,
     downloads the file directly from top peers, tags it, and places it at output_path.
@@ -475,19 +518,39 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     slskd_dl_dir = get_slskd_downloads_dir()
 
+    scan_dirs = get_slskd_scan_dirs()
+
     # 0. Scan local Soulseek downloads repository for candidate matches
     title_lower_words = [w.lower() for w in tit_words if len(w) >= 2]
     art_lower_words = [w.lower() for w in art_words if len(w) >= 2]
+
+    # Collect title word sets including multilingual aliases
+    all_title_word_sets = [title_lower_words] if title_lower_words else []
+    if aliases:
+        for _, alt_t in aliases:
+            alt_clean = re.sub(r'[\(\)\[\],&/\-_]', ' ', alt_t).strip()
+            alt_w = [w.lower() for w in alt_clean.split() if len(w) >= 1 and w.lower() not in STOP_WORDS]
+            if alt_w and alt_w not in all_title_word_sets:
+                all_title_word_sets.append(alt_w)
+
     matched_local_flacs = []
-    if os.path.exists(slskd_dl_dir):
-        for root, dirs, files in os.walk(slskd_dl_dir):
+    seen_local_paths = set()
+    for s_dir in scan_dirs:
+        if not os.path.exists(s_dir):
+            continue
+        for root, dirs, files in os.walk(s_dir):
             dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
             for f in files:
                 if f.lower().endswith('.flac'):
+                    local_flac = os.path.join(root, f)
+                    if local_flac in seen_local_paths:
+                        continue
+                    seen_local_paths.add(local_flac)
                     f_lower = f.lower()
                     root_lower = root.lower()
-                    if title_lower_words and all(tw in f_lower or tw in root_lower for tw in title_lower_words):
-                        local_flac = os.path.join(root, f)
+                    has_title_match = any(all(tw in f_lower or tw in root_lower for tw in tset) for tset in all_title_word_sets if tset)
+                    if not has_title_match:
+                        continue
                         try:
                             flac_sz = os.path.getsize(local_flac)
                         except (OSError, FileNotFoundError):
@@ -556,12 +619,21 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         best_local = matched_local_flacs[0]
         print(f"[Soulseek HiFi] 📂 Local archive candidate detected: '{best_local['filename']}' ({best_local.get('bps')}bit / {best_local.get('sr')/1000:.1f}kHz, {best_local['size_mb']:.1f}MB, Score: {best_local['score']:,}). Evaluating against live P2P swarm...", flush=True)
     
-    # Search terms in priority order
+    # Search terms in priority order (primary + multilingual aliases)
     search_terms = []
     if clean_art and clean_tit:
         search_terms.append(f"{clean_art} {clean_tit}")
     if len(clean_tit) > 2 and clean_tit not in search_terms:
         search_terms.append(clean_tit)
+    if aliases:
+        for alt_art, alt_tit in aliases:
+            c_a = re.sub(r'[\(\)\[\],&/\-_]', ' ', alt_art).strip()
+            c_t = re.sub(r'[\(\)\[\],&/\-_]', ' ', alt_tit).strip()
+            q_full = f"{c_a} {c_t}".strip()
+            if q_full and q_full not in search_terms:
+                search_terms.append(q_full)
+            if c_t and len(c_t) > 2 and c_t not in search_terms:
+                search_terms.append(c_t)
     if len(clean_art) > 2 and clean_art not in search_terms:
         search_terms.append(clean_art)
         
@@ -638,8 +710,9 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
             if ('flac' in ext or fname.lower().endswith('.flac')) and (4 * 1024 * 1024 <= size <= 600 * 1024 * 1024):
                 fn_lower = fname.lower()
                 
-                # 1. MANDATORY TITLE CHECK: All title words must appear in file/path
-                if title_lower_words and not all(tw in fn_lower for tw in title_lower_words):
+                # 1. MANDATORY TITLE CHECK: Must match requested title or any multilingual alias
+                has_title = any(all(tw in fn_lower for tw in tset) for tset in all_title_word_sets if tset)
+                if not has_title:
                     continue
                     
                 # 2. MANDATORY ARTIST CHECK: Must match the requested artist
@@ -755,8 +828,10 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         
         # Check if this exact file was already completed in SLSKD directory
         cached_candidate = None
-        if os.path.exists(slskd_dl_dir):
-            for root, dirs, files in os.walk(slskd_dl_dir):
+        for s_dir in scan_dirs:
+            if not os.path.exists(s_dir):
+                continue
+            for root, dirs, files in os.walk(s_dir):
                 dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
                 for f in files:
                     if f.lower().endswith('.flac'):
@@ -1006,24 +1081,27 @@ def search_and_download_flac(artist, title, output_path, isrc=None, cover_url=No
         found_path = None
         
         for retry_scan in range(6):
-            for root, dirs, files in os.walk(slskd_dl_dir):
-                dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
-                for f in files:
-                    if f.lower().endswith('.flac'):
-                        chk_f = os.path.join(root, f)
-                        try:
-                            f_sz = os.path.getsize(chk_f)
-                        except (OSError, FileNotFoundError):
-                            continue
-                        if f == target_basename or f.startswith(base_stem) or (base_stem and base_stem in f):
-                            if abs(f_sz - winner['size']) <= 2048 or f_sz > 5000000:
+            for s_dir in scan_dirs:
+                if not os.path.exists(s_dir):
+                    continue
+                for root, dirs, files in os.walk(s_dir):
+                    dirs[:] = [d for d in dirs if d.lower() != 'incomplete']
+                    for f in files:
+                        if f.lower().endswith('.flac'):
+                            chk_f = os.path.join(root, f)
+                            try:
+                                f_sz = os.path.getsize(chk_f)
+                            except (OSError, FileNotFoundError):
+                                continue
+                            if f == target_basename or f.startswith(base_stem) or (base_stem and base_stem in f):
+                                if abs(f_sz - winner['size']) <= 2048 or f_sz > 5000000:
+                                    found_path = chk_f
+                                    break
+                            elif f_sz == winner['size']:
                                 found_path = chk_f
                                 break
-                        elif f_sz == winner['size']:
-                            found_path = chk_f
-                            break
-                if found_path:
-                    break
+                    if found_path:
+                        break
             if found_path:
                 break
             time.sleep(1.0)

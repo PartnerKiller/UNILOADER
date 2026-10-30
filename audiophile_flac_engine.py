@@ -81,6 +81,123 @@ def verify_and_accept_flac(file_path, tier_name):
     return True
 
 
+def resolve_multilingual_aliases(artist, title, isrc=None):
+    """
+    Intelligently resolves localized/multilingual track aliases, alternate titles,
+    and canonical ISRC codes via global audio registries (iTunes Search API & MusicBrainz).
+    """
+    import urllib.request
+    import urllib.parse
+    import json
+    import ssl
+
+    candidates = []
+    clean_art = re.sub(r'[\(\[\{].*?[\)\]\}]', ' ', artist).strip()
+    clean_tit = re.sub(r'[\(\[\{].*?[\)\]\}]', ' ', title).strip()
+    clean_art = re.sub(r'(?i)\b(official\s*(music)?\s*video|official\s*audio|original|full\s*song|video|audio|mv|hd|4k)\b', ' ', clean_art).strip()
+    clean_tit = re.sub(r'(?i)\b(official\s*(music)?\s*video|official\s*audio|original|full\s*song|video|audio|mv|hd|4k)\b', ' ', clean_tit).strip()
+    
+    primary = (clean_art or artist.strip(), clean_tit or title.strip())
+    candidates.append(primary)
+    
+    resolved_isrc = isrc if (isrc and isrc not in ('None', '')) else None
+    resolved_cover = None
+    resolved_duration = None
+    resolved_album = None
+
+    search_query = f"{primary[0]} {primary[1]}".strip()
+    
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    # 1. Query iTunes Search API (authoritative international catalog with full track metadata)
+    try:
+        q_enc = urllib.parse.quote(search_query)
+        req = urllib.request.Request(f"https://itunes.apple.com/search?term={q_enc}&entity=song&limit=5", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=3.5, context=ctx) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            results = data.get('results', [])
+            for item in results:
+                t_name = item.get('trackName')
+                a_name = item.get('artistName')
+                col_name = item.get('collectionName')
+                if t_name and a_name:
+                    p_art_clean = primary[0].lower()
+                    a_art_clean = a_name.lower()
+                    if p_art_clean in a_art_clean or a_art_clean in p_art_clean:
+                        pair = (primary[0], t_name.strip())
+                        if pair not in candidates:
+                            candidates.append(pair)
+                if not resolved_cover and item.get('artworkUrl100'):
+                    resolved_cover = item.get('artworkUrl100').replace('100x100bb', '1000x1000bb')
+                if not resolved_duration and item.get('trackTimeMillis'):
+                    resolved_duration = item.get('trackTimeMillis') / 1000.0
+                if not resolved_album and col_name:
+                    resolved_album = col_name
+                if not resolved_isrc and item.get('isrc'):
+                    resolved_isrc = item.get('isrc')
+    except Exception:
+        pass
+
+    # 2. Query MusicBrainz recording catalog for canonical ISRC and Japanese/original titles
+    try:
+        mb_query = urllib.parse.quote(f'artist:"{primary[0]}" AND recording:"{primary[1]}"')
+        req = urllib.request.Request(f"https://musicbrainz.org/ws/2/recording?query={mb_query}&fmt=json", headers={"User-Agent": "Uniloader/4.0 (sakura@audiophile.net)"})
+        with urllib.request.urlopen(req, timeout=3.5, context=ctx) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            recordings = data.get('recordings', [])
+            for rec in recordings[:3]:
+                r_title = rec.get('title')
+                r_isrcs = rec.get('isrcs', [])
+                if not resolved_isrc and r_isrcs:
+                    resolved_isrc = r_isrcs[0]
+                if r_title and (primary[0], r_title) not in candidates:
+                    candidates.append((primary[0], r_title))
+                for al in rec.get('aliases', []):
+                    al_name = al.get('name')
+                    if al_name and (primary[0], al_name) not in candidates:
+                        candidates.append((primary[0], al_name))
+    except Exception:
+        pass
+
+    # 3. If an album was identified (e.g. from iTunes) and ISRC or original title is still missing, lookup release in MusicBrainz
+    if resolved_album and (not resolved_isrc or len(candidates) < 2):
+        try:
+            mb_rel_q = urllib.parse.quote(f'artist:"{primary[0]}" release:"{resolved_album}"')
+            req = urllib.request.Request(f"https://musicbrainz.org/ws/2/release?query={mb_rel_q}&fmt=json", headers={"User-Agent": "Uniloader/4.0 (sakura@audiophile.net)"})
+            with urllib.request.urlopen(req, timeout=3.5, context=ctx) as r:
+                r_data = json.loads(r.read().decode('utf-8'))
+                releases = r_data.get('releases', [])
+                if releases:
+                    rel_id = releases[0].get('id')
+                    req2 = urllib.request.Request(f"https://musicbrainz.org/ws/2/release/{rel_id}?inc=recordings+isrcs&fmt=json", headers={"User-Agent": "Uniloader/4.0 (sakura@audiophile.net)"})
+                    with urllib.request.urlopen(req2, timeout=3.5, context=ctx) as r2:
+                        d2 = json.loads(r2.read().decode('utf-8'))
+                        tit_low = primary[1].lower()
+                        for med in d2.get('media', []):
+                            for tr in med.get('tracks', []):
+                                t_tit = tr.get('title', '')
+                                rec = tr.get('recording', {})
+                                if tit_low in t_tit.lower() or t_tit.lower() in tit_low:
+                                    rec_tit = rec.get('title')
+                                    if rec_tit and (primary[0], rec_tit) not in candidates:
+                                        candidates.append((primary[0], rec_tit))
+                                    if not resolved_isrc and rec.get('isrcs'):
+                                        resolved_isrc = rec.get('isrcs')[0]
+                                    break
+        except Exception:
+            pass
+
+    return {
+        "candidates": candidates,
+        "isrc": resolved_isrc,
+        "cover_url": resolved_cover,
+        "duration": resolved_duration,
+        "album": resolved_album
+    }
+
+
 def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, duration=None, quality='auto'):
     """
     Executes the 3-Tier Audiophile Resolution Pipeline in quality and speed optimized order.
@@ -100,8 +217,19 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
     target_quality = (quality or 'auto').lower()
 
     print(f"[Audiophile HiFi] Resolving true lossless FLAC for: \"{full_name}\" (Target: {target_quality})", flush=True)
-    if isrc:
-        print(f"[Audiophile HiFi] Primary ISRC anchor: {isrc}", flush=True)
+
+    # Resolve international / multilingual title aliases, canonical ISRC, and artwork
+    meta_info = resolve_multilingual_aliases(clean_artist, clean_title, isrc=isrc)
+    candidate_queries = meta_info.get("candidates") or [(clean_artist, clean_title)]
+    active_isrc = meta_info.get("isrc") or isrc
+    active_cover = cover_url or meta_info.get("cover_url")
+    active_duration = duration or meta_info.get("duration")
+
+    if active_isrc and active_isrc not in ('None', ''):
+        print(f"[Audiophile HiFi] 🎯 Audio ISRC Anchor: {active_isrc}", flush=True)
+    if len(candidate_queries) > 1:
+        alias_names = [f"\"{a} - {t}\"" for a, t in candidate_queries[1:4]]
+        print(f"[Audiophile HiFi] 🌐 Multilingual aliases detected: {', '.join(alias_names)}", flush=True)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
@@ -113,13 +241,14 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
         try:
             from deezer_hifi_engine import resolve_and_download_flac
             print(f"[Audiophile HiFi] [Tier 1 CDN] Streaming Deezer HiFi 1411kbps CD Lossless Bitstream...", flush=True)
-            t_ok = resolve_and_download_flac(
-                clean_artist, clean_title,
-                isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url,
-                verify_callback=lambda p: verify_and_accept_flac(p, "Deezer HiFi CDN")
-            )
-            if t_ok:
-                return True
+            for q_art, q_tit in candidate_queries:
+                t_ok = resolve_and_download_flac(
+                    q_art, q_tit,
+                    isrc=active_isrc, output_path=output_path, duration=active_duration, cover_url=active_cover,
+                    verify_callback=lambda p: verify_and_accept_flac(p, "Deezer HiFi CDN")
+                )
+                if t_ok:
+                    return True
         except Exception as e:
             print(f"[Audiophile HiFi] [Tier 1 CDN] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
 
@@ -130,29 +259,33 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
     try:
         from tidal_monochrome_engine import download_tidal_flac
         print(f"[Audiophile HiFi] [Tier 1 Hi-Res] Querying Tidal Hi-Res Studio Masters (24-bit / 96kHz / 48kHz)...", flush=True)
-        t1_ok = download_tidal_flac(clean_artist, clean_title, output_path, isrc=isrc, cover_url=cover_url, duration=duration)
-        if t1_ok and verify_and_accept_flac(output_path, "Tidal Hi-Res"):
-            # Check if Tidal provided a genuine 24-bit Studio Master
-            is_24bit_master = False
-            try:
-                from mutagen.flac import FLAC
-                af = FLAC(output_path)
-                bps = getattr(af.info, 'bits_per_sample', 16)
-                sr = getattr(af.info, 'sample_rate', 44100)
-                if bps >= 24 or sr >= 48000:
-                    is_24bit_master = True
-                    print(f"[Audiophile HiFi] 🌟 Verified Authentic 24-bit Tidal Studio Master ({bps}-bit / {sr/1000:.1f} kHz)!", flush=True)
-                    return True
-                else:
-                    if not is_16bit_target:
-                        print(f"[Audiophile HiFi] Tidal stream is 16-bit. Checking Soulseek P2P for superior 24-bit Hi-Res Studio Master...", flush=True)
-                        tidal_16bit_backup = output_path + ".tidal16.bak"
-                        shutil.copy2(output_path, tidal_16bit_backup)
-                    else:
-                        print(f"[Audiophile HiFi] ⚡ Authentic 16-bit / 44.1 kHz Lossless CD Master accepted directly from Tidal in seconds!", flush=True)
+        for q_art, q_tit in candidate_queries:
+            t1_ok = download_tidal_flac(q_art, q_tit, output_path, isrc=active_isrc, cover_url=active_cover, duration=active_duration)
+            if t1_ok and verify_and_accept_flac(output_path, "Tidal Hi-Res"):
+                # Check if Tidal provided a genuine 24-bit Studio Master
+                is_24bit_master = False
+                try:
+                    from mutagen.flac import FLAC
+                    af = FLAC(output_path)
+                    bps = getattr(af.info, 'bits_per_sample', 16)
+                    sr = getattr(af.info, 'sample_rate', 44100)
+                    if bps >= 24 or sr >= 48000:
+                        is_24bit_master = True
+                        print(f"[Audiophile HiFi] 🌟 Verified Authentic 24-bit Tidal Studio Master ({bps}-bit / {sr/1000:.1f} kHz)!", flush=True)
                         return True
-            except Exception:
-                return True
+                    else:
+                        if not is_16bit_target:
+                            print(f"[Audiophile HiFi] Tidal stream is 16-bit. Checking Soulseek P2P for superior 24-bit Hi-Res Studio Master...", flush=True)
+                            tidal_16bit_backup = output_path + ".tidal16.bak"
+                            shutil.copy2(output_path, tidal_16bit_backup)
+                            break
+                        else:
+                            print(f"[Audiophile HiFi] ⚡ Authentic 16-bit / 44.1 kHz Lossless CD Master accepted directly from Tidal in seconds!", flush=True)
+                            return True
+                except Exception:
+                    return True
+            if t1_ok:
+                break
     except Exception as e:
         print(f"[Audiophile HiFi] [Tier 1 Hi-Res] Tidal Hi-Res notice: {e}", file=sys.stderr, flush=True)
 
@@ -162,7 +295,11 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
     try:
         from soulseek_flac_engine import search_and_download_flac
         print(f"[Audiophile HiFi] [Tier 2 P2P] Searching Soulseek P2P Audiophile Masters (High-Speed Peers)...", flush=True)
-        t2_ok = search_and_download_flac(clean_artist, clean_title, output_path, isrc=isrc, cover_url=cover_url, duration=duration)
+        t2_ok = search_and_download_flac(
+            clean_artist, clean_title, output_path,
+            isrc=active_isrc, cover_url=active_cover, duration=active_duration,
+            aliases=candidate_queries
+        )
         if t2_ok and verify_and_accept_flac(output_path, "Soulseek P2P"):
             if tidal_16bit_backup and os.path.exists(tidal_16bit_backup):
                 try: os.remove(tidal_16bit_backup)
@@ -187,13 +324,14 @@ def resolve_flac_audio(artist, title, output_path, isrc=None, cover_url=None, du
         try:
             from deezer_hifi_engine import resolve_and_download_flac
             print(f"[Audiophile HiFi] [Tier 3 Fallback] Streaming Deezer HiFi 1411kbps Lossless Bitstream...", flush=True)
-            t3_ok = resolve_and_download_flac(
-                clean_artist, clean_title,
-                isrc=isrc, output_path=output_path, duration=duration, cover_url=cover_url,
-                verify_callback=lambda p: verify_and_accept_flac(p, "Deezer HiFi CDN")
-            )
-            if t3_ok:
-                return True
+            for q_art, q_tit in candidate_queries:
+                t3_ok = resolve_and_download_flac(
+                    q_art, q_tit,
+                    isrc=active_isrc, output_path=output_path, duration=active_duration, cover_url=active_cover,
+                    verify_callback=lambda p: verify_and_accept_flac(p, "Deezer HiFi CDN")
+                )
+                if t3_ok:
+                    return True
         except Exception as e:
             print(f"[Audiophile HiFi] [Tier 3 Fallback] Deezer HiFi notice: {e}", file=sys.stderr, flush=True)
 
