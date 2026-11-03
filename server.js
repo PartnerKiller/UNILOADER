@@ -8151,6 +8151,8 @@ function startJobProcess(job) {
 
     const outputTemplate = path.join(targetDir, `${job.id}_${safeFileTitle}.%(ext)s`);
     const args = [
+      '--ignore-errors',
+      '--no-abort-on-error',
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
       '--buffer-size', engineConfig.bufferSize || '32M',
@@ -8293,6 +8295,9 @@ function startJobProcess(job) {
 
       // Deduplicate tokens and trim
       const langTokens = [...new Set(cleanLangs.split(',').map(s => s.trim()).filter(Boolean))];
+      if (autoSubs && !langTokens.includes('orig') && !langTokens.includes('.*-orig')) {
+        langTokens.push('orig', '.*-orig');
+      }
       args.push('--sub-langs', langTokens.join(','));
     }
 
@@ -8515,7 +8520,8 @@ function attachProcessListeners(job, child) {
       lastFfmpegLogTime = now;
     }
 
-    const finalLine = (isErr && !isFfmpegProgress && !clean.startsWith('[ERR]')) ? `[ERR] ${clean}` : clean;
+    const isWarning = clean.startsWith('WARNING:') || clean.startsWith('[warning]') || clean.startsWith('Warning:');
+    const finalLine = (isErr && !isFfmpegProgress && !isWarning && !clean.startsWith('[ERR]')) ? `[ERR] ${clean}` : clean;
     appendJobLog(job, finalLine);
   };
 
