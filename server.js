@@ -8152,7 +8152,6 @@ function startJobProcess(job) {
     const outputTemplate = path.join(targetDir, `${job.id}_${safeFileTitle}.%(ext)s`);
     const args = [
       '--ignore-errors',
-      '--no-abort-on-error',
       '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       '--concurrent-fragments', String(concurrentFragments),
       '--buffer-size', engineConfig.bufferSize || '32M',
