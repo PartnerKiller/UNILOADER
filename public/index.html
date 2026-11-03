@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="stylesheet" href="styles.css?v=4.28.12">
+  <link rel="stylesheet" href="styles.css?v=4.28.13">
 </head>
 <body>
   <!-- Sticky Owner Testing Banner (Shown only to Owner when maintenance mode is active) -->
@@ -42,48 +42,57 @@
     
     <!-- Left Sidebar Navigation -->
     <aside class="app-sidebar" id="mainSidebar">
-      <!-- Brand Area -->
+      <!-- Brand Area with Retract Toggle Button -->
       <div class="sidebar-brand">
-        <div class="brand-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
+        <div class="brand-left">
+          <div class="brand-icon" title="Universal Media Downloader">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">UNIVERSAL</span>
+            <span class="brand-subtitle">Media Downloader</span>
+          </div>
+        </div>
+        <button type="button" class="btn-sidebar-retract" id="btnSidebarRetract" title="Retract sidebar (Ctrl+B)" aria-label="Toggle sidebar collapse" aria-expanded="true">
+          <svg class="retract-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+            <polyline points="15 9 12 12 15 15"></polyline>
           </svg>
-        </div>
-        <div class="brand-text">
-          <span class="brand-title">UNIVERSAL</span>
-          <span class="brand-subtitle">Media Downloader</span>
-        </div>
+        </button>
       </div>
 
       <!-- Navigation Links -->
       <nav class="sidebar-nav">
-        <button type="button" class="nav-item active" data-view="downloader" id="navDownloader">
+        <button type="button" class="nav-item active" data-view="downloader" id="navDownloader" title="Universal Downloader">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Downloader</span>
         </button>
-        <button type="button" class="nav-item user-only-nav" data-view="movies" id="navMovies">
+        <button type="button" class="nav-item user-only-nav" data-view="movies" id="navMovies" title="Movie &amp; TV Show Hub">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
           <span>Movie &amp; TV Hub</span>
         </button>
-        <button type="button" class="nav-item user-only-nav" data-view="music" id="navMusic">
+        <button type="button" class="nav-item user-only-nav" data-view="music" id="navMusic" title="Music &amp; Album Hub">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
           <span>Music Hub</span>
         </button>
-        <button type="button" class="nav-item user-only-nav" data-view="flac-checker" id="navFlacChecker">
+        <button type="button" class="nav-item user-only-nav" data-view="flac-checker" id="navFlacChecker" title="FLAC Authenticity Checker">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           <span>FLAC Checker</span>
         </button>
-        <button type="button" class="nav-item nav-item-adult user-only-nav" data-view="adult-search" id="navAdultSearch">
+        <button type="button" class="nav-item nav-item-adult user-only-nav" data-view="adult-search" id="navAdultSearch" title="Adult &amp; JAV Hub">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
           <span>Adult &amp; JAV Hub</span>
         </button>
-        <button type="button" class="nav-item" data-view="supported" id="navSupported">
+        <button type="button" class="nav-item" data-view="supported" id="navSupported" title="Supported Sites List">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           <span>Supported Sites</span>
         </button>
-        <button type="button" class="nav-item" data-view="about" id="navAbout">
+        <button type="button" class="nav-item" data-view="about" id="navAbout" title="About &amp; Privacy Info">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
           <span>About &amp; Privacy</span>
         </button>
@@ -116,7 +125,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.12 &bull; Gemini AI &amp; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.13 &bull; Gemini AI &amp; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -276,7 +285,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.12 &bull; Gemini AI &amp; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.13 &bull; Gemini AI &amp; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -1970,6 +1979,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=4.28.12"></script>
+  <script src="app.js?v=4.28.13"></script>
 </body>
 </html>

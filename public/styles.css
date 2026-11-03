@@ -412,11 +412,12 @@
 }
 
 html {
+  font-size: 14px;
   scroll-behavior: smooth;
   scroll-padding-top: 24px;
-  overflow-x: hidden;
-  max-width: 100vw;
-  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -425,10 +426,14 @@ body {
   color: var(--text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
-  overflow-x: hidden;
-  max-width: 100vw;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
   width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ==========================================================================
@@ -437,34 +442,88 @@ body {
 
 .app-layout {
   display: flex;
-  min-height: 100vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
   width: 100%;
+  overflow: hidden;
+  position: relative;
 }
 
-/* Left Sidebar Navigation */
+/* Left Sidebar Navigation (Stationary Desktop Shell) */
 .app-sidebar,
 .sidebar {
   width: 250px;
   min-width: 250px;
+  max-width: 250px;
+  height: 100%;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 24px 16px;
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  padding: 22px 14px;
+  position: relative;
+  flex-shrink: 0;
   z-index: 50;
   box-shadow: 2px 0 16px rgba(0, 0, 0, 0.25);
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.25s ease;
 }
 
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 4px 20px 4px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 4px 18px 4px;
   border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.btn-sidebar-retract {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.btn-sidebar-retract:hover {
+  background: hsla(212, 85%, 50%, 0.15);
+  border-color: hsla(212, 85%, 50%, 0.35);
+  color: var(--accent-primary);
+  transform: scale(1.04);
+}
+
+.btn-sidebar-retract:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.retract-icon {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .brand-icon {
@@ -657,6 +716,124 @@ body {
   font-family: var(--font-mono);
   margin: 0 auto;
   white-space: nowrap;
+}
+
+/* ==========================================================================
+   Retracted / Collapsed Sidebar Architecture (Desktop Icon-Rail)
+   ========================================================================== */
+
+.app-sidebar.sidebar-retracted,
+.sidebar.sidebar-retracted {
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+  padding: 18px 8px;
+}
+
+.app-sidebar.sidebar-retracted .sidebar-brand {
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 16px 0;
+}
+
+.app-sidebar.sidebar-retracted .brand-left {
+  justify-content: center;
+  gap: 0;
+}
+
+.app-sidebar.sidebar-retracted .brand-text {
+  display: none !important;
+}
+
+.app-sidebar.sidebar-retracted .brand-icon {
+  width: 38px;
+  height: 38px;
+  cursor: pointer;
+  margin: 0 auto;
+}
+
+.app-sidebar.sidebar-retracted .retract-icon {
+  transform: rotate(180deg);
+}
+
+.app-sidebar.sidebar-retracted .btn-sidebar-retract {
+  width: 28px;
+  height: 28px;
+}
+
+.app-sidebar.sidebar-retracted .sidebar-nav {
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.app-sidebar.sidebar-retracted .nav-item {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+  border-radius: var(--radius-md);
+  position: relative;
+}
+
+.app-sidebar.sidebar-retracted .nav-item span {
+  display: none !important;
+}
+
+.app-sidebar.sidebar-retracted .nav-item svg {
+  margin: 0;
+  width: 20px;
+  height: 20px;
+}
+
+.app-sidebar.sidebar-retracted .sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.app-sidebar.sidebar-retracted .sidebar-user-card {
+  padding: 6px;
+  justify-content: center;
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+
+.app-sidebar.sidebar-retracted .user-card-info {
+  margin: 0;
+  justify-content: center;
+}
+
+.app-sidebar.sidebar-retracted .user-avatar-badge {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto;
+}
+
+.app-sidebar.sidebar-retracted .user-card-meta,
+.app-sidebar.sidebar-retracted .btn-user-auth,
+.app-sidebar.sidebar-retracted .btn-install-app,
+.app-sidebar.sidebar-retracted .version-tag,
+.app-sidebar.sidebar-retracted .footer-creators-badge,
+.app-sidebar.sidebar-retracted .sidebar-folder-card {
+  display: none !important;
+}
+
+.app-sidebar.sidebar-retracted .status-indicator {
+  justify-content: center;
+  padding: 3px 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+}
+
+.app-sidebar.sidebar-retracted .status-indicator span:not(.status-dot) {
+  display: none !important;
 }
 
 /* Mobile Header (Hidden on Desktop) */
@@ -1006,13 +1183,41 @@ body {
 }
 
 /* Main Viewport Container */
+/* Main Viewport Container (Independently Scrollable Content Screen) */
 .app-main-viewport {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  height: 100%;
   padding: 24px 36px 60px 36px;
-  max-width: 1400px;
-  margin: 0 auto;
   width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom Sleek Scrollbars */
+.app-sidebar::-webkit-scrollbar,
+.app-main-viewport::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.app-sidebar::-webkit-scrollbar-track,
+.app-main-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-sidebar::-webkit-scrollbar-thumb,
+.app-main-viewport::-webkit-scrollbar-thumb {
+  background: hsla(220, 15%, 35%, 0.4);
+  border-radius: 999px;
+}
+
+.app-sidebar::-webkit-scrollbar-thumb:hover,
+.app-main-viewport::-webkit-scrollbar-thumb:hover {
+  background: hsla(220, 15%, 50%, 0.7);
 }
 
 /* View Panels */
@@ -2760,12 +2965,22 @@ body {
    ========================================================================== */
 
 @media (max-width: 860px) {
+  html,
+  body {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    display: block !important;
+  }
+
   /* Layout Architecture: Full-width stacked layout */
   .app-layout {
     flex-direction: column !important;
     width: 100% !important;
-    min-height: 100vh;
-    overflow-x: hidden;
+    min-height: 100vh !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
   .app-sidebar {

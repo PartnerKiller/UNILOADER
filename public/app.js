@@ -1290,6 +1290,9 @@ function setupEventListeners() {
 
   // Mobile Navigation Drawer Listeners
   initMobileDrawer();
+
+  // Desktop Sidebar Retract Listener
+  initSidebarRetract();
 }
 
 function openMobileDrawer() {
@@ -1328,6 +1331,64 @@ function initMobileDrawer() {
       if (e.target === backdrop) closeMobileDrawer();
     });
   }
+}
+
+function initSidebarRetract() {
+  const sidebar = document.getElementById('mainSidebar');
+  const retractBtn = document.getElementById('btnSidebarRetract');
+  const brandIcon = sidebar ? sidebar.querySelector('.brand-icon') : null;
+
+  if (!sidebar) return;
+
+  const storageKey = 'uniloader_sidebar_retracted';
+
+  // Apply persisted preference on desktop
+  const isRetracted = localStorage.getItem(storageKey) === 'true';
+  if (isRetracted && window.innerWidth > 860) {
+    sidebar.classList.add('sidebar-retracted');
+    if (retractBtn) {
+      retractBtn.setAttribute('aria-expanded', 'false');
+      retractBtn.setAttribute('title', 'Expand sidebar (Ctrl+B)');
+    }
+  }
+
+  function toggleSidebar() {
+    if (window.innerWidth <= 860) return; // Only desktop supports retract
+    const currentlyRetracted = sidebar.classList.toggle('sidebar-retracted');
+    localStorage.setItem(storageKey, currentlyRetracted ? 'true' : 'false');
+    if (retractBtn) {
+      retractBtn.setAttribute('aria-expanded', (!currentlyRetracted).toString());
+      retractBtn.setAttribute('title', currentlyRetracted ? 'Expand sidebar (Ctrl+B)' : 'Retract sidebar (Ctrl+B)');
+    }
+  }
+
+  if (retractBtn) {
+    retractBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSidebar();
+    });
+  }
+
+  // Clicking brand icon when retracted quickly re-expands
+  if (brandIcon) {
+    brandIcon.addEventListener('click', () => {
+      if (sidebar.classList.contains('sidebar-retracted')) {
+        toggleSidebar();
+      }
+    });
+  }
+
+  // Global keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar collapse
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      if (activeTag === 'input' || activeTag === 'textarea' || document.activeElement.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      toggleSidebar();
+    }
+  });
 }
 
 function switchView(viewName, forceAllow = false) {
@@ -1395,6 +1456,11 @@ function switchView(viewName, forceAllow = false) {
     btn.classList.toggle('active', isCurrent);
   });
 
+  // Reset scroll on both desktop viewport container and window
+  const viewport = document.querySelector('.app-main-viewport');
+  if (viewport) {
+    viewport.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
