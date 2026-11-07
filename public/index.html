@@ -88,6 +88,11 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
           <span>Adult &amp; JAV Hub</span>
         </button>
+        <button type="button" class="nav-item admin-only-nav" data-view="stream-watcher" id="navStreamWatcher">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
+          <span>Stream Watcher</span>
+          <span class="nav-badge-admin">ADMIN</span>
+        </button>
         <button type="button" class="nav-item" data-view="supported" id="navSupported" title="Supported Sites List">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           <span>Supported Sites</span>
@@ -125,7 +130,7 @@
           <span class="status-dot active"></span>
           <span>Service Online</span>
         </div>
-        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.28.13 &bull; Gemini AI &amp; PWA Enabled</span>
+        <span class="version-tag" id="appVersionTag" title="Universal Engine Version">v4.29.0 &bull; Gemini AI &amp; PWA Enabled</span>
         <div class="footer-creators-badge">
           <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
         </div>
@@ -251,6 +256,16 @@
               </div>
               <span class="drawer-badge badge-adult">18+</span>
             </button>
+            <button type="button" class="drawer-nav-item admin-only-nav" data-view="stream-watcher" id="drawerNavStreamWatcher">
+              <div class="drawer-item-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
+              </div>
+              <div class="drawer-item-info">
+                <span class="drawer-item-title">Stream Watcher</span>
+                <span class="drawer-item-desc">24/7 omg.sexy auto-recorder</span>
+              </div>
+              <span class="drawer-badge-admin">ADMIN</span>
+            </button>
             <button type="button" class="drawer-nav-item" data-view="supported">
               <div class="drawer-item-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
@@ -285,7 +300,7 @@
             <span class="status-dot active"></span>
             <span>Universal Server Online</span>
           </div>
-          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.28.13 &bull; Gemini AI &amp; PWA Enabled</span>
+          <span class="version-tag" id="drawerVersionTag" title="Universal Engine Version">v4.29.0 &bull; Gemini AI &amp; PWA Enabled</span>
           <div class="footer-creators-badge">
             <span>Crafted by <strong>SAKURA</strong> &times; <strong>Antigravity</strong></span>
           </div>
@@ -1145,6 +1160,94 @@
             <button type="button" class="btn btn-secondary btn-sm" id="btnAdultPrevPage" disabled>&larr; Previous</button>
             <span class="adult-page-indicator" id="adultPageIndicator">Page 1</span>
             <button type="button" class="btn btn-secondary btn-sm" id="btnAdultNextPage">Next Page &rarr;</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- ==========================================
+           VIEW PANEL: STREAM WATCHER (ADMIN ONLY)
+           ========================================== -->
+      <div class="view-panel" id="viewStreamWatcher" style="display: none;">
+        <section class="section-card stream-watcher-card">
+          <div class="section-header-flex">
+            <div>
+              <div class="badge-tag badge-tag-rose">📡 24/7 Auto-Recorder Daemon &bull; Admin Portal</div>
+              <h2 class="section-title">Stream Watcher (omg.sexy)</h2>
+              <p class="section-description">
+                Continuous background surveillance for <strong>omg.sexy</strong> streamers. Put streamer usernames in the watchlist and UniLoader will automatically download, decrypt, and archive every broadcast into permanent storage the instant they go live.
+              </p>
+            </div>
+            <div class="stream-watcher-quick-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshWatchlist" title="Force Refresh & Poll Status">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                <span>Check Now</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Watcher Stats Overview Bar -->
+          <div class="watcher-summary-bar">
+            <div class="watcher-stat-pill">
+              <span class="stat-dot stat-dot-total"></span>
+              <span class="stat-val" id="watchersTotalCount">0</span>
+              <span class="stat-label">Watched Models</span>
+            </div>
+            <div class="watcher-stat-pill">
+              <span class="stat-dot stat-dot-recording"></span>
+              <span class="stat-val" id="watchersRecordingCount">0</span>
+              <span class="stat-label">Recording Now</span>
+            </div>
+            <div class="watcher-stat-pill">
+              <span class="stat-dot stat-dot-online"></span>
+              <span class="stat-val" id="watchersOnlineCount">0</span>
+              <span class="stat-label">Online</span>
+            </div>
+            <div class="watcher-stat-pill">
+              <span class="stat-dot stat-dot-saved"></span>
+              <span class="stat-val" id="watchersArchivedCount">0</span>
+              <span class="stat-label">Streams Archived</span>
+            </div>
+            <div class="watcher-poll-info">
+              <span class="poll-badge">Polling: 25s</span>
+              <span class="poll-time" id="watchersLastCheckTime">Standby</span>
+            </div>
+          </div>
+
+          <!-- Add Streamer Form -->
+          <div class="watcher-add-box">
+            <form id="addStreamerForm" onsubmit="return false;">
+              <div class="watcher-input-row">
+                <div class="input-wrapper watcher-input-wrap">
+                  <div class="input-icon">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                  </div>
+                  <input
+                    type="text"
+                    id="streamerUsernameInput"
+                    class="url-input"
+                    placeholder="Enter streamer username or URL (e.g. Princess_Venus, aysel_elid - comma separated for bulk)"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+                <button type="submit" class="btn btn-primary" id="btnAddStreamerBtn">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>Add Watcher</span>
+                </button>
+              </div>
+              <div class="watcher-quick-hints">
+                <span>💡 Tip:</span> Paste full profile links (e.g. <code>https://omg.sexy/Princess_Venus</code>) or simply usernames. Multiple models can be separated by commas (e.g. <code>Princess_Venus, Disha_22_, aysel_elid</code>).
+              </div>
+            </form>
+          </div>
+
+          <!-- Watchlist Items Grid -->
+          <div class="stream-watchers-grid" id="streamWatchersGrid">
+            <div class="empty-watchers-placeholder" id="emptyWatchersNotice">
+              <div class="empty-icon">📡</div>
+              <h3>No Streamers in Watchlist</h3>
+              <p>Add your favorite omg.sexy streamer usernames above. The background daemon will monitor their room 24/7 and automatically capture every live broadcast the second they go online.</p>
+            </div>
           </div>
         </section>
       </div>

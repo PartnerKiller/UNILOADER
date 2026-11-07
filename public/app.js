@@ -417,6 +417,13 @@ function updateAuthUI(user, limits) {
     const isOwner = user && (user.role === 'owner' || user.isOwner || user.username?.toLowerCase() === 'sakura');
     const hasAiAccess = isOwner || canAccess('ai_copilot');
 
+    const isAdmin = Boolean(isOwner || (user && (user.role === 'admin' || user.isAdmin)));
+    if (isAdmin) {
+      document.body.classList.add('user-is-admin');
+    } else {
+      document.body.classList.remove('user-is-admin');
+    }
+
     if (isOwner) {
       document.body.classList.add('user-is-owner');
     } else {
@@ -450,6 +457,7 @@ function updateAuthUI(user, limits) {
   } else {
     // Guest User
     document.body.classList.remove('authenticated-user');
+    document.body.classList.remove('user-is-admin');
     document.body.classList.remove('user-is-owner');
     document.body.classList.remove('user-has-ai');
     document.querySelectorAll('.guest-only-nav').forEach(el => {
@@ -1400,7 +1408,8 @@ function switchView(viewName, forceAllow = false) {
     movies: 'movies',
     music: 'music',
     'flac-checker': 'flac_checker',
-    'adult-search': 'adult'
+    'adult-search': 'adult',
+    'stream-watcher': 'admin'
   };
 
   if (!forceAllow && viewToFeature[viewName] && !canAccess(viewToFeature[viewName])) {
@@ -1429,6 +1438,7 @@ function switchView(viewName, forceAllow = false) {
     music: document.getElementById('viewMusic'),
     'flac-checker': document.getElementById('viewFlacChecker'),
     'adult-search': document.getElementById('viewAdultSearch'),
+    'stream-watcher': document.getElementById('viewStreamWatcher'),
     supported: document.getElementById('viewSupported'),
     about: document.getElementById('viewAbout')
   };
@@ -1442,6 +1452,8 @@ function switchView(viewName, forceAllow = false) {
           loadRecentFlacFiles();
         } else if (key === 'movies') {
           syncMovieSourceTabs();
+        } else if (key === 'stream-watcher') {
+          loadStreamWatchers();
         }
       } else {
         panels[key].style.display = 'none';
@@ -5982,6 +5994,306 @@ document.addEventListener('DOMContentLoaded', () => {
   initMoviesView();
   initMusicView();
   initAiFeatures();
+  initStreamWatcher();
   setupVersionTapEasterEgg();
 });
 
+
+// ==========================================
+// Stream Watcher & Auto-Recorder Client Module (Admin Only)
+// ==========================================
+let streamWatcherRefreshTimer = null;
+
+function initStreamWatcher() {
+  const form = document.getElementById('addStreamerForm');
+  const btnRefresh = document.getElementById('btnRefreshWatchlist');
+  const navBtn = document.getElementById('navStreamWatcher');
+  const drawerBtn = document.getElementById('drawerNavStreamWatcher');
+
+  if (navBtn) {
+    navBtn.addEventListener('click', () => switchView('stream-watcher'));
+  }
+  if (drawerBtn) {
+    drawerBtn.addEventListener('click', () => switchView('stream-watcher'));
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('streamerUsernameInput');
+      const addBtn = document.getElementById('btnAddStreamerBtn');
+      if (!input || !input.value.trim()) return;
+
+      const rawVal = input.value.trim();
+      addBtn.disabled = true;
+      addBtn.innerHTML = '<span>Adding...</span>';
+
+      try {
+        const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+        const res = await fetch('/api/admin/stream-watchers', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'x-user-token': token,
+            'x-admin-token': token
+          },
+          body: JSON.stringify({ rawInput: rawVal })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to add streamer');
+
+        input.value = '';
+        if (data.alreadyExists && data.alreadyExists.length) {
+          showNotification(`Notice: ${data.alreadyExists.join(', ')} already in watchlist`, 'info');
+        } else {
+          showNotification(`Added ${data.added.map(s => s.username).join(', ')} to 24/7 Watchlist!`, 'success');
+        }
+        await loadStreamWatchers();
+      } catch (err) {
+        showNotification(err.message, 'error');
+      } finally {
+        addBtn.disabled = false;
+        addBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg><span>Add Watcher</span>`;
+      }
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', async () => {
+      btnRefresh.disabled = true;
+      btnRefresh.innerHTML = '<span>Checking...</span>';
+      try {
+        const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+        await fetch('/api/admin/stream-watchers/check-now', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'x-user-token': token,
+            'x-admin-token': token
+          }
+        });
+        await loadStreamWatchers();
+        showNotification('Watchlist statuses refreshed!', 'success');
+      } catch (err) {
+        showNotification(err.message, 'error');
+      } finally {
+        btnRefresh.disabled = false;
+        btnRefresh.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg><span>Check Now</span>`;
+      }
+    });
+  }
+
+  // Periodic background status poll while viewing stream-watcher
+  if (!streamWatcherRefreshTimer) {
+    streamWatcherRefreshTimer = setInterval(() => {
+      const panel = document.getElementById('viewStreamWatcher');
+      if (panel && panel.classList.contains('active')) {
+        loadStreamWatchers().catch(() => {});
+      }
+    }, 12000);
+  }
+}
+
+async function loadStreamWatchers() {
+  const grid = document.getElementById('streamWatchersGrid');
+  if (!grid) return;
+
+  const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+  try {
+    const res = await fetch('/api/admin/stream-watchers', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'x-user-token': token,
+        'x-admin-token': token
+      }
+    });
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        grid.innerHTML = `<div class="empty-watchers-placeholder"><h3>🔒 Admin Access Required</h3><p>Please log in with an administrator or owner account to access Stream Watcher.</p></div>`;
+        return;
+      }
+      throw new Error(`Failed to load watchers (${res.status})`);
+    }
+
+    const data = await res.json();
+    renderStreamWatchers(data);
+  } catch (err) {
+    console.warn('Load stream watchers error:', err);
+  }
+}
+
+function renderStreamWatchers(data) {
+  const list = data?.watchers || [];
+  const grid = document.getElementById('streamWatchersGrid');
+  if (!grid) return;
+
+  // Update Summary Counters
+  const elTotal = document.getElementById('watchersTotalCount');
+  const elRec = document.getElementById('watchersRecordingCount');
+  const elOnline = document.getElementById('watchersOnlineCount');
+  const elArch = document.getElementById('watchersArchivedCount');
+  const elTime = document.getElementById('watchersLastCheckTime');
+
+  if (elTotal) elTotal.textContent = list.length;
+  if (elRec) elRec.textContent = list.filter(s => s.status === 'recording').length;
+  if (elOnline) elOnline.textContent = list.filter(s => s.status === 'online').length;
+  if (elArch) elArch.textContent = list.reduce((acc, cur) => acc + (cur.recordCount || 0), 0);
+  if (elTime && data.lastCheckTime) {
+    elTime.textContent = new Date(data.lastCheckTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  if (list.length === 0) {
+    grid.innerHTML = `
+      <div class="empty-watchers-placeholder" id="emptyWatchersNotice">
+        <div class="empty-icon">📡</div>
+        <h3>No Streamers in Watchlist</h3>
+        <p>Add your favorite omg.sexy streamer usernames above. The background daemon will monitor their room 24/7 and automatically capture every live broadcast the second they go online.</p>
+      </div>
+    `;
+    return;
+  }
+
+  grid.innerHTML = list.map(streamer => {
+    const isRec = streamer.status === 'recording';
+    const isOnline = streamer.status === 'online';
+    const isPrivate = streamer.status === 'private';
+    const isPaused = !streamer.enabled;
+
+    let badgeHtml = '';
+    if (isPaused) {
+      badgeHtml = `<span class="watcher-status-badge status-paused">⏸️ Paused</span>`;
+    } else if (isRec) {
+      badgeHtml = `<span class="watcher-status-badge status-recording"><span class="stat-dot stat-dot-recording"></span> RECORDING</span>`;
+    } else if (isOnline) {
+      badgeHtml = `<span class="watcher-status-badge status-online">🟢 LIVE</span>`;
+    } else if (isPrivate) {
+      badgeHtml = `<span class="watcher-status-badge status-private">🔒 IN PRIVATE</span>`;
+    } else {
+      badgeHtml = `<span class="watcher-status-badge status-offline">⚪ OFFLINE</span>`;
+    }
+
+    const avatarHtml = streamer.avatarUrl
+      ? `<img class="watcher-avatar" src="${streamer.avatarUrl}" alt="${streamer.displayName}" onerror="this.outerHTML='<div class=\\'watcher-avatar-fallback\\'>${streamer.displayName.charAt(0).toUpperCase()}</div>'" />`
+      : `<div class="watcher-avatar-fallback">${streamer.displayName.charAt(0).toUpperCase()}</div>`;
+
+    const lastDate = streamer.lastRecordedAt
+      ? new Date(streamer.lastRecordedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : 'Never';
+
+    return `
+      <div class="watcher-card ${isRec ? 'is-recording' : ''} ${isPaused ? 'is-paused' : ''}" data-username="${streamer.username}">
+        <div class="watcher-card-header">
+          ${avatarHtml}
+          <div class="watcher-info">
+            <div class="watcher-username-row">
+              <a href="https://omg.sexy/${encodeURIComponent(streamer.username)}" target="_blank" rel="noopener noreferrer" class="watcher-name" title="Open omg.sexy profile">
+                @${streamer.displayName} <span class="watcher-link-icon">↗</span>
+              </a>
+              ${badgeHtml}
+            </div>
+            <div class="watcher-status-msg">${streamer.statusMessage || 'Standby active'}</div>
+          </div>
+        </div>
+
+        <div class="watcher-meta-box">
+          <div class="watcher-meta-row">
+            <span>Archived Broadcasts:</span>
+            <strong>${streamer.recordCount || 0} files</strong>
+          </div>
+          <div class="watcher-meta-row">
+            <span>Last Recorded:</span>
+            <span>${lastDate}</span>
+          </div>
+          ${streamer.lastRecordedFile ? `<div class="watcher-meta-row"><span>Latest File:</span><span style="font-family: monospace; font-size: 0.7rem; color: #a5b4fc; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 170px;" title="${streamer.lastRecordedFile}">${streamer.lastRecordedFile}</span></div>` : ''}
+        </div>
+
+        <div class="watcher-card-actions">
+          <button type="button" class="watcher-btn btn-toggle-streamer" data-action="toggle" title="${streamer.enabled ? 'Pause Surveillance' : 'Resume Surveillance'}">
+            ${streamer.enabled ? '<span>⏸️ Pause</span>' : '<span>▶️ Resume</span>'}
+          </button>
+          <button type="button" class="watcher-btn btn-check-streamer" data-action="check" title="Poll status right now">
+            <span>🔍 Check</span>
+          </button>
+          ${isRec ? `<button type="button" class="watcher-btn watcher-btn-recording btn-view-recording" data-job="${streamer.activeJobId}" title="View Live Task"><span>🔴 View Task</span></button>` : ''}
+          <button type="button" class="watcher-btn watcher-btn-danger btn-remove-streamer" data-action="remove" title="Remove from Watchlist">
+            <span>🗑️ Remove</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach card action listeners
+  grid.querySelectorAll('.watcher-card').forEach(card => {
+    const username = card.getAttribute('data-username');
+
+    // Toggle Pause / Resume
+    const toggleBtn = card.querySelector('.btn-toggle-streamer');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', async () => {
+        toggleBtn.disabled = true;
+        try {
+          const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+          const res = await fetch(`/api/admin/stream-watchers/${encodeURIComponent(username)}/toggle`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${token}`, 'x-user-token': token, 'x-admin-token': token }
+          });
+          if (res.ok) await loadStreamWatchers();
+        } catch (e) {} finally { toggleBtn.disabled = false; }
+      });
+    }
+
+    // Check Now
+    const checkBtn = card.querySelector('.btn-check-streamer');
+    if (checkBtn) {
+      checkBtn.addEventListener('click', async () => {
+        checkBtn.disabled = true;
+        try {
+          const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+          await fetch('/api/admin/stream-watchers/check-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'x-user-token': token, 'x-admin-token': token },
+            body: JSON.stringify({ username })
+          });
+          await loadStreamWatchers();
+        } catch (e) {} finally { checkBtn.disabled = false; }
+      });
+    }
+
+    // View Live Recording in Downloader Task Card
+    const viewBtn = card.querySelector('.btn-view-recording');
+    if (viewBtn) {
+      viewBtn.addEventListener('click', () => {
+        switchView('downloader');
+        const jobId = viewBtn.getAttribute('data-job');
+        if (jobId) {
+          setTimeout(() => {
+            const taskEl = document.getElementById(jobId);
+            if (taskEl) taskEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 300);
+        }
+      });
+    }
+
+    // Remove
+    const removeBtn = card.querySelector('.btn-remove-streamer');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', async () => {
+        if (!confirm(`Are you sure you want to stop watching and remove @${username}?`)) return;
+        removeBtn.disabled = true;
+        try {
+          const token = userAuthToken || localStorage.getItem('sakura_user_token') || sessionStorage.getItem('sakura_user_token') || localStorage.getItem('sakura_admin_token') || sessionStorage.getItem('sakura_admin_token') || '';
+          const res = await fetch(`/api/admin/stream-watchers/${encodeURIComponent(username)}?stop=true`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}`, 'x-user-token': token, 'x-admin-token': token }
+          });
+          if (res.ok) {
+            showNotification(`Removed @${username} from watchlist`, 'info');
+            await loadStreamWatchers();
+          }
+        } catch (e) {} finally { removeBtn.disabled = false; }
+      });
+    }
+  });
+}

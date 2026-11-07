@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupQueue();
   setupUsersTab();
   setupLinkAccess();
+  setupStreamWatchersTab();
 
   if (adminToken) {
     verifySession();
@@ -302,6 +303,8 @@ function setupNavigation() {
       loadAdminUsers();
       loadAccessRequests();
       loadRolePermissions();
+    } else if (tabName === 'stream-watchers') {
+      loadAdminStreamWatchers();
     }
   }
 
@@ -4248,3 +4251,276 @@ async function testLinkAccessUrl() {
   }
 }
 
+
+// ==========================================
+// 12. OMG.SEXY STREAM WATCHERS DAEMON (Admin)
+// ==========================================
+function setupStreamWatchersTab() {
+  const addBtn = document.getElementById('btnAdminAddWatcher');
+  const input = document.getElementById('adminWatcherInput');
+  const checkNowBtn = document.getElementById('btnAdminWatcherCheckNow');
+
+  if (addBtn && input) {
+    const handleAdd = async () => {
+      const val = input.value.trim();
+      if (!val) return;
+
+      const fb = document.getElementById('adminWatcherFeedback');
+      if (fb) {
+        fb.style.display = 'block';
+        fb.style.color = '#38bdf8';
+        fb.textContent = 'Resolving model and adding to surveillance...';
+      }
+
+      addBtn.disabled = true;
+      try {
+        const res = await fetch('/api/admin/stream-watchers', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`,
+            'x-admin-token': adminToken
+          },
+          body: JSON.stringify({ username: val })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          input.value = '';
+          if (fb) {
+            fb.style.color = '#34d399';
+            fb.textContent = `Successfully added: ${(data.added || []).join(', ') || 'streamer'}`;
+            setTimeout(() => { if (fb) fb.style.display = 'none'; }, 4000);
+          }
+          await loadAdminStreamWatchers();
+        } else {
+          if (fb) {
+            fb.style.color = '#f87171';
+            fb.textContent = data.error || 'Failed to add model to watchlist';
+          }
+        }
+      } catch (err) {
+        if (fb) {
+          fb.style.color = '#f87171';
+          fb.textContent = 'Network error: ' + err.message;
+        }
+      } finally {
+        addBtn.disabled = false;
+      }
+    };
+
+    addBtn.addEventListener('click', handleAdd);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAdd();
+      }
+    });
+  }
+
+  if (checkNowBtn) {
+    checkNowBtn.addEventListener('click', async () => {
+      checkNowBtn.disabled = true;
+      const prevHtml = checkNowBtn.innerHTML;
+      checkNowBtn.innerHTML = '<span>Checking...</span>';
+      try {
+        await fetch('/api/admin/stream-watchers/check-now', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${adminToken}`,
+            'x-admin-token': adminToken
+          }
+        });
+        setTimeout(async () => {
+          await loadAdminStreamWatchers();
+          checkNowBtn.disabled = false;
+          checkNowBtn.innerHTML = prevHtml;
+        }, 1200);
+      } catch (e) {
+        checkNowBtn.disabled = false;
+        checkNowBtn.innerHTML = prevHtml;
+      }
+    });
+  }
+}
+
+async function loadAdminStreamWatchers() {
+  const grid = document.getElementById('adminWatchersGrid');
+  if (!grid) return;
+
+  try {
+    const res = await fetch('/api/admin/stream-watchers', {
+      headers: {
+        'Authorization': `Bearer ${adminToken}`,
+        'x-admin-token': adminToken
+      }
+    });
+
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) return;
+      throw new Error(`Failed to fetch watchers (${res.status})`);
+    }
+
+    const data = await res.json();
+    const list = data?.watchers || [];
+
+    // Summary elements
+    const statTotal = document.getElementById('adminWatcherStatTotal');
+    const statRec = document.getElementById('adminWatcherStatRecording');
+    const statOnline = document.getElementById('adminWatcherStatOnline');
+    const statArch = document.getElementById('adminWatcherStatArchived');
+    const badge = document.getElementById('adminWatcherCountBadge');
+
+    const recCount = list.filter(w => w.status === 'recording').length;
+    const onlineCount = list.filter(w => w.status === 'online').length;
+    const archCount = list.reduce((a, b) => a + (b.recordCount || 0), 0);
+
+    if (statTotal) statTotal.textContent = list.length;
+    if (statRec) statRec.textContent = recCount;
+    if (statOnline) statOnline.textContent = onlineCount;
+    if (statArch) statArch.textContent = archCount;
+    if (badge) badge.textContent = `${list.length} Models`;
+
+    if (list.length === 0) {
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; padding: 36px 20px; background: rgba(0,0,0,0.2); border: 1px dashed var(--admin-border); border-radius: 8px;">
+          <div style="font-size: 2rem; margin-bottom: 8px;">📡</div>
+          <h4 style="margin: 0 0 6px 0; color: #fff;">No Streamers Being Monitored</h4>
+          <p style="margin: 0; font-size: 0.82rem; color: var(--admin-text-muted);">
+            Add one or more omg.sexy usernames above. The background daemon will poll status every 25 seconds and record every broadcast.
+          </p>
+        </div>
+      `;
+      return;
+    }
+
+    grid.innerHTML = list.map(item => {
+      const isRec = item.status === 'recording';
+      const isOnline = item.status === 'online';
+      const isPrivate = item.status === 'private';
+      const isPaused = !item.enabled;
+
+      let badgeHtml = '';
+      if (isPaused) {
+        badgeHtml = '<span style="background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;">⏸️ PAUSED</span>';
+      } else if (isRec) {
+        badgeHtml = '<span style="background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.4); padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;">🔴 RECORDING</span>';
+      } else if (isOnline) {
+        badgeHtml = '<span style="background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;">🟢 LIVE</span>';
+      } else if (isPrivate) {
+        badgeHtml = '<span style="background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.4); padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;">🔒 PRIVATE</span>';
+      } else {
+        badgeHtml = '<span style="background: rgba(255,255,255,0.06); color: var(--admin-text-muted); border: 1px solid var(--admin-border); padding: 2px 8px; border-radius: 999px; font-size: 0.7rem;">⚪ OFFLINE</span>';
+      }
+
+      const avatarHtml = item.avatarUrl
+        ? `<img src="${item.avatarUrl}" alt="${item.displayName}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid ${isRec ? '#ef4444' : 'var(--admin-border)'};" onerror="this.outerHTML='<div style=\\'width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-weight:700;color:#38bdf8;\\'>${item.displayName.charAt(0).toUpperCase()}</div>'" />`
+        : `<div style="width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; font-weight: 700; color: #38bdf8;">${item.displayName.charAt(0).toUpperCase()}</div>`;
+
+      const lastRec = item.lastRecordedAt
+        ? new Date(item.lastRecordedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : 'Never';
+
+      return `
+        <div class="admin-watcher-card" data-username="${item.username}" style="background: rgba(255,255,255,0.02); border: 1px solid ${isRec ? 'rgba(239,68,68,0.5)' : 'var(--admin-border)'}; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; position: relative;">
+          <div style="display: flex; gap: 12px; align-items: center;">
+            ${avatarHtml}
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <a href="https://omg.sexy/${encodeURIComponent(item.username)}" target="_blank" rel="noopener noreferrer" style="font-weight: 700; color: #fff; text-decoration: none; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  @${item.displayName} <span style="font-size: 0.72rem; opacity: 0.7;">↗</span>
+                </a>
+                ${badgeHtml}
+              </div>
+              <div style="font-size: 0.75rem; color: var(--admin-text-muted); margin-top: 2px;">
+                ${item.statusMessage || 'Standby active'}
+              </div>
+            </div>
+          </div>
+
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 8px 10px; font-size: 0.75rem; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; color: var(--admin-text-muted);">
+              <span>Archived Broadcasts:</span>
+              <strong style="color: #fff;">${item.recordCount || 0} files</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; color: var(--admin-text-muted);">
+              <span>Last Recorded:</span>
+              <span>${lastRec}</span>
+            </div>
+            ${item.lastRecordedFile ? `
+            <div style="display: flex; justify-content: space-between; color: var(--admin-text-muted);">
+              <span>Latest File:</span>
+              <span style="font-family: monospace; font-size: 0.7rem; color: #a5b4fc; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.lastRecordedFile}">${item.lastRecordedFile}</span>
+            </div>` : ''}
+          </div>
+
+          <div style="display: flex; gap: 6px; justify-content: flex-end; margin-top: auto;">
+            <button type="button" class="btn btn-outline btn-xs btn-admin-toggle-streamer" data-username="${item.username}" title="${item.enabled ? 'Pause surveillance' : 'Resume surveillance'}">
+              ${item.enabled ? '⏸️ Pause' : '▶️ Resume'}
+            </button>
+            <button type="button" class="btn btn-outline btn-xs btn-admin-check-streamer" data-username="${item.username}" title="Poll streamer room status now">
+              🔍 Check
+            </button>
+            <button type="button" class="btn btn-danger-outline btn-xs btn-admin-remove-streamer" data-username="${item.username}" title="Remove streamer from surveillance">
+              🗑️
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Attach Action Listeners
+    grid.querySelectorAll('.btn-admin-toggle-streamer').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const u = btn.getAttribute('data-username');
+        btn.disabled = true;
+        try {
+          await fetch(`/api/admin/stream-watchers/${encodeURIComponent(u)}/toggle`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${adminToken}`, 'x-admin-token': adminToken }
+          });
+          await loadAdminStreamWatchers();
+        } catch (e) {} finally { btn.disabled = false; }
+      });
+    });
+
+    grid.querySelectorAll('.btn-admin-check-streamer').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = '...';
+        try {
+          await fetch('/api/admin/stream-watchers/check-now', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${adminToken}`, 'x-admin-token': adminToken }
+          });
+          setTimeout(async () => {
+            await loadAdminStreamWatchers();
+            btn.disabled = false;
+            btn.textContent = '🔍 Check';
+          }, 1000);
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = '🔍 Check';
+        }
+      });
+    });
+
+    grid.querySelectorAll('.btn-admin-remove-streamer').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const u = btn.getAttribute('data-username');
+        if (!confirm(`Remove @${u} from automated stream surveillance?`)) return;
+        btn.disabled = true;
+        try {
+          await fetch(`/api/admin/stream-watchers/${encodeURIComponent(u)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${adminToken}`, 'x-admin-token': adminToken }
+          });
+          await loadAdminStreamWatchers();
+        } catch (e) {} finally { btn.disabled = false; }
+      });
+    });
+
+  } catch (err) {
+    console.warn('Error loading admin stream watchers:', err);
+  }
+}

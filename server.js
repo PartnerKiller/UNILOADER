@@ -27,6 +27,7 @@ const cors = require('cors');
 const { spawn, exec, execSync } = require('child_process');
 const { extractMetadata, getYtDlpPath, getPythonBin } = require('./extractor');
 const aiService = require('./ai_service');
+const streamWatcherManager = require('./stream_watcher_manager');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -4428,6 +4429,66 @@ app.post('/api/admin/test-deezer', requireAdmin, (req, res) => {
   });
 });
 
+// 9.5. Stream Watcher (omg.sexy Auto-Recorder) Management
+app.get('/api/admin/stream-watchers', requireAdmin, (req, res) => {
+  try {
+    const data = streamWatcherManager.getWatchlist();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/stream-watchers', requireAdmin, async (req, res) => {
+  try {
+    const { username, rawInput, ...opts } = req.body || {};
+    const input = username || rawInput;
+    if (!input) return res.status(400).json({ error: 'Streamer username or URL is required' });
+    const result = await streamWatcherManager.addStreamer(input, opts);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/stream-watchers/:username', requireAdmin, (req, res) => {
+  try {
+    const { username } = req.params;
+    const stopRecording = req.query.stop === 'true' || req.body?.stopRecording === true;
+    const result = streamWatcherManager.removeStreamer(username, stopRecording);
+    res.json(result);
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/stream-watchers/:username/toggle', requireAdmin, (req, res) => {
+  try {
+    const { username } = req.params;
+    const { enabled } = req.body || {};
+    const result = streamWatcherManager.toggleStreamer(username, enabled !== undefined ? enabled : null);
+    res.json(result);
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/stream-watchers/check-now', requireAdmin, async (req, res) => {
+  try {
+    const { username } = req.body || {};
+    if (username) {
+      const result = await streamWatcherManager.checkSingleStreamerNow(username);
+      res.json(result);
+    } else {
+      await streamWatcherManager.pollWatchers();
+      const data = streamWatcherManager.getWatchlist();
+      res.json(data);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 10. UI/UX Global Settings
 app.get('/api/admin/ui-settings', requireAdmin, (req, res) => {
   res.json(globalUiSettings);
@@ -8740,16 +8801,19 @@ function attachProcessListeners(job, child) {
             : (stat.size / (1024 ** 2)).toFixed(1) + ' MB';
           job.progress.totalSize = job.filesize;
           saveAllJobsState();
+          try { streamWatcherManager.onJobFinished(job, cleanFilename, true); } catch (e) {}
         } else {
           job.status = 'failed';
           job.error = 'Downloaded file was 0 bytes.';
           job.logs.push('[ERR] Media file was empty (0 bytes).');
+          try { streamWatcherManager.onJobFinished(job, matched || null, false); } catch (e) {}
         }
       } else {
         if (job.status !== 'cancelled' && job.status !== 'paused' && job.status !== 'waiting_for_stream') {
           job.status = 'failed';
           job.error = matched ? `Recording file below threshold (${fileStat ? (fileStat.size/1024).toFixed(0)+' KB' : 'empty'})` : `Engine exited with code ${code}`;
           job.logs.push(`Process exited with code ${code}${matched ? ' (insufficient media size)' : ' (no output file)'}`);
+          try { streamWatcherManager.onJobFinished(job, matched || null, false); } catch (e) {}
         }
       }
     } catch (e) {
@@ -9395,6 +9459,7 @@ app.post('/api/jobs/:id/cancel', identifyUser, (req, res) => {
     clearTimeout(activeStreamWatchers.get(jobId));
     activeStreamWatchers.delete(jobId);
   }
+  try { streamWatcherManager.onJobCancelled(job); } catch (e) {}
 
   if (job.process) {
     const pid = job.process.pid;
@@ -9763,6 +9828,7 @@ function gracefulShutdown() {
   }
 
   // 3. Persist complete state of ALL jobs to disk synchronously
+  try { streamWatcherManager.stopPolling(); } catch (e) {}
   saveAllJobsStateSync();
 
   console.log('[Server] All jobs preserved to .jobs_state.json successfully. Exiting.');
@@ -9779,6 +9845,17 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`====================================================`);
   startEmbeddedSlskd();
   restoreAllJobsState();
+  try {
+    streamWatcherManager.init({
+      port: PORT,
+      jobs,
+      createAndStartJob,
+      broadcastJobUpdate,
+      saveAllJobsState
+    });
+  } catch (err) {
+    console.error('[Stream Watcher] Init error:', err.message);
+  }
 });
 
 // Configure Node.js HTTP server keepAlive timeouts for Cloudflare Tunnel / Reverse Proxies
