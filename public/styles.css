@@ -5091,6 +5091,13 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.badge-olam18 {
+  background: linear-gradient(135deg, #ec4899, #8b5cf6);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(236, 72, 153, 0.45);
+}
+
 .badge-tube {
   background: hsla(28, 90%, 50%, 0.85);
   color: #fff;

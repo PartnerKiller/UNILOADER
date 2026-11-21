@@ -136,7 +136,10 @@ const LINK_ACCESS_PRESETS = {
     'thisav.com',
     'tktube.com',
     'netflav.com',
-    'av01.tv'
+    'av01.tv',
+    'omg.sexy',
+    'olam18plus.com',
+    'olamdrive.com'
   ],
   moviesTorrents: [
     'yts.mx',
@@ -160,7 +163,9 @@ const LINK_ACCESS_PRESETS = {
     'rapidcloud.co',
     'olamovies.ink',
     'olamovies.lat',
-    'olamovies.top'
+    'olamovies.top',
+    'olam18plus.com',
+    'olamdrive.com'
   ]
 };
 
@@ -5727,6 +5732,113 @@ async function searchSukebeiJAV(query, page = 1) {
   return items;
 }
 
+// 7. OlaM 18+ (4K Studio Masters, SiteRips, Pornstar MegaPacks & Full JAV Index)
+async function searchOlaM18Plus(query, page = 1) {
+  try {
+    const q = (query || '').trim();
+    if (!q) return [];
+
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      'Referer': 'https://olam18plus.com/'
+    };
+
+    let rawFiles = [];
+    try {
+      const searchUrl = `https://olam18plus.com/search?q=${encodeURIComponent(q)}`;
+      const res = await fetch(searchUrl, { headers, signal: AbortSignal.timeout(6500) });
+      if (res.ok) {
+        const html = await res.text();
+        const chunks = [...html.matchAll(/self\.__next_f\.push\(\[1,"(.*)"\]\)/g)].map(m => m[1]);
+        const raw = chunks.join('').replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        const match = raw.match(/"initialFiles":(\[.*?\])(?:,"initialPageToken"|,"parentSlug")/s);
+        if (match) {
+          try {
+            rawFiles = JSON.parse(match[1]);
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      console.warn('[OlaM18Plus] Search page query error:', e.message);
+    }
+
+    if (!Array.isArray(rawFiles) || rawFiles.length === 0) {
+      try {
+        const suggestUrl = `https://olam18plus.com/api/search/suggest?q=${encodeURIComponent(q)}`;
+        const res = await fetch(suggestUrl, { headers, signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.files)) {
+            rawFiles = data.files;
+          }
+        }
+      } catch (e) {
+        console.warn('[OlaM18Plus] Suggest API query error:', e.message);
+      }
+    }
+
+    if (!Array.isArray(rawFiles)) return [];
+
+    return rawFiles.map(it => {
+      const name = (it.name || '').trim();
+      const codeMatch = name.match(/\b([A-Z]{2,6}[-_]\d{2,5})\b/i);
+      const javCode = codeMatch ? codeMatch[1].toUpperCase() : '';
+
+      const rawPoster = it.poster
+        ? (it.poster.startsWith('http') ? it.poster : `https://olam18plus.com${it.poster}`)
+        : (javCode ? getDmmCoverUrl(javCode) : '');
+      const poster = rawPoster ? `/api/proxy-image?url=${encodeURIComponent(rawPoster)}` : '';
+
+      const previewVideo = it.preview
+        ? (it.preview.startsWith('http') ? it.preview : `https://olam18plus.com${it.preview}`)
+        : '';
+
+      const parentSlug = it.parent && it.parent.slug ? it.parent.slug : '';
+      const folderUrl = parentSlug ? `https://olam18plus.com/f/${parentSlug}` : `https://olam18plus.com/search?q=${encodeURIComponent(q)}`;
+      const targetUrl = previewVideo || folderUrl;
+
+      const sizeBytes = parseInt(it.size, 10) || 0;
+      const sizeStr = sizeBytes >= (1024 ** 3)
+        ? (sizeBytes / (1024 ** 3)).toFixed(2) + ' GB'
+        : (sizeBytes >= (1024 ** 2) ? (sizeBytes / (1024 ** 2)).toFixed(1) + ' MB' : (sizeBytes > 0 ? (sizeBytes / 1024).toFixed(0) + ' KB' : ''));
+
+      let durStr = '';
+      if (it.dur) {
+        const sec = Math.floor(parseInt(it.dur, 10) / 1000);
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        durStr = h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}` : `${m}:${s.toString().padStart(2, '0')}`;
+      }
+
+      const quality = it.res || (name.includes('4K') ? '4K UHD' : (name.includes('1080p') ? '1080p' : 'HD'));
+
+      return {
+        id: `ola18_${it.id || it.md5 || Math.random().toString(36).slice(2, 8)}`,
+        title: name,
+        code: javCode || (it.parent && it.parent.name ? it.parent.name.slice(0, 16) : 'OLAM18+'),
+        thumb: poster,
+        rawThumb: rawPoster,
+        previewVideo,
+        duration: durStr || (sizeStr ? sizeStr : 'Full Video'),
+        quality,
+        size: sizeStr,
+        url: targetUrl,
+        downloadUrl: targetUrl,
+        provider: 'olam18plus',
+        providerName: 'OlaM 18+ (4K Studio & Rips)',
+        parentFolder: (it.parent && it.parent.name) || '',
+        type: 'tube',
+        isFullMovie: true,
+        isTeaser: false
+      };
+    });
+  } catch (err) {
+    console.warn('[AdultSearch] OlaM18Plus search error:', err.message);
+    return [];
+  }
+}
+
 // Lightweight Image Proxy to bypass hotlink protection & CORS on movie/adult posters
 app.get('/api/proxy-image', async (req, res) => {
   let targetUrl = req.query.url;
@@ -5745,6 +5857,8 @@ app.get('/api/proxy-image', async (req, res) => {
     headers['Referer'] = 'https://www.xvideos.com/';
   } else if (targetUrl.includes('dmm.co.jp')) {
     headers['Referer'] = 'https://www.dmm.co.jp/';
+  } else if (targetUrl.includes('olam18plus.com') || targetUrl.includes('olamdrive.com')) {
+    headers['Referer'] = 'https://olam18plus.com/';
   }
 
   try {
@@ -7124,6 +7238,7 @@ app.get('/api/adult/search', identifyUser, async (req, res) => {
 
     let tubeResults = [];
     let javResults = [];
+    let olam18Results = [];
 
     if (type === 'all' || type === 'tubes') {
       const [xvRes, phRes, epRes, rtRes, hqRes] = await Promise.allSettled([
@@ -7156,15 +7271,26 @@ app.get('/api/adult/search', identifyUser, async (req, res) => {
       }
     }
 
+    if (type === 'all' || type === 'olam18') {
+      try {
+        olam18Results = await searchOlaM18Plus(q, page);
+      } catch (e) {
+        console.warn('[AdultSearch] OlaM18Plus query error:', e.message);
+      }
+    }
+
     let combined = [];
     if (type === 'tubes') {
       combined = tubeResults;
     } else if (type === 'jav') {
       combined = javResults;
+    } else if (type === 'olam18') {
+      combined = olam18Results;
     } else {
-      // Interleave JAV Full Movies and High-Definition Tube releases
-      const maxLen = Math.max(tubeResults.length, javResults.length);
+      // Interleave OlaM 18+ 4K Studio Masters, JAV Full Movies, and High-Definition Tube releases
+      const maxLen = Math.max(olam18Results.length, javResults.length, tubeResults.length);
       for (let i = 0; i < maxLen; i++) {
+        if (i < olam18Results.length) combined.push(olam18Results[i]);
         if (i < javResults.length) combined.push(javResults[i]);
         if (i < tubeResults.length) combined.push(tubeResults[i]);
       }
@@ -7499,6 +7625,8 @@ function startDirectHttpJob(job) {
 
   if (job.url && (job.url.includes('workers.dev') || job.url.includes('omd-'))) {
     args.push('--header=Referer: https://drive.google.com/');
+  } else if (job.url && (job.url.includes('olam18plus.com') || job.url.includes('olamdrive.com'))) {
+    args.push('--header=Referer: https://olam18plus.com/');
   }
 
   args.push(job.url);
@@ -8299,6 +8427,8 @@ function startJobProcess(job) {
       args.push('--add-header', 'Referer: https://mydaddy.cc/');
     } else if (url && (url.includes('beeg.com') || rawTarget.includes('beeg.com'))) {
       args.push('--add-header', 'Referer: https://beeg.com/');
+    } else if (url && (url.includes('olam18plus.com') || url.includes('olamdrive.com') || rawTarget.includes('olam18plus') || rawTarget.includes('olamdrive'))) {
+      args.push('--add-header', 'Referer: https://olam18plus.com/');
     }
 
     // Mode options

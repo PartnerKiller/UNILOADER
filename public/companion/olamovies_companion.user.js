@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Sakura OlaMovies Cloud Hopper & Auto-Downloader
 // @namespace    https://uniloader.dpdns.org/
-// @version      1.3.3
-// @description  Automates OlaMovies slider, ad timers, Turnstile, and OM Drive, then sends direct cloud streams straight to Sakura Universal Downloader!
+// @version      1.4.0
+// @description  Automates OlaMovies & OlaM 18+ slider, ad timers, Turnstile, and OM Drive, then sends direct cloud streams straight to Sakura Universal Downloader!
 // @author       Universal Downloader Suite
 // @match        *://*.olamovies.mov/*
 // @match        *://*.olamovies.dad/*
+// @match        *://*.olam18plus.com/*
+// @match        *://olam18plus.com/*
 // @match        *://links.olamovies.mov/*
 // @match        *://links.olamovies.*/*
 // @match        *://links.ol-am.top/*

@@ -3676,6 +3676,9 @@ function renderAdultResults(items) {
     if (isJav) {
       sourceLabel = 'JAV Full Master';
       badgeClass = 'badge-jav';
+    } else if (item.provider === 'olam18plus') {
+      sourceLabel = 'OlaM 18+ (4K Studio)';
+      badgeClass = 'badge-olam18';
     } else if (item.provider === 'pornhub') {
       sourceLabel = 'Pornhub HD';
       badgeClass = 'badge-pornhub';
@@ -3693,9 +3696,11 @@ function renderAdultResults(items) {
       badgeClass = 'badge-hqporner';
     }
 
-    const metaTag = isJav 
-      ? `${item.size || 'Full Movie'} • ${item.seeders || 0} Seeds`
-      : `${item.duration || 'Full Video'} • ${item.quality || 'HD'}`;
+    const metaTag = (item.provider === 'olam18plus')
+      ? `${item.quality || '4K'} • ${item.size || item.duration || 'Studio Master'}`
+      : (isJav 
+        ? `${item.size || 'Full Movie'} • ${item.seeders || 0} Seeds`
+        : `${item.duration || 'Full Video'} • ${item.quality || 'HD'}`);
 
     const defaultImg = isJav
       ? 'https://pics.dmm.co.jp/mono/movie/adult/default/defaultpl.jpg'

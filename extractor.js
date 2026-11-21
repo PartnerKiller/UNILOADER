@@ -226,6 +226,72 @@ function runYtDlpDumpAsync(ytdlpPath, url, timeoutMs = 30000) {
   });
 }
 
+// Native metadata extractor for OlaM 18+ (olam18plus.com) media and studio rips
+async function extractOlaM18Metadata(url) {
+  try {
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      'Referer': 'https://olam18plus.com/'
+    };
+
+    if (url.includes('/i/m/') && (url.endsWith('.clip.mp4') || url.endsWith('.mp4'))) {
+      const filename = url.split('/').pop().split('?')[0];
+      const poster = url.replace('.clip.mp4', '.poster.jpg');
+      return {
+        title: filename.replace(/\.(clip\.mp4|mp4)$/, ''),
+        code: 'OLAM18+',
+        poster,
+        hlsUrl: url,
+        downloadTargetUrl: url,
+        tags: ['OlaM 18+', 'Direct Video'],
+        model: '',
+        duration: 'Unknown',
+        sourceUrl: url
+      };
+    }
+
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(6500) });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+    const pageTitle = titleMatch ? titleMatch[1].replace('OLAM18PLUS.COM · ', '').replace('…', '').trim() : 'OlaM18+ Media';
+
+    const chunks = [...html.matchAll(/self\.__next_f\.push\(\[1,"(.*)"\]\)/g)].map(m => m[1]);
+    const raw = chunks.join('').replace(/\\n/g, '\n').replace(/\\"/g, '"');
+
+    let firstFile = null;
+    const matchFiles = raw.match(/"initialFiles":(\[.*?\])(?:,"initialPageToken"|,"parentSlug")/s);
+    if (matchFiles) {
+      try {
+        const files = JSON.parse(matchFiles[1]);
+        if (Array.isArray(files) && files.length > 0) {
+          firstFile = files[0];
+        }
+      } catch (e) {}
+    }
+
+    const finalTitle = (firstFile && firstFile.name) ? firstFile.name.replace(/\.mp4$/i, '') : pageTitle;
+    const poster = (firstFile && firstFile.poster) ? `https://olam18plus.com${firstFile.poster}` : '';
+    const previewUrl = (firstFile && firstFile.preview) ? `https://olam18plus.com${firstFile.preview}` : url;
+    const codeMatch = finalTitle.match(/\b([A-Z]{2,6}[-_]\d{2,5})\b/i);
+
+    return {
+      title: finalTitle,
+      code: codeMatch ? codeMatch[1].toUpperCase() : 'OLAM18+',
+      poster,
+      hlsUrl: previewUrl,
+      downloadTargetUrl: previewUrl,
+      tags: ['OlaM 18+', (firstFile && firstFile.res) ? firstFile.res : 'HD'],
+      model: (firstFile && firstFile.parent && firstFile.parent.name) || '',
+      duration: firstFile && firstFile.dur ? `${Math.round(firstFile.dur / 60000)} min` : 'Unknown',
+      sourceUrl: url
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 /**
  * Extracts metadata and stream information with caching, non-blocking async execution, and robust fallbacks.
  */
@@ -237,11 +303,11 @@ async function extractMetadata(inputUrl, bypassCache = false) {
     const filename = url.split('/').pop().split('?')[0] || 'direct_video';
     return {
       title: filename.replace(/\.(m3u8|mp4)$/, ''),
-      code: 'DIRECT',
-      poster: '',
+      code: url.includes('olam18plus') ? 'OLAM18+' : 'DIRECT',
+      poster: url.includes('olam18plus') ? url.replace('.clip.mp4', '.poster.jpg') : '',
       hlsUrl: url,
       downloadTargetUrl: url,
-      tags: ['Direct Stream'],
+      tags: url.includes('olam18plus') ? ['OlaM 18+', 'Direct Video'] : ['Direct Stream'],
       model: '',
       duration: 'Unknown',
       sourceUrl: url
@@ -253,6 +319,15 @@ async function extractMetadata(inputUrl, bypassCache = false) {
     const cached = getCachedMetadata(url);
     if (cached) {
       return cached;
+    }
+  }
+
+  // 3. OlaM 18+ (olam18plus.com) Native Resolution
+  if (url.includes('olam18plus.com')) {
+    const olaMeta = await extractOlaM18Metadata(url);
+    if (olaMeta && olaMeta.title) {
+      setCachedMetadata(url, olaMeta);
+      return olaMeta;
     }
   }
 
